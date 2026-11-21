@@ -31,6 +31,10 @@ Module._resolveFilename = function (request, ...args) {
 const TEST_ROOT = mkTmpPath('fc-skills-')
 process.env.FC_TEST_USERDATA = TEST_ROOT
 process.env.LOCALAPPDATA = path.join(TEST_ROOT, 'localappdata')   // ← 见文件头安全说明
+// 2026-11-21：外部导入/面板的“主落点”改成 DSH 在场优先 —— 测试必须把 DSH home 也关进沙盒，
+// 否则 listSkillsForUi 会去读**真实** ~/.dsh/skills（已装的副本会让“未装时”断言假红，甚至写进真目录）。
+process.env.FC_DSH_HOME = path.join(TEST_ROOT, 'dshhome')
+fs.mkdirSync(process.env.FC_DSH_HOME, { recursive: true })
 
 const DIST = path.resolve(__dirname, '../../desktop/dist/main')
 const REPO = path.resolve(__dirname, '../..')
@@ -128,10 +132,53 @@ async function main() {
   check('重装后内容恢复成真源',
     fs.readFileSync(victimDest, 'utf-8') === fs.readFileSync(path.join(skillsDir, victim, 'SKILL.md'), 'utf-8'))
 
-  // 装了之后再查面板：installed=true
+  // 装了之后再查面板：按**目标行**看已装（2026-11-21：面板主落点已改为 DSH 优先，
+  // 而这一段显式装的是 Hermes —— 不能再拿“全局 installed”冒充两个目标都装了）
   const payload2 = skillsMod.listSkillsForUi()
-  check('装完后面板显示已装（installed=true）',
-    payload2.skills.every(s => s.installed === true), JSON.stringify(payload2.skills.map(s => [s.id, s.installed])))
+  const hermesRow = (payload2.targets || []).find(t => t.id === 'hermes')
+  check('装完后面板显示已装（Hermes 目标行 installed=true）',
+    !!hermesRow && hermesRow.skills.every(s => s.installed === true),
+    JSON.stringify(((hermesRow && hermesRow.skills) || []).map(s => [s.id, s.installed])))
+  check('★ 面板的“外部导入主落点”是 DSH（本机 DSH 在场）—— 不再默认写进 Hermes',
+    payload2.importTargetName === 'DSH' && payload2.importDir.indexOf('dshhome') >= 0,
+    `${payload2.importTargetName} / ${payload2.importDir}`)
+  const dshRow = (payload2.targets || []).find(t => t.id === 'dsh')
+  check('★★ Hermes 专属技能（skill-management-policy）**不出现**在 DSH 的待装清单里（按 manifest target 分发）',
+    !!dshRow && dshRow.skills.length === 1 && dshRow.skills[0].id === 'fangcun-bridge',
+    JSON.stringify((dshRow && dshRow.skills) || []))
+
+  // ── 3-b 自动同步的“复核凭据”（2026-11-21 · 暮雨：“怎么确定是真同步了还是假绿？”）──
+  // 用一个假目标，避免碰真实 ~/.dsh / Hermes；只验“同步后重新读盘算指纹”这条链。
+  {
+    const fakeDir = path.join(TEST_ROOT, 'fake-agent-skills')
+    const saved = skillsMod.INSTALL_TARGETS.splice(0, skillsMod.INSTALL_TARGETS.length)
+    skillsMod.INSTALL_TARGETS.push({ id: 'dsh', name: 'DSH', dir: () => fakeDir, present: () => true })
+    try {
+      const sync1 = skillsMod.autoCheckSkills('test')
+      const row1 = sync1.targets[0]
+      check('★ 自动同步结果带逐文件指纹（不只是“成功/已是最新”一句话）',
+        !!row1 && row1.checks.length === 1 && row1.checks[0].id === 'fangcun-bridge',
+        JSON.stringify(row1 && row1.checks))
+      check('★★ 复核判据是**源与副本 md5 相等**（两边指纹都非空且 verified=true）',
+        !!row1 && row1.verified === true && row1.checks.every(c => c.match && c.srcHash === c.destHash && !!c.destHash),
+        JSON.stringify(row1 && row1.checks))
+
+      // 把副本改脏 → 现在这一刻的磁盘实况必须立刻说不绿（不能拿旧记录冒充）
+      fs.writeFileSync(path.join(fakeDir, 'fangcun-bridge', 'SKILL.md'), '---\nname: broken\n---\n', 'utf-8')
+      const live = skillsMod.getSkillSyncStatus()
+      const liveRow = (live.live || []).find(x => x.id === 'dsh')
+      check('★★ 副本被改脏后 liveStale=true，并点名是哪个技能不一致（不是只说“可能不是最新”）',
+        live.liveStale === true && !!liveRow && liveRow.mismatched.includes('fangcun-bridge'),
+        JSON.stringify({ stale: live.liveStale, reason: live.liveReason }))
+
+      const sync2 = skillsMod.autoCheckSkills('test')
+      check('★★ 再同步会重装并复核一致（装完不是“我说好了”，而是重新读盘比对）',
+        sync2.targets[0].verified === true && sync2.targets[0].installed.includes('fangcun-bridge'),
+        JSON.stringify(sync2.targets[0]))
+    } finally {
+      skillsMod.INSTALL_TARGETS.splice(0, skillsMod.INSTALL_TARGETS.length, ...saved)
+    }
+  }
 
   // ── 4. 打开目录（走真 shell.openPath 桩）─────────────────────────
   electronStub.shell.opened.length = 0

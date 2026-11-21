@@ -1654,7 +1654,7 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
   })
   // DSH 侧的方寸插件（2026-11-06：暮雨“依然未体现 DSH 插件相关”）——
   // 只读 DSH 的 profile / 管道状态，不写、不改任何 DSH 配置。
-  guardedHandle('mcp:dshPlugin', () => ({ ok: true, ...detectDshPlugin() }))
+  guardedHandle('mcp:dshPlugin', () => ({ ok: true, ...detectDshPlugin(app.getVersion()) }))
 
   // ── “哪些待办其实没人碰过”的界面出口（2026-10-27 卡 20261025-006 第三件）──
   // 在此之前这件事**只在 MCP 侧存在**：`never_read` 是个 MCP 工具，主进程没有 IPC、

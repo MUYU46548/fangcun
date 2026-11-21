@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 实况回流取数器（2026-10-21 · W1-批次 2）。
  *
  * 要解决的问题（施工单原话）：监控台只读 git 活动，`状态/路线图/说明` 三字段停在手写时点，
@@ -18,6 +18,7 @@
  * 展示公告"，所以界面上 README 只取一句话摘要，ROADMAP 才是"接下来做什么"的正主。
  */
 import fs from 'fs'
+import os from 'os'
 import path from 'path'
 import { runGit } from './gitExec'
 
@@ -274,48 +275,68 @@ function listMd(dir: string, depth: number, out: string[], relBase = ''): void {
 }
 
 /**
- * Hermes skill 里项目同名的 skill（`sitian-development` 那种）。
+ * 本机 agent 技能里与本项目同名的 SKILL.md（`sitian-development` 那种）。
  *
  * 为什么这条**必须**有：隔壁同类产品 `AGENTS.md` 明写「其余 60+ 条铁律与踩坑复盘…
  * 在 Hermes skill `obsidian/sitian-development`，动代码前先加载；本文件不复制规则，防双源漂移」。
  * 它的"防漂移"代价是：**换机器 / 换 agent 就丢，而方寸当时根本没读到它**。
  *
+ * ⚠ 2026-11-21：不再只扫 Hermes。方寸现在主用 DSH（`~/.dsh/skills`，扁平结构），
+ *   而 Hermes 可能装了也可能没装。两边都扫、谁在就扫谁；找不到就是没有，不造空壳。
+ *
  * ⚠ 这是**仓库外**的读取，所以路径要带 `~skill:` 前缀标出来 —— 用户得知道
- * 这一份不在他自己的仓库里，跟着 Hermes 走。
+ * 这一份不在他自己的仓库里，跟着 agent 走。
  */
-function findHermesSkills(projectHints: string[]): SkeletonFile[] {
+function findAgentSkills(projectHints: string[]): SkeletonFile[] {
   const out: SkeletonFile[] = []
   if (!projectHints.length) return out
-  const roots: string[] = []
+
+  const roots: { dir: string; label: string }[] = []
+  // DSH 优先（主用）；测试/便携用 FC_DSH_HOME 重定向
+  const dshHome = String(process.env.FC_DSH_HOME || '').trim() || path.join(os.homedir(), '.dsh')
+  roots.push({ dir: path.join(dshHome, 'skills'), label: 'DSH skill' })
+  // Hermes（保留原有三处解析）
   const env = String(process.env.HERMES_HOME || '').trim()
-  if (env) roots.push(env)
+  if (env) roots.push({ dir: path.join(env, 'skills'), label: 'Hermes skill' })
   const la = String(process.env.LOCALAPPDATA || '').trim()
-  if (la) roots.push(path.join(la, 'hermes'))
+  if (la) roots.push({ dir: path.join(la, 'hermes', 'skills'), label: 'Hermes skill' })
   const up = String(process.env.USERPROFILE || '').trim()
-  if (up) roots.push(path.join(up, '.hermes'))
+  if (up) roots.push({ dir: path.join(up, '.hermes', 'skills'), label: 'Hermes skill' })
+
+  // ⚠ 用对象而不是 `Set`：e2e-repo-docs 有一条源码守卫禁止 `add(` 字面量（防 git add），
+  //   守卫不该为写法放宽 —— 换写法，不换守卫。
+  const seen: Record<string, true> = {}
+  const consider = (file: string, rel: string, label: string): void => {
+    if (seen[rel]) return
+    seen[rel] = true
+    const f = readSkeletonFile(file, rel, '技能', label)
+    if (f) out.push(f)
+  }
 
   for (const root of roots) {
-    const skillsDir = path.join(root, 'skills')
-    let cats: fs.Dirent[] = []
-    try { cats = fs.readdirSync(skillsDir, { withFileTypes: true }) } catch { continue }
-    for (const cat of cats) {
-      if (!cat.isDirectory() || cat.name.startsWith('.')) continue
-      const catDir = path.join(skillsDir, cat.name)
+    let entries: fs.Dirent[] = []
+    try { entries = fs.readdirSync(root.dir, { withFileTypes: true }) } catch { continue }
+    for (const e of entries) {
+      if (!e.isDirectory() || e.name.startsWith('.')) continue
+      const name = e.name.toLowerCase()
+      // ① 扁平结构（DSH；Hermes 也允许）：skills/<skill>/SKILL.md
+      if (projectHints.some((h) => h && name.includes(h))) {
+        consider(path.join(root.dir, e.name, 'SKILL.md'), `~skill:${e.name}`, `${root.label} ${e.name}/SKILL.md`)
+      }
+      // ② 分类结构（Hermes）：skills/<category>/<skill>/SKILL.md
       let subs: fs.Dirent[] = []
-      try { subs = fs.readdirSync(catDir, { withFileTypes: true }) } catch { continue }
+      try { subs = fs.readdirSync(path.join(root.dir, e.name), { withFileTypes: true }) } catch { continue }
       for (const sub of subs) {
         if (!sub.isDirectory()) continue
-        const name = sub.name.toLowerCase()
-        // 项目名（或 id）出现在 skill 目录名里 → 认定是它的
-        const hit = projectHints.some((h) => h && name.includes(h))
-        if (!hit) continue
-        const file = path.join(catDir, sub.name, 'SKILL.md')
-        const rel = `~skill:${cat.name}/${sub.name}`
-        const f = readSkeletonFile(file, rel, '技能', `Hermes skill ${cat.name}/${sub.name}/SKILL.md`)
-        if (f) out.push(f)
+        const sname = sub.name.toLowerCase()
+        if (!projectHints.some((h) => h && sname.includes(h))) continue
+        consider(
+          path.join(root.dir, e.name, sub.name, 'SKILL.md'),
+          `~skill:${e.name}/${sub.name}`,
+          `${root.label} ${e.name}/${sub.name}/SKILL.md`,
+        )
       }
     }
-    if (out.length) break // 找到一层就够了，别在三个候选根里重复找
   }
   return out
 }
@@ -376,8 +397,8 @@ export function discoverSkeleton(repo: string, projectHints: string[] = []): Ske
     })
   }
 
-  // ③ Hermes 同名 skill（仓库外）
-  const skills = findHermesSkills(projectHints)
+  // ③ 本机 agent 同名 skill（仓库外：DSH 优先，其次 Hermes）
+  const skills = findAgentSkills(projectHints)
   for (const s of skills) record(s)
 
   // ④ 模块级 README（`src/*/README.md` 这种）

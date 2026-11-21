@@ -6558,13 +6558,13 @@
     check('★ 徽章里同时出现 Hermes 与 DSH 两个目标（不再只认 Hermes）',
       tgtTexts.some((x) => x.t.indexOf('Hermes') === 0) && tgtTexts.some((x) => x.t.indexOf('DSH') === 0),
       JSON.stringify(tgtTexts.map((x) => x.t)))
-    check('★ 三种状态都真渲染：✓最新 / ⬆有更新 / （不在场）',
+    check('★ 两种在场状态都真渲染：✓最新 / ⬆有更新（不在场的目标不占卡片位置）',
       tgtTexts.some((x) => x.t.indexOf('✓最新') >= 0) && tgtTexts.some((x) => x.t.indexOf('⬆有更新') >= 0)
-      && tgtTexts.some((x) => x.t.indexOf('不在场') >= 0),
+      && tgtTexts.every((x) => x.t.indexOf('不在场') < 0),
       JSON.stringify(tgtTexts.map((x) => x.t)))
     check('  状态靠 class 区分（不是只有文案差别）',
       tgtTexts.some((x) => /skill-tgt-ok/.test(x.cls)) && tgtTexts.some((x) => /skill-tgt-warn/.test(x.cls))
-      && tgtTexts.some((x) => /skill-tgt-absent/.test(x.cls)),
+      && tgtTexts.every((x) => !/skill-tgt-absent/.test(x.cls)),
       JSON.stringify(tgtTexts.map((x) => x.cls)))
     check('  卡片上有真源指纹（只能手动导入的 agent 拿它对账）',
       $$('.skills-view .skill-hash').length === skillCards.length
@@ -6595,9 +6595,12 @@
       : null
     check('★ DSH 行的“⚡ 装到 DSH”是**真按钮**（不是 disabled 死按钮）',
       !!dshBtn && !dshBtn.disabled, dshBtn ? ('disabled=' + dshBtn.disabled) : '(没找到按钮)')
-    check('  Hermes 行不再摆第二个安装按钮（同一个动作不重复两遍）',
-      !agentRows.some((r) => (((r.querySelector('.agent-name') || {}).textContent) || '').indexOf('Hermes') >= 0
-        && Array.prototype.slice.call(r.querySelectorAll('button')).some((b) => (b.textContent || '').indexOf('装到 Hermes') >= 0)))
+    const hermesRow = rowOf('Hermes')
+    const hermesBtns = hermesRow
+      ? Array.prototype.slice.call(hermesRow.querySelectorAll('button')).filter((b) => (b.textContent || '').indexOf('装到 Hermes') >= 0)
+      : []
+    check('★ Hermes 行有且只有一个安装按钮（页头不再重复摆一个：“装到 Hermes”从页头撤掉了）',
+      !!hermesRow && hermesBtns.length === 1, JSON.stringify({ row: !!hermesRow, buttons: hermesBtns.length }))
 
     const linkBadges = $$('.skills-view .agent-link').map((e) => ({ t: (e.textContent || '').trim(), cls: e.className }))
     check('★ “已接入”徽章渲染出来（技能副本 + MCP 配置两个文件事实的合体，不用 LLM）',
@@ -6726,6 +6729,25 @@
         txt.replace(/\s+/g, ' ').slice(0, 200))
       check('★ 徽章用的是既有的 agent-link 样式（不新造一套）',
         $$('.plugins-view .dsh-plugin .agent-link').length >= 1)
+    }
+
+    // ── 三方版本 / 派单链路诊断（2026-11-21 · 暮雨：“就算写‘不通’，也没人知道有什么问题”）──
+    // 判据：不是“通/不通”二元，而是逐环给证据 + 指出该升级哪一边。
+    {
+      const box = $('.plugins-view [data-dsh-checks]')
+      const rows = $$('.plugins-view [data-dsh-checks] .plg-check')
+      // 派单审计那一行在 `.dsh-plugin` 里（诊断清单下面），所以这块取整个卡片文本
+      const diagTxt = (($('.plugins-view .dsh-plugin') || {}).textContent || '').replace(/\s+/g, ' ')
+      check('★★ 插件页给出逐环诊断（方寸/DSH 基座/插件/兼容/通道/密钥/派单，≥ 6 条）',
+        !!box && rows.length >= 6, 'rows=' + rows.length)
+      check('★★ 诊断写明 DSH 基座版本（不是只写插件自己的版本）', /0\.2\.2-rc\.5/.test(diagTxt), diagTxt.slice(0, 140))
+      check('★★ 插件 0.3.0 低于签名派单门槛 → 明确指出升级 0.7.3+（不笼统说“重装”）',
+        /0\.7\.3/.test(diagTxt) && /签名派单/.test(diagTxt), diagTxt.slice(0, 220))
+      check('★ 诊断里带派单审计（最近一次成功/失败 + 会话），不是一句“通”',
+        /派单审计/.test(diagTxt) && /待消费/.test(diagTxt))
+      const verdictEl = $('.plugins-view [data-dsh-verdict]')
+      check('★★ 顶部有一句结论（哪一环坏了，必须先修它）',
+        !!verdictEl && /明确不通/.test((verdictEl.textContent || '')), verdictEl ? (verdictEl.textContent || '').slice(0, 100) : '(无)')
     }
 
     await sleep(300)
@@ -7946,9 +7968,13 @@
           await waitFor(() => $$('#board.ask-view .ask-report').length === 1, 4000, 'report'),
           String($$('#board.ask-view .ask-report').length))
         const rp = (($('#board.ask-view .ask-report') || {}).textContent || '').replace(/\s+/g, ' ')
-        check('★ 按月列（两个月两行，token 带千分位）',
+        const nowU = new Date()
+        const curMonthU = `${nowU.getFullYear()}-${String(nowU.getMonth() + 1).padStart(2, '0')}`
+        const prevU = new Date(nowU.getFullYear(), nowU.getMonth() - 1, 1)
+        const prevMonthU = `${prevU.getFullYear()}-${String(prevU.getMonth() + 1).padStart(2, '0')}`
+        check('★ 按月列（两个月两行，月份跟着今天走，token 带千分位）',
           $$('#board.ask-view .ask-report-row').length === 2
-          && rp.indexOf('2026-10') >= 0 && rp.indexOf('1,300') >= 0, rp.slice(0, 80))
+          && rp.indexOf(curMonthU) >= 0 && rp.indexOf(prevMonthU) >= 0 && rp.indexOf('1,300') >= 0, rp.slice(0, 80))
         check('★ 没给用量数字的那次明说“只计数”（不拿字符数折算 token）',
           rp.indexOf('没给数字') >= 0, rp.slice(0, 100))
 
@@ -7974,6 +8000,63 @@
               && uc.indexOf('不按 token 估钱') >= 0, uc.slice(0, 160))
           check('★ 本月大数来自真数据（新输入 70 + 输出 40 = 110）',
             uc.indexOf('110') >= 0, uc.slice(0, 120))
+        }
+
+        // ── Token 预算可视化（2026-11-21 · 暮雨：“用户如果自设 token 预算可以图像化体现”）
+        // 判据：① 未设预算**不画环**（未设 ≠ 没超支）；② 设了才画，百分比来自真数据；
+        //      ③ 超支弧封顶 100%、文案写“超 X%”；④ 近 14 天柱恰好 14 根、缺日有零值桩；
+        //      ⑤ 保存真过 prefs 桥（不是只改本地 ref）。
+        {
+          const BUDGET_KEY = 'fc_usage_budget_tokens'
+          const ub = $('#board.ask-view [data-usage-budget]')
+          check('★★ 用量概览里有 token 预算块（data-usage-budget）', !!ub)
+          const ubText = () => (($('#board.ask-view [data-usage-budget]') || {}).textContent || '').replace(/\s+/g, ' ')
+          check('★★ 未设预算时**不画 0% 环**，并明说“未设 ≠ 没超支”',
+            !$('#board.ask-view [data-budget-ring]') && ubText().indexOf('未设') >= 0 && ubText().indexOf('未设 ≠ 没超支') >= 0,
+            ubText().slice(0, 100))
+
+          const bars = $$('#board.ask-view [data-ubar]')
+          check('★★ 近 14 天柱恰好 14 根（跨月补零，缺日画 1px 桩）',
+            bars.length === 14 && bars.some((b) => b.getAttribute('data-empty') === '1'), String(bars.length))
+          const dkey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+          const todayKey = dkey(new Date())
+          const firstKey = dkey(new Date(Date.now() - 13 * 86400000))
+          const titleOf = (b) => ((b.querySelector('title') || {}).textContent || '')
+          check('★ 末根是今天、首根是 13 天前（本地时区，不用 toISOString）',
+            titleOf(bars[13] || {}).indexOf(todayKey) === 0 && titleOf(bars[0] || {}).indexOf(firstKey) === 0,
+            JSON.stringify({ first: titleOf(bars[0] || {}), last: titleOf(bars[13] || {}) }))
+
+          const setBudget = async (v) => {
+            const input = $('#board.ask-view [data-usage-budget] .ub-in')
+            input.value = String(v)
+            input.dispatchEvent(new Event('input', { bubbles: true }))
+            await sleep(30)
+            const save = $$('#board.ask-view [data-usage-budget] button').find((b) => (b.textContent || '').trim() === '保存')
+            if (save) save.click()
+            await sleep(120)
+          }
+
+          window.__fcTest.reset()
+          await setBudget(200)
+          const ring = $('#board.ask-view [data-budget-ring]')
+          check('★★ 保存预算真过 prefs 桥（键 fc_usage_budget_tokens = 200）',
+            window.__fcTest.calls().some((c) => c.name === 'prefsSet' && c.args && c.args[0] === BUDGET_KEY && Number(c.args[1]) === 200),
+            JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'prefsSet').map((c) => c.args)))
+          check('★★ 预算 200 / 本月已用 110 → 55%（数字来自真数据，不是写死）',
+            !!ring && ring.getAttribute('data-pct') === '55' && ring.getAttribute('data-budget-state') === 'ok',
+            JSON.stringify({ pct: ring && ring.getAttribute('data-pct'), state: ring && ring.getAttribute('data-budget-state') }))
+
+          await setBudget(100)
+          const ring2 = $('#board.ask-view [data-budget-ring]')
+          check('★★ 超支时 state=over、弧封顶 100%、文案写“超 110%”（不出现负的剩余）',
+            !!ring2 && ring2.getAttribute('data-pct') === '100' && ring2.getAttribute('data-budget-state') === 'over'
+            && ubText().indexOf('超 110%') >= 0,
+            JSON.stringify({ pct: ring2 && ring2.getAttribute('data-pct'), text: ubText().slice(0, 120) }))
+
+          const clear = $$('#board.ask-view [data-usage-budget] button').find((b) => (b.textContent || '').trim() === '清除')
+          if (clear) { clear.click(); await sleep(120) }
+          check('★★ 清除后回到“未设预算”（环消失，不画 0%）',
+            !$('#board.ask-view [data-budget-ring]') && ubText().indexOf('未设预算') >= 0, ubText().slice(0, 100))
         }
 
         // ── 逐笔金额（2026-10-25 卡 005 B 档）────────────────────────────────

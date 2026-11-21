@@ -3,7 +3,7 @@
     <div id="quickadd-modal">
       <h3>快速记一条</h3>
       <input v-model="text" class="quickadd-in" spellcheck="false"
-        placeholder="一句话，可带简写：p0 修登录 · #bug @hermes to:待办 due:12-31"
+        placeholder="一句话，可带简写：p0 修登录 · #bug @dsh to:待办 due:12-31"
         @keydown.enter="ctl.submitQuickAdd()" />
       <div class="quickadd-hint">
         简写：<code>p0/p1/p2</code> 优先级 · <code>#标签</code> · <code>@指派给谁</code> ·

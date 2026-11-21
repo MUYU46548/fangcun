@@ -6,8 +6,9 @@
  *     .md 文件需包含 YAML 格式的技能名称和描述”
  *
  * 三条边界（定这条实现的原因）：
- *  1. 只认 Hermes 技能目录 `~/.hermes/skills/<name>/` —— 与自发布技能同一处，导入完就能用，
- *     不另造一个"方寸自己的技能库"（那会变成第二个真相源）。
+ *  1. 落点是**本机已装 agent 的技能目录**（DSH 在场优先，其次 Hermes）——
+ *     与自发布技能同一处，导入完就能用，不另造一个"方寸自己的技能库"（那会变成第二个真相源）。
+ *     2026-11-21 起不再写死 Hermes：用户不一定有 Hermes，凭空造 `~/.hermes/skills` 很怪。
  *  2. **绝不写进 `skills/manifest.json`**。那是方寸自发布技能的账本，混进外部技能会让
  *     “有更新 / 已装最新”的判断全乱。外部导入靠目录里的标记文件 `.fangcun-imported.json`
  *     记账，这个标记同时也是“移除”的安全闸门（没有标记的目录一律不删）。
@@ -22,7 +23,10 @@ import * as yaml from 'js-yaml'
 import { dialog } from 'electron'
 import * as appLog from './appLog'
 import { extractZipTo } from '../backup/packer'
-import { getHermesSkillsDirPath, getPublishedSkillIds } from './skillInstaller'
+import {
+  getDshSkillsDirPath, getHermesSkillsDirPath, getPrimarySkillsDirPath,
+  getPrimarySkillsTargetName, getPublishedSkillIds,
+} from './skillInstaller'
 
 /** 外部导入标记（文件名以点开头，不会被当成技能内容读） */
 export const IMPORT_MARKER = '.fangcun-imported.json'
@@ -154,41 +158,75 @@ export function readImportMarker(skillDir: string): { importedAt: string; source
 
 /** 已导入（外部）技能列表 —— 只认带标记的目录，自发布技能不会混进来 */
 export function listImportedSkills(): ImportedSkillItem[] {
-  const hermesDir = getHermesSkillsDirPath()
+  // 2026-11-21：不再只扫 Hermes。用户不一定有 Hermes —— 旧副本可能散在任一目标里。
+  const roots = importRoots()
+  const seen = new Set<string>()
   const out: ImportedSkillItem[] = []
-  let dirs: fs.Dirent[] = []
-  try {
-    dirs = fs.readdirSync(hermesDir, { withFileTypes: true })
-  } catch {
-    return out
-  }
-  for (const d of dirs) {
-    if (!d.isDirectory()) continue
-    const dir = path.join(hermesDir, d.name)
-    const marker = readImportMarker(dir)
-    if (!marker) continue
-    let description = ''
-    let version = ''
+  for (const root of roots) {
+    let dirs: fs.Dirent[] = []
     try {
-      const meta = parseSkillMeta(fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf-8'))
-      description = meta?.description ?? ''
-      version = meta?.version ?? ''
+      dirs = fs.readdirSync(root.dir, { withFileTypes: true })
     } catch {
-      /* SKILL.md 读不到也照样列出来（用户得能看见并移除它） */
+      continue
     }
-    const c = countTree(dir)
-    out.push({
-      name: d.name,
-      description,
-      version,
-      dir,
-      files: c.files,
-      bytes: c.bytes,
-      importedAt: marker.importedAt,
-      source: marker.source,
-    })
+    for (const d of dirs) {
+      if (!d.isDirectory()) continue
+      if (seen.has(d.name)) continue
+      const dir = path.join(root.dir, d.name)
+      const marker = readImportMarker(dir)
+      if (!marker) continue
+      let description = ''
+      let version = ''
+      try {
+        const meta = parseSkillMeta(fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf-8'))
+        description = meta?.description ?? ''
+        version = meta?.version ?? ''
+      } catch {
+        /* SKILL.md 读不到也照样列出来（用户得能看见并移除它） */
+      }
+      const c = countTree(dir)
+      out.push({
+        name: d.name,
+        description,
+        version,
+        dir,
+        files: c.files,
+        bytes: c.bytes,
+        importedAt: marker.importedAt,
+        source: marker.source,
+      })
+      seen.add(d.name)
+    }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/**
+ * 外部导入的候选落点（顺序即优先级）：**DSH 在场就 DSH 优先**，然后 Hermes、另一个 DSH 落点。
+ * 只为“找到旧副本 / 移除”用；新导入一律进 `primaryImportRoot()`。
+ */
+function importRoots(): { name: string; dir: string }[] {
+  const rows = [
+    { name: getPrimarySkillsTargetName(), dir: getPrimarySkillsDirPath() },
+    { name: 'Hermes', dir: getHermesSkillsDirPath() },
+    { name: 'DSH', dir: getDshSkillsDirPath() },
+  ]
+  const seen = new Set<string>()
+  return rows.filter((r) => {
+    const key = path.resolve(r.dir).toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+/** 按名字在任一已知落点里找**存在**的技能目录（是否允许删由导入标记决定，别把两件事混成一条错误）。 */
+function findSkillDirInTargets(name: string): string {
+  for (const r of importRoots()) {
+    const dir = path.join(r.dir, name)
+    if (fs.existsSync(dir)) return dir
+  }
+  return ''
 }
 
 /**
@@ -206,7 +244,9 @@ export function importSkillFromPath(srcPath: string, opts: { overwrite?: boolean
     return { ok: false, code: 'not-found', error: `找不到：${raw}` }
   }
 
-  const hermesDir = getHermesSkillsDirPath()
+  // 2026-11-21：落点不再写死 Hermes —— DSH 在场就进 DSH（用户不一定有 Hermes）。
+  const importDir = getPrimarySkillsDirPath()
+  const importTarget = getPrimarySkillsTargetName()
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'fangcun-skill-import-'))
 
   try {
@@ -260,12 +300,12 @@ export function importSkillFromPath(srcPath: string, opts: { overwrite?: boolean
       return { ok: false, code: 'too-large', error: `解压后 ${(counts.bytes / 1048576).toFixed(1)} MB，超过 ${MAX_BYTES / 1048576} MB 上限` }
     }
 
-    // 自发布技能不许被外部导入覆盖：那是方寸自己的交付物，得走“⚡ 装到 Hermes”
+    // 自发布技能不许被外部导入覆盖：那是方寸自己的交付物，得走页头的「装到本机 agent」
     if (getPublishedSkillIds().has(meta.name)) {
-      return { ok: false, code: 'reserved', name: meta.name, error: `“${meta.name}”是方寸自发布技能，请用“⚡ 装到 Hermes”更新它` }
+      return { ok: false, code: 'reserved', name: meta.name, error: `“${meta.name}”是方寸自发布技能，请用页头的「装到本机 agent」更新它` }
     }
 
-    const target = path.join(hermesDir, meta.name)
+    const target = path.join(importDir, meta.name)
     const exists = fs.existsSync(target)
     if (exists && !opts.overwrite) {
       return {
@@ -280,10 +320,10 @@ export function importSkillFromPath(srcPath: string, opts: { overwrite?: boolean
       }
     }
 
-    fs.mkdirSync(hermesDir, { recursive: true })
+    fs.mkdirSync(importDir, { recursive: true })
 
     // 先搬进同盘的临时目录（.fangcun-incoming-*），成功后用 rename 落位 —— 半途失败不会留下半个技能
-    const incoming = path.join(hermesDir, `.fangcun-incoming-${meta.name}-${Date.now().toString(36)}`)
+    const incoming = path.join(importDir, `.fangcun-incoming-${meta.name}-${Date.now().toString(36)}`)
     copyTree(located.root, incoming)
     fs.writeFileSync(
       path.join(incoming, IMPORT_MARKER),
@@ -294,7 +334,7 @@ export function importSkillFromPath(srcPath: string, opts: { overwrite?: boolean
     let backupOld = ''
     try {
       if (exists) {
-        backupOld = path.join(hermesDir, `.fangcun-old-${meta.name}-${Date.now().toString(36)}`)
+        backupOld = path.join(importDir, `.fangcun-old-${meta.name}-${Date.now().toString(36)}`)
         fs.renameSync(target, backupOld)
       }
       fs.renameSync(incoming, target)
@@ -330,8 +370,8 @@ export function removeImportedSkill(name: string): { ok: boolean; error?: string
   if (getPublishedSkillIds().has(clean)) {
     return { ok: false, error: `“${clean}”是方寸自发布技能，不能用移除（请到技能目录手动处理）` }
   }
-  const dir = path.join(getHermesSkillsDirPath(), clean)
-  if (!fs.existsSync(dir)) return { ok: false, error: `找不到 ${dir}` }
+  const dir = findSkillDirInTargets(clean)
+  if (!dir) return { ok: false, error: `找不到已导入的 “${clean}”（已查所有已知 agent 技能目录）` }
   if (!readImportMarker(dir)) {
     return { ok: false, error: `“${clean}”不是方寸导入的技能（没有导入标记），拒绝删除` }
   }

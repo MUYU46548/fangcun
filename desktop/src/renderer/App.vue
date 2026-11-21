@@ -5552,7 +5552,7 @@ const relayDirtyHint = computed(() => relayChanges(relay_.value).join('、') || 
 // Agent 预设列表（设置页可增删）。
 // 014（2026-09-25）：真身放**主进程 prefs.json**，localStorage 只当读缓存 ——
 // localStorage 绑定 origin，dev 换 host（localhost→127.0.0.1）或打包版 file:// 都会把预设清空。
-const DEFAULT_AGENT_PRESETS = ['hermes', 'opencode', 'codex', 'deepseek', 'claude']
+const DEFAULT_AGENT_PRESETS = ['dsh', 'opencode', 'codex', 'deepseek', 'claude']
 function readAgentPresetsCache(): string[] | null {
   try {
     const v = localStorage.getItem('fc_agent_presets')

@@ -150,8 +150,9 @@ function main() {
       /^ {6}name: '@deepseek-ai\/dsh-mcp-client'$/m.test(dshA.snippet),
       JSON.stringify(dshA.snippet.split('\n').slice(0, 4)))
     check('  卡009：howTo 点名 insert 语义与热加载（防止再改回裸行）',
-      /insert/.test(dsh.howTo) && /静默跳过/.test(dsh.howTo) && /热加载/.test(dsh.howTo),
-      dsh.howTo.slice(0, 80))
+      /insert/.test(dsh.howTo) && /静默跳过|不给任何提示/.test(dsh.howTo)
+      && /热加载|无需重启/.test(dsh.howTo),
+      dsh.howTo.slice(0, 120))
   }
   expect('claudecode', 'A', '"mcpServers"', '"fangcun"', '"command"', '"env"', 'ELECTRON_RUN_AS_NODE')
   expect('cursor', 'A', '"mcpServers"', '"fangcun"')

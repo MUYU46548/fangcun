@@ -219,6 +219,30 @@ async function main() {
         /ms-skel-miss/.test(app) && /skeleton\.missing/.test(app))
     }
 
+    // ── 本机 agent 同名 skill：DSH 也要扫（2026-11-21）──────────────────────
+    // 旧实现只找 Hermes 的 `skills/<分类>/<技能>/SKILL.md`；方寸现在主用 DSH，
+    // 它是扁平结构 `~/.dsh/skills/<技能>/SKILL.md` —— 不扫就等于“换了 agent 又丢一次”。
+    {
+      const repo = mk('repo-skel')
+      writeFile(path.join(repo, 'AGENTS.md'), '# 宪法\n')
+      const dshHome = mk('dsh-home')
+      writeFile(path.join(dshHome, 'skills', 'demo-development', 'SKILL.md'), '# demo 开发铁律\n正文\n')
+      writeFile(path.join(dshHome, 'skills', 'other-skill', 'SKILL.md'), '# 别的项目\n')
+      const oldDsh = process.env.FC_DSH_HOME
+      process.env.FC_DSH_HOME = dshHome
+      try {
+        const skel = require(modPath).discoverSkeleton(repo, ['demo'])
+        const hit = (skel.files || []).find((f) => f.rel === '~skill:demo-development')
+        check('★★ 骨架会扫 DSH 扁平技能目录（`~/.dsh/skills/<id>/SKILL.md`）',
+          !!hit && /DSH skill/.test(hit.foundAs), JSON.stringify((skel.files || []).map((f) => f.rel)))
+        check('★ 只收与项目名匹配的技能（不把别的项目的技能塞进来）',
+          !(skel.files || []).some((f) => f.rel === '~skill:other-skill'))
+      } finally {
+        if (oldDsh === undefined) delete process.env.FC_DSH_HOME
+        else process.env.FC_DSH_HOME = oldDsh
+      }
+    }
+
     console.log('')
     console.log('通过 ' + pass + ' / 失败 ' + fail)
     process.exit(fail === 0 ? 0 : 1)

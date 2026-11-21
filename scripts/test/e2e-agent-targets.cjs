@@ -117,7 +117,10 @@ async function main() {
 
   // ── 场景 B：装上技能副本 → skillLinked 变真 ──────────────────────────
   const inst = skillsMod.installSkillsTo('dsh')
-  check('★ 装到 DSH：两个技能都落到 DSH 技能目录', inst.installed.length === 2 && inst.errors.length === 0, JSON.stringify(inst))
+  check('★ 装到 DSH：该分发的技能落到 DSH 技能目录（Hermes 专属技能不装进去）',
+    inst.installed.indexOf('fangcun-bridge') >= 0
+    && inst.installed.indexOf('skill-management-policy') < 0
+    && inst.errors.length === 0, JSON.stringify(inst))
   const dshSkill = path.join(DSH_HOME, 'skills', 'fangcun-bridge', 'SKILL.md')
   check('  DSH 侧副本真实存在且内容与真源一致',
     fs.existsSync(dshSkill) &&
@@ -133,7 +136,9 @@ async function main() {
 
   // 幂等
   const inst2 = skillsMod.installSkillsTo('dsh')
-  check('  再装一次：全部跳过（幂等）', inst2.installed.length === 0 && inst2.skipped.length === 2, JSON.stringify(inst2))
+  check('  再装一次：全部跳过（幂等）',
+    inst2.installed.length === 0 && inst2.skipped.length >= 1 && inst2.skipped.indexOf('fangcun-bridge') >= 0,
+    JSON.stringify(inst2))
 
   // 未知目标 → 显式报错，不静默当 Hermes
   const bad = skillsMod.installSkillsTo('nope')

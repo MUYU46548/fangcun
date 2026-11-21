@@ -1,6 +1,6 @@
 {
-  "version": "0.6.53",
-  "lastUpdated": "2026-11-20",
+  "version": "0.7.0",
+  "lastUpdated": "2026-11-21",
   "skills": [
     {
       "id": "fangcun-bridge",
@@ -12,7 +12,7 @@
       "id": "skill-management-policy",
       "file": "skills/skill-management-policy/SKILL.md",
       "version": "1.2.0",
-      "target": "All"
+      "target": "Hermes"
     }
   ]
 }

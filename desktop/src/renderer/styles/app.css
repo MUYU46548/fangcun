@@ -1686,6 +1686,35 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .uc-spark i { flex: 1 1 0; min-width: 2px; max-width: 12px; border-radius: 2px 2px 0 0;
   background: var(--accent); opacity: .82; }
 .uc-spark.calls i { background: var(--warning); }
+/* Token 预算（2026-11-21）：环图 + 近 14 天柱。类名独立（ub-*），不碰旧断言。 */
+.usage-budget { margin-top: 10px; padding-top: 9px; border-top: 1px dashed var(--border); }
+.ub-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.ub-head b { color: var(--ink); font-weight: 600; }
+.ub-head em { font-style: normal; font-size: 10.5px; color: var(--muted); }
+.ub-grow { flex: 1 1 auto; }
+.ub-in { width: 130px; height: 26px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--ink); font-family: inherit; font-size: 12px; }
+.ub-body { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-top: 8px; }
+.ub-ring-wrap { position: relative; width: 92px; height: 92px; flex: none; }
+.ub-ring { width: 92px; height: 92px; transform: rotate(-90deg); }
+.ub-ring-bg { fill: none; stroke: var(--border); stroke-width: 3.2; }
+.ub-ring-fg { fill: none; stroke: var(--accent); stroke-width: 3.2; stroke-linecap: round; transition: stroke-dasharray .3s; }
+.ub-ring[data-budget-state="tight"] .ub-ring-fg { stroke: var(--warning); }
+.ub-ring[data-budget-state="over"] .ub-ring-fg { stroke: var(--danger); }
+.ub-ring-text { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 1px; text-align: center; }
+.ub-ring-text b { font-size: 17px; line-height: 1.1; color: var(--ink); font-variant-numeric: tabular-nums; }
+.ub-ring-text span { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ub-ring[data-budget-state="over"] + .ub-ring-text b { color: var(--danger); }
+.ub-ring[data-budget-state="tight"] + .ub-ring-text b { color: var(--warning); }
+.ub-unset { flex: 1 1 260px; min-width: 0; font-size: 11.5px; line-height: 1.65; color: var(--muted); }
+.ub-unset b { color: var(--ink); font-weight: 600; }
+.ub-trend { flex: 1 1 300px; min-width: 0; }
+.ub-trend-h { font-size: 10.5px; color: var(--muted); margin-bottom: 2px; }
+.ub-bars { display: block; width: 100%; height: 80px; }
+.ub-bar { fill: var(--accent); opacity: .78; }
+.ub-bar.empty { fill: var(--border); opacity: .9; }
+.ub-axis { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* 月报表里的金额（2026-10-25 卡 005）：没有金额时写“未折算”而不是 0 元 */
 .arr-cost { flex: 0 0 auto; color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 600; }
 .arr-cost em { margin-left: 5px; font-style: normal; font-size: 11px; font-weight: 400; color: var(--muted); }
@@ -4443,6 +4472,25 @@ button[data-cost]::after {
 .skills-sync .ss-text b { color: var(--ink); }
 .skills-sync.stale { border-color: var(--warning); background: var(--tint-2); color: var(--ink); }
 .skills-sync.stale .ss-ico { color: var(--warning); }
+
+/* 逐文件凭据（2026-11-21）：光说“已是最新”是结论，这里摆的是源/副本两份 md5。
+   用户要能自己对 —— 防的就是“方寸假绿骗人”。 */
+.sk-verify { margin: -6px 0 14px; font-size: 11.5px; line-height: 1.7; color: var(--muted); }
+.sk-verify > summary { cursor: pointer; padding: 4px 2px; }
+.sk-verify > summary:hover { color: var(--ink); }
+.sk-verify-body { margin: 2px 0 0 2px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--tint); }
+.sk-ev-target { margin: 6px 0 8px; }
+.sk-ev-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 2px; }
+.sk-ev-head b { color: var(--ink); font-size: 12px; }
+.sk-ev-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; }
+.sk-ev-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; padding: 2px 0 2px 10px; border-left: 2px solid var(--border); }
+.sk-ev-row.ok { border-left-color: var(--success); }
+.sk-ev-row.bad { border-left-color: var(--danger); color: var(--danger); }
+.sk-ev-id { min-width: 150px; color: var(--ink); }
+.sk-ev-hash { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10.5px; }
+.sk-ev-verdict { font-weight: 600; }
+.sk-ev-row.ok .sk-ev-verdict { color: var(--success); }
+.sk-agents-off { margin-top: 8px; font-size: 11px; color: var(--muted); }
 .skills-btn {
   font-family: inherit; font-size: 12.5px; cursor: pointer;
   padding: 5px 12px; border-radius: 8px; border: 1px solid var(--border);
@@ -4532,6 +4580,37 @@ button[data-cost]::after {
 .mcp-entry-pick { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-bottom: 4px; }
 .mcp-entry-label { font-size: 12px; color: var(--muted); }
 .mcp-entry-note { font-size: 11.5px; color: var(--muted); }
+
+/* ── 三方诊断（2026-11-21）：不给“通/不通”一个二元结论，逐环给证据与动作 ── */
+.plg-verdict {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  margin: 10px 0 8px; padding: 7px 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--tint); font-size: 12px;
+}
+.plg-verdict b { font-weight: 700; }
+.plg-verdict span { color: var(--muted); }
+.plg-v-ok { border-color: var(--success); }
+.plg-v-ok b { color: var(--success); }
+.plg-v-warn { border-color: var(--warning); }
+.plg-v-warn b { color: var(--warning); }
+.plg-v-bad { border-color: var(--danger); }
+.plg-v-bad b { color: var(--danger); }
+.plg-v-unknown b { color: var(--muted); }
+.plg-checks { display: flex; flex-direction: column; gap: 2px; margin: 0 0 6px; }
+.plg-check {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  padding: 4px 2px; font-size: 11.5px; line-height: 1.6; border-top: 1px dashed var(--border);
+}
+.plg-check:first-child { border-top: none; }
+.plg-check-badge { flex: none; width: 14px; text-align: center; font-weight: 700; }
+.plg-check-label { flex: none; min-width: 96px; font-weight: 600; color: var(--ink); }
+.plg-check-detail { flex: 1 1 320px; min-width: 0; color: var(--muted); }
+.plg-check-action { flex: 1 1 100%; padding-left: 118px; color: var(--ink); }
+.plg-check-ok .plg-check-badge { color: var(--success); }
+.plg-check-warn .plg-check-badge { color: var(--warning); }
+.plg-check-bad .plg-check-badge { color: var(--danger); }
+.plg-check-bad .plg-check-detail { color: var(--danger); }
+.plg-check-unknown .plg-check-badge { color: var(--muted); }
 
 /* ── 历史版本面板（2026-10-18 卡 001；2026-10-31 收口）────────────────────
    日志与任务卡共用。目的：把 .backup 里的版本"看得见、挑得动"，

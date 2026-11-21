@@ -95,7 +95,7 @@
           </div>
           <div class="usage-cards">
             <div class="usage-card" data-ucard="tokens">
-              <div class="uc-label">本月 TOKEN（新输入 + 输出）</div>
+              <div class="uc-label">{{ isCurrentMonth ? '本月 TOKEN（新输入 + 输出）' : (currentValue.month + ' TOKEN · 本月还没有调用') }}</div>
               <div class="uc-big">{{ fmtTok(currentTokens) }}</div>
               <div class="uc-sub">
                 新输入 {{ fmtTok(currentValue.new_input_tokens) }} · 输出 {{ fmtTok(currentValue.completion_tokens) }}
@@ -129,6 +129,52 @@
               <div class="uc-note">
                 方寸读不到你的订阅 5 小时/周/月配额，不编额度；
                 只给本机实测与按已用天数外推。
+              </div>
+            </div>
+          </div>
+
+          <!-- Token 预算（2026-11-21 · 暮雨：“用户如果自设 token 预算可以图像化体现就更好了”）
+               只做可视化：方寸读不到订阅的 5h/周/月配额，不拿它冒充“额度”。
+               预算存 prefs（fc_usage_budget_tokens），未设时**不画 0% 环**——那会把“没设”说成“没超”。 -->
+          <div class="usage-budget" data-usage-budget>
+            <div class="ub-head">
+              <b>本月 token 预算</b>
+              <em>自己设上限，只做可视化，不是供应商配额</em>
+              <span class="ub-grow"></span>
+              <input class="ub-in" type="number" min="0" step="1000" v-model="budgetInput"
+                     placeholder="例：5000000" @keyup.enter="saveBudget()" />
+              <Button variant="outline" size="tool" @click="saveBudget()">保存</Button>
+              <Button v-if="budgetTokens > 0" variant="outline" size="tool" @click="clearBudget()">清除</Button>
+            </div>
+            <div class="ub-body">
+              <div v-if="budgetTokens > 0" class="ub-ring-wrap">
+                <svg class="ub-ring" viewBox="0 0 36 36" data-budget-ring
+                     :data-pct="budgetRingPct" :data-budget-state="budgetState">
+                  <circle class="ub-ring-bg" cx="18" cy="18" r="15.9155" pathLength="100" />
+                  <circle class="ub-ring-fg" cx="18" cy="18" r="15.9155" pathLength="100"
+                          :stroke-dasharray="budgetRingDash" />
+                </svg>
+                <div class="ub-ring-text">
+                  <b>{{ budgetState === 'over' ? '超 ' + budgetPctInt + '%' : budgetPctInt + '%' }}</b>
+                  <span>{{ fmtTok(budgetUsed) }} / {{ fmtTok(budgetTokens) }}</span>
+                </div>
+              </div>
+              <div v-else class="ub-unset">
+                未设预算 —— 设了才会画环。<b>未设 ≠ 没超支</b>（方寸读不到你的订阅额度）。
+              </div>
+              <div class="ub-trend">
+                <div class="ub-trend-h">近 14 天 token（新输入 + 输出）</div>
+                <svg class="ub-bars" viewBox="0 0 280 80" preserveAspectRatio="none" aria-label="近 14 天 token 柱">
+                  <rect v-for="(d, i) in last14" :key="d.date" :x="4 + i * 19.5" :y="barY(d)" width="14"
+                        :height="barH(d)" rx="2" class="ub-bar" :class="{ empty: !d.tokens }"
+                        data-ubar :data-empty="d.tokens ? '0' : '1'">
+                    <title>{{ d.date }} · {{ fmtTok(d.tokens) }} tokens</title>
+                  </rect>
+                </svg>
+                <div class="ub-axis">
+                  <span>{{ last14.length ? last14[0].date.slice(5) : '' }}</span>
+                  <span>{{ last14.length ? last14[last14.length - 1].date.slice(5) : '' }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -203,7 +249,8 @@
 
 <script setup lang="ts">
 import Button from '../components/ui/Button.vue'
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { readUiPref, saveUiPref } from '../prefs'
 
 /**
  * 问答页（2026-11-03 · App.vue 拆分「视图刀」）
@@ -250,5 +297,93 @@ const fmtTok = (v: any) => {
   return n.toLocaleString()
 }
 
-onMounted(() => { void ctl.initAsk() })
+// ── 本月 token 预算（2026-11-21）────────────────────────────────────────
+// 存储真身在 prefs.json（键 fc_usage_budget_tokens）；localStorage 只是同 origin 的读缓存。
+// 未设 = 不画环（“未设 ≠ 没超支”）；超支时弧封顶 100%，文字写“超 X%”。
+const BUDGET_KEY = 'fc_usage_budget_tokens'
+const budgetTokens = ref(0)
+const budgetInput = ref('')
+/** 本地时区的 YYYY-MM（不能用 toISOString：东八区在月初/月末会差一天） */
+function localMonthKey(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+function localDateKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+const isCurrentMonth = computed(() => String(currentValue.value?.month || '') === localMonthKey())
+/** 预算只跟**本月**比：拿上个月的数当本月，比没有更误导 */
+const budgetUsed = computed(() => (isCurrentMonth.value ? currentTokens.value : 0))
+const budgetPct = computed(() => (budgetTokens.value > 0 ? budgetUsed.value / budgetTokens.value * 100 : 0))
+const budgetPctInt = computed(() => Math.max(0, Math.round(budgetPct.value)))
+/** 环的弧封顶 100（超支靠颜色 + 文案说“超 X%”，不画超过一圈的荒谬图形） */
+const budgetRingPct = computed(() => Math.min(100, Math.max(0, Math.round(budgetPct.value))))
+const budgetState = computed(() => {
+  if (budgetTokens.value <= 0) return 'unset'
+  if (budgetPct.value > 100) return 'over'
+  if (budgetPct.value >= 80) return 'tight'
+  return 'ok'
+})
+const budgetRingDash = computed(() => {
+  const p = Math.max(0, Math.min(100, budgetPct.value))
+  return `${p} ${100 - p}`
+})
+
+/** 近 14 天：把最近两个月的 days 合起来、按本地日期补零（缺日 = 0 次，不是“读不到”） */
+const dayMap = computed<Record<string, number>>(() => {
+  const map: Record<string, number> = {}
+  for (const month of (ctl.usageMonths || []).slice(0, 2)) {
+    for (const d of (month && month.days) || []) {
+      const key = String(d && d.date || '')
+      if (!key) continue
+      map[key] = (map[key] || 0) + dayMain(d)
+    }
+  }
+  return map
+})
+const last14 = computed<{ date: string; tokens: number }[]>(() => {
+  const out: { date: string; tokens: number }[] = []
+  const now = new Date()
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)
+    const key = localDateKey(d)
+    out.push({ date: key, tokens: dayMap.value[key] || 0 })
+  }
+  return out
+})
+const max14 = computed(() => Math.max(1, ...last14.value.map((d) => d.tokens)))
+function barH(d: { tokens: number }): number {
+  if (!d.tokens) return 1
+  return Math.max(3, Math.min(72, d.tokens / max14.value * 72))
+}
+function barY(d: { tokens: number }): number {
+  return 80 - barH(d)
+}
+
+function applyBudget(v: any): void {
+  const n = Math.max(0, Math.floor(Number(v) || 0))
+  budgetTokens.value = n
+  budgetInput.value = n > 0 ? String(n) : ''
+  saveUiPref(BUDGET_KEY, n)
+}
+function saveBudget(): void {
+  applyBudget(budgetInput.value)
+}
+function clearBudget(): void {
+  applyBudget(0)
+}
+
+onMounted(async () => {
+  void ctl.initAsk()
+  // 真身优先（localStorage 可能因为换 origin 被清空）
+  try {
+    const p: any = await (window as any).tegula?.prefsGet?.()
+    const n = Math.max(0, Math.floor(Number(p?.[BUDGET_KEY]) || 0))
+    budgetTokens.value = n
+    budgetInput.value = n > 0 ? String(n) : ''
+  } catch {
+    const n = Math.max(0, Math.floor(Number(readUiPref<number>(BUDGET_KEY, 0)) || 0))
+    budgetTokens.value = n
+    budgetInput.value = n > 0 ? String(n) : ''
+  }
+})
 </script>

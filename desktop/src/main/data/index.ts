@@ -473,7 +473,7 @@ export const TASK_FIELD_SPECS: readonly TaskFieldSpec[] = [
     hint: '新建一般选“待办”；“待审批”只给 AI 出的卡，点头才转正' },
   { key: 'priority', label: '优先级', type: 'select', span: 'half', options: PRIORITIES,
     hint: '只影响排序与“下一步”推荐，不影响能不能做' },
-  { key: 'assignee', label: '指派', type: 'text', span: 'half', placeholder: 'hermes / human / 用户',
+  { key: 'assignee', label: '指派', type: 'text', span: 'half', placeholder: 'dsh / human / 用户',
     hint: '写谁来做；留空 = 还没人领，agent 照样能取' },
   // 2026-09-22（用户第 6 条）：日历要能"指派时间或时间段"。
   // 单日截止用 deadline；开始+截止构成时间段，日历上画成跨天横条。

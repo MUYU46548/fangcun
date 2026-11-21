@@ -208,19 +208,69 @@ export async function gitTestRemote(): Promise<{ ok: boolean; message: string }>
  * 用户删掉一个任务/一张方针卡，仓库里也该跟着删。只 add 不改删的话，git 历史里
  * 会永远留着已经不存在的东西（用户会以为"删了还在"，那是另一种静默失败）。
  */
-function mirrorInto(dir: string, files: Array<{ rel: string; abs: string }>): void {
+/**
+ * 把只读属性摘掉（Windows 上 `copyFileSync` 覆盖已存在的只读文件会直接 EPERM）。
+ *
+ * ⚠ 2026-11-20 真机回归：`docs/参考图/.../01-概览-dashboard.png` 在源目录里是只读的，
+ *   拷进工作副本后也带着只读属性；下一次镜像时旧文件没删干净（或被别的进程占着），
+ *   覆盖拷贝就报 `EPERM: operation not permitted, copyfile ...`，**整个 Git 备份从此每次必失败**。
+ *   这个函数不猜原因，只保证"写之前先让它可写"。
+ */
+function forceWritable(p: string): void {
+  try {
+    const st = fs.lstatSync(p)
+    if (st.isDirectory()) {
+      for (const name of fs.readdirSync(p)) forceWritable(path.join(p, name))
+    }
+    fs.chmodSync(p, st.isDirectory() ? 0o777 : 0o666)
+  } catch { /* 不存在 / 无权限：交给后面的真正操作去报错 */ }
+}
+
+/** 删除一棵树（含只读文件）。先摘只读 + rm 自带 maxRetries —— 对杀软/索引器的瞬时占用更耐打。 */
+function removeTreeRobust(p: string): void {
+  forceWritable(p)
+  fs.rmSync(p, { recursive: true, force: true, maxRetries: 5, retryDelay: 120 })
+}
+
+/** 拷贝单个文件：覆盖已存在的只读文件时，先摘只读再重试一次。 */
+function copyIntoRobust(src: string, dest: string): void {
+  try {
+    fs.copyFileSync(src, dest)
+  } catch (e: any) {
+    const code = String(e?.code || '')
+    if (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY') throw e
+    forceWritable(dest)
+    fs.copyFileSync(src, dest)
+  }
+  // 拷进来的源文件可能是只读的（我们的参考图就是），别把这个属性带进工作副本 ——
+  // 否则下一次镜像又要在删除/覆盖上踩同一个坑。
+  try { fs.chmodSync(dest, 0o666) } catch { /* 争取不到也不影响本次同步 */ }
+}
+
+/**
+ * 清空重铺镜像。返回**没删掉的旧路径**（只用于如实告知，不阻断本次同步）。
+ * 那些路径随后会被 copyIntoRobust 尽力覆盖；覆盖也失败时由调用方报出确切文件。
+ */
+function mirrorInto(dir: string, files: Array<{ rel: string; abs: string }>): string[] {
+  const deleteFailed: string[] = []
   for (const name of fs.readdirSync(dir)) {
     if (name === '.git') continue
-    try { fs.rmSync(path.join(dir, name), { recursive: true, force: true }) } catch { /* 单个删不掉不阻断 */ }
+    try {
+      removeTreeRobust(path.join(dir, name))
+    } catch (e: any) {
+      // 单个删不掉不阻断（下一段会覆盖），但**不许静默**：带回去，成功消息里点出条数。
+      deleteFailed.push(`${name}（${e?.code || e?.message || '未知错误'}）`)
+    }
   }
   for (const f of files) {
     const dest = path.join(dir, f.rel)
     const parent = path.dirname(dest)
     if (parent !== dir) fs.mkdirSync(parent, { recursive: true })
-    fs.copyFileSync(f.abs, dest)
+    copyIntoRobust(f.abs, dest)
   }
   // 纵深防御：万一有密钥类文件被误拷进来，git 也不追踪
   fs.writeFileSync(path.join(dir, '.gitignore'), REPO_GITIGNORE, 'utf-8')
+  return deleteFailed
 }
 
 export interface GitSyncResult {
@@ -233,6 +283,9 @@ export interface GitSyncResult {
   /** 被排除（密钥类）或被瘦身跳过的文件数 */
   omitted?: number
 }
+
+/** 仅供 e2e 直接钉住"只读文件覆盖/删除"这两条 Windows 行为（不是产品 API）。 */
+export const __test = { forceWritable, removeTreeRobust, copyIntoRobust }
 
 /**
  * 同步数据到 git 仓库（**真实文件，不是压缩包**）。
@@ -282,8 +335,9 @@ export async function gitSyncData(
 
   // 3. 清空重铺镜像。
   onPhase?.('mirror')
+  let deleteFailed: string[] = []
   try {
-    mirrorInto(dir, plan.files)
+    deleteFailed = mirrorInto(dir, plan.files)
   } catch (e: any) {
     return { ok: false, message: '写入工作副本失败：' + (e?.message || e) }
   }
@@ -327,9 +381,14 @@ export async function gitSyncData(
     return { ok: false, message: info.message + '（本地提交已保留，网络/权限好了再点一次即可）', recovered, files: plan.files.length, omitted }
   }
   const skipNote = omitted ? `，另有 ${omitted} 个文件按设置跳过（密钥类 / 体积超限）` : ''
+  // 旧文件没删掉时如实说：它们可能还留在仓库里，用户下次点同步会再试。
+  // （2026-11-20：这一条以前被吞掉，用户只看到"同步成功"却其实有残留。）
+  const dirtyNote = deleteFailed.length
+    ? `；有 ${deleteFailed.length} 个旧路径本次没清掉（${deleteFailed.slice(0, 3).join('、')}${deleteFailed.length > 3 ? '…' : ''}），下次同步会再试`
+    : ''
   return {
     ok: true,
-    message: `已同步 ${plan.files.length} 个文件到 ${cfg.branch}${recovered ? '（远端先前有更新，已先并入再推）' : ''}${skipNote}`,
+    message: `已同步 ${plan.files.length} 个文件到 ${cfg.branch}${recovered ? '（远端先前有更新，已先并入再推）' : ''}${skipNote}${dirtyNote}`,
     pushed: true, recovered, files: plan.files.length, omitted,
   }
 }

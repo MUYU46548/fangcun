@@ -1,23 +1,21 @@
+#!/usr/bin/env node
 /**
- * DSH 侧的方寸插件（2026-11-06 暮雨：“依然未体现 DSH 插件相关，
- * 且 DSH 插件应该自带把方寸接入的功能”）。
+ * DSH 插件诊断（2026-11-21 · 暮雨：“插件页就算写‘不通’，世界上也不会有任何人知道有什么问题。
+ * 现在的困境是方寸本体、方寸插件、DSH 三者各有自己的版本，不匹配就炸”）
  *
- * 要钉住的事实：
- *  ① 方寸**已经有一个专属 DSH 插件**（dsh-fangcun），装在 profile 的 `node_modules` +
- *     登记进 `dsh.profile.bundles` —— 两处都要能读出来（只登记不进 bundles = 不会加载）；
- *  ② 它**自带接入**：直连方寸命名管道，不需要用户抄 command/args/env；
- *  ③ patch 里那条**旧的手工桥**（`- id: mcp-fangcun` + dsh-mcp-client）要能认出来，
- *     并且要能说出"它指向的命令在不在 / 是不是开发目录" —— 这才是"配了但连不上"的判据；
- *  ④ 反例：注释里写着 fangcun 的那一行**不是**配置（本机 patch 顶部就有一整段注释）。
- *
- * ⚠ 隔离：`FC_DSH_HOME` 与 `FC_MCP_PIPE` 都重定向到临时目录，绝不读用户真实 DSH。
+ * 钉的是**诊断本身不许说假话**：
+ *  ① 三方版本从哪读：DSH 基座版本必须来自 app.asar 的 package.json（不是 Electron 的 `version` 文件）；
+ *  ② 插件没进 bundles / 版本低于签名派单门槛 → 明确 bad，并指出“升级哪一边”；
+ *  ③ 派单审计里的拒绝原因要翻成人话（bad-signature / no-secret / open-failed 各给各的动作）；
+ *  ④ 两边密钥路径不一致要单独报（这是最难查的一种：只看“验签失败”永远查不出来）；
+ *  ⑤ 只读：不写 DSH 配置、不改 profile。
  *
  * 运行：node scripts/test/e2e-dsh-plugin.cjs
  */
-const path = require('path')
 const fs = require('fs')
+const path = require('path')
+const os = require('os')
 const Module = require('module')
-const { mkTmp } = require('./_tmp.cjs')
 
 const STUB = path.join(__dirname, 'electron-stub.cjs')
 const origResolve = Module._resolveFilename
@@ -26,153 +24,182 @@ Module._resolveFilename = function (request, ...args) {
   return origResolve.call(this, request, ...args)
 }
 
-const TEST_ROOT = mkTmp('fc-dsh-plugin-')
-const DSH = path.join(TEST_ROOT, 'dsh')
-process.env.FC_TEST_USERDATA = TEST_ROOT
-process.env.FC_DSH_HOME = DSH
-// 管道重定向到一个不存在的路径 → alive 必须是 false（machine-independent）
-const FAKE_PIPE = path.join(TEST_ROOT, 'no-such-pipe')
-process.env.FC_MCP_PIPE = FAKE_PIPE
+const { mkTmp } = require('./_tmp.cjs')
+const REPO = path.resolve(__dirname, '../..')
+const DIST = path.join(REPO, 'desktop', 'dist', 'main')
 
-const DIST = path.resolve(__dirname, '../../desktop/dist/main')
-
-let pass = 0
-let fail = 0
+let pass = 0, fail = 0
 const failures = []
 function check(name, cond, detail = '') {
   if (cond) { pass++; console.log(`PASS  ${name}`) } else {
     fail++; failures.push(`${name}${detail ? ' :: ' + detail : ''}`)
     console.log(`FAIL  ${name}${detail ? '  → ' + detail : ''}`)
   }
+  return !!cond
 }
 
-/** 造 profile：dependencies + bundles + node_modules/dsh-fangcun/package.json */
-function fakeProfile(opts = {}) {
-  const { bundled = true, withDep = true, version = '0.3.0', patch = '' } = opts
-  const dir = path.join(DSH, 'profiles', 'desktop')
-  fs.mkdirSync(path.join(dir, 'node_modules', 'dsh-fangcun'), { recursive: true })
-  fs.writeFileSync(path.join(dir, 'node_modules', 'dsh-fangcun', 'package.json'),
-    JSON.stringify({ name: 'dsh-fangcun', version }), 'utf-8')
-  const pkg = {
+/** 造一个最小 asar：16 字节头 + JSON 头 + package.json 内容（与真 asar 同布局） */
+function writeFakeAsar(asarPath, pkg) {
+  const pkgBuf = Buffer.from(JSON.stringify(pkg), 'utf8')
+  const headerObj = { files: { 'package.json': { size: pkgBuf.length, offset: '0' } } }
+  const headerText = JSON.stringify(headerObj)
+  const headerLen = Buffer.byteLength(headerText)
+  const padded = Math.ceil(headerLen / 4) * 4
+  const buf = Buffer.alloc(16 + padded + pkgBuf.length)
+  buf.writeUInt32LE(4, 0)
+  buf.writeUInt32LE(headerLen, 4)
+  buf.writeUInt32LE(headerLen, 8)
+  buf.writeUInt32LE(headerLen, 12)
+  buf.write(headerText, 16, 'utf8')
+  pkgBuf.copy(buf, 16 + padded)
+  fs.mkdirSync(path.dirname(asarPath), { recursive: true })
+  fs.writeFileSync(asarPath, buf)
+}
+
+function writeJson(p, obj) {
+  fs.mkdirSync(path.dirname(p), { recursive: true })
+  fs.writeFileSync(p, JSON.stringify(obj, null, 2), 'utf-8')
+}
+
+function setupHome(root, opts = {}) {
+  const home = path.join(root, 'dsh-home')
+  const profile = path.join(home, 'profiles', 'desktop')
+  writeJson(path.join(profile, 'package.json'), {
     name: 'dsh-profile-desktop',
-    dependencies: withDep ? { 'dsh-fangcun': 'link:E:/CODE/CangKu/dsh-fangcun', 'dsh-keep-awake': '0.3.1' } : {},
-    dsh: { profile: { bundles: bundled ? ['@deepseek-ai/dsh-base', 'dsh-fangcun'] : ['@deepseek-ai/dsh-base'] } },
+    dependencies: { 'dsh-fangcun': 'link:E:/x/dsh-fangcun' },
+    dsh: { profile: { bundles: opts.bundled === false ? ['@deepseek-ai/dsh-base'] : ['@deepseek-ai/dsh-base', 'dsh-fangcun'] } },
+  })
+  if (opts.pluginVersion !== null) {
+    writeJson(path.join(profile, 'node_modules', 'dsh-fangcun', 'package.json'), {
+      name: 'dsh-fangcun',
+      version: opts.pluginVersion || '0.7.3',
+      dsh: {
+        compatibility: {
+          dsh: '>=0.2.1-rc.2',
+          dshReleases: { '0.2.2-rc.5': 'verified' },
+        },
+      },
+    })
   }
-  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(pkg, null, 2), 'utf-8')
-  if (patch) fs.writeFileSync(path.join(dir, 'cordis.patch.yml'), patch, 'utf-8')
-  return dir
+  return { home, profile }
+}
+
+function pushAudit(dataRoot, row) {
+  const dir = path.join(dataRoot, '.dispatch-dsh')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.appendFileSync(path.join(dir, 'audit.jsonl'), JSON.stringify(row) + '\n', 'utf-8')
 }
 
 function main() {
-  console.log('== DSH 方寸插件（只读探测）==')
-  const mod = require(path.join(DIST, 'services', 'dshPlugin.js'))
+  console.log('== DSH 插件诊断 e2e ==')
+  const { home, profile } = setupHome(mkTmp('fc-dshplug-'))
+  const root = path.dirname(home)
+  const dataRoot = path.join(root, 'data')
+  fs.mkdirSync(path.join(dataRoot, 'task-data'), { recursive: true })
+  fs.writeFileSync(path.join(dataRoot, 'registry.yaml'), 'projects:\n  - id: demo\n    name: 演示\n', 'utf-8')
 
-  // ── ① 正常装了 ──────────────────────────────────────────────────────
-  fakeProfile({
-    patch: [
-      '# fangcun (tegula) task-board bridge —— 这只是一句注释，不是配置',
-      'model:',
-      '  default: x',
-      '- id: mcp-fangcun',
-      "  name: '@deepseek-ai/dsh-mcp-client'",
-      '  config:',
-      '    serverName: fangcun',
-      // ⚠ 故意用一个**不存在**的开发路径：判据是"配置里有 ≠ 连得上"，
-      //   拿真实存在的 exe 当夹具这条断言就恒真（2026-11-06 首版就这么假绿过一次）。
-      '    command: "E:\\\\nope-fc\\\\desktop\\\\node_modules\\\\electron\\\\dist\\\\electron.exe"',
-      '    args: ["x.js"]',
-      '- id: llm-pi-ai',
-      '  config:',
-      '    providers: {}',
-      '',
-    ].join('\n'),
+  // 基座版本：伪造 asar（放在 LOCALAPPDATA/Programs/DeepSeek Harness/resources/app.asar）
+  const oldLocal = process.env.LOCALAPPDATA
+  const fakeLocal = path.join(root, 'localappdata')
+  process.env.LOCALAPPDATA = fakeLocal
+  writeFakeAsar(path.join(fakeLocal, 'Programs', 'DeepSeek Harness', 'resources', 'app.asar'), {
+    name: '@deepseek-ai/dsh-desktop', version: '0.2.2-rc.5',
   })
 
-  const s = mod.detectDshPlugin()
-  check('★ 认出方寸插件（profile 的 dependencies 里带 fangcun）',
-    s.plugins.length === 1 && s.plugins[0].name === 'dsh-fangcun', JSON.stringify(s.plugins))
-  check('★ 版本读的是 node_modules 里那份（不是 dependencies 的 spec）',
-    s.plugins[0].version === '0.3.0', s.plugins[0].version)
-  check('★ link: 装法要露出真实目录（才知道装的是不是本地开发版）',
-    /link:/.test(s.plugins[0].spec) && /dsh-fangcun/.test(String(s.plugins[0].linkedDir)),
-    s.plugins[0].spec + ' → ' + s.plugins[0].linkedDir)
-  check('★ 进没进 bundles 单独一个事实（只登记依赖不会加载）',
-    s.plugins[0].bundled === true, String(s.plugins[0].bundled))
-  check('  summary 说清"自带接入 = 命名管道"',
-    /命名管道/.test(s.summary), s.summary)
+  // 密钥：显式路径 = 两边同一份
+  const secretPath = path.join(root, 'dispatch-secret')
+  fs.writeFileSync(secretPath, 'a'.repeat(64), 'utf-8')
+  process.env.FC_DISPATCH_SECRET_PATH = secretPath
+  process.env.FC_DSH_HOME = home
 
-  // ── ② 自带通道 ───────────────────────────────────────────────────────
-  check('★ 自带通道就是方寸的命名管道（与 pipe.ts 同一口径，不手写字面量）',
-    s.pipe.path === FAKE_PIPE, s.pipe.path)
-  check('  管道不在 → alive=false（不许凭空报"通"）', s.pipe.alive === false, String(s.pipe.alive))
+  const data = require(path.join(DIST, 'data', 'index.js'))
+  data.setDataDir(dataRoot)
+  const mod = require(path.join(DIST, 'services', 'dshPlugin.js'))
 
-  // ── ③ 旧的手工桥 ─────────────────────────────────────────────────────
-  check('★ 认出 patch 里那条旧手工桥（含行号，方便用户去删）',
-    !!s.legacy && s.legacy.line === 4, JSON.stringify(s.legacy && s.legacy.line))
-  check('  桥的插件名读对了', s.legacy.plugin === '@deepseek-ai/dsh-mcp-client', s.legacy.plugin)
-  check('  反斜杠还原成真实路径形态', s.legacy.command.includes('\\node_modules\\'), s.legacy.command)
-  check('★ 判得出"指向开发目录"（dev 一清就断，这是真隐患）',
-    s.legacy.isDevPath === true, String(s.legacy.isDevPath))
-  check('★ 命令文件不在 → commandExists=false（配置里有 ≠ 连得上）',
-    s.legacy.commandExists === false, String(s.legacy.commandExists))
+  try {
+    // ── ① 正常态：三方版本都能读到，密钥同一份，无派单 → 没有 bad ──
+    let s = mod.detectDshPlugin('0.7.0')
+    check('★★ DSH 基座版本来自 app.asar 的 package.json（不是 Electron 的 version 文件）',
+      s.dshVersion === '0.2.2-rc.5', `${s.dshVersion} @ ${s.dshVersionFrom}`)
+    check('★ 插件版本 / 是否进 bundles 都读到了', s.plugins.length === 1 && s.plugins[0].version === '0.7.3' && s.plugins[0].bundled === true,
+      JSON.stringify(s.plugins))
+    check('★ 插件自报的 compat 表透传（界面要拿它跟 DSH 版本核对）',
+      s.plugins[0].compatReleases && s.plugins[0].compatReleases['0.2.2-rc.5'] === 'verified')
+    check('★ 密钥两边同一份 → secret 检查为 ok',
+      (s.checks.find(c => c.key === 'secret') || {}).status === 'ok', JSON.stringify(s.checks.find(c => c.key === 'secret')))
+    check('★ 兼容表覆盖当前 DSH → compat 检查为 ok',
+      (s.checks.find(c => c.key === 'compat') || {}).status === 'ok', JSON.stringify(s.checks.find(c => c.key === 'compat')))
+    check('★★ 没有明确不通时，verdict 不许吓人（不许出现「明确不通」）',
+      s.verdict.indexOf('明确不通') < 0, s.verdict)
 
-  // ── ④ 反例：注释里写 fangcun 不算配置 ────────────────────────────────
-  {
-    const dir = path.join(DSH, 'profiles', 'desktop')
-    fs.writeFileSync(path.join(dir, 'cordis.patch.yml'), [
-      '# - id: mcp-fangcun   ← 这行被注释掉了，等同于没有',
-      'model:',
-      '  default: x',
-      '',
-    ].join('\n'), 'utf-8')
-    const s2 = mod.detectDshPlugin()
-    check('★ 反例：注释掉的 `- id: mcp-fangcun` 不许当成"有手工桥"',
-      s2.legacy === undefined, JSON.stringify(s2.legacy))
-  }
+    // ── ② 插件没进 bundles → bad，并指出去加 bundles ──
+    const h2 = setupHome(mkTmp('fc-dshplug-nb-'), { bundled: false })
+    process.env.FC_DSH_HOME = h2.home
+    s = mod.detectDshPlugin('0.7.0')
+    const pluginCheck = s.checks.find(c => c.key === 'plugin')
+    check('★★ 插件装了但没进 bundles → bad（装了也不会加载）', pluginCheck.status === 'bad', JSON.stringify(pluginCheck))
+    check('★ 这条的动作要指出「加进 bundles」，不是笼统“重装”', /bundles/.test(pluginCheck.action), pluginCheck.action)
 
-  // ── ⑤ 反例：bundles 没登记 → 不会加载 ────────────────────────────────
-  {
-    fakeProfile({ bundled: false, patch: '' })
-    const s3 = mod.detectDshPlugin()
-    check('★ 反例：装了但没进 bundles → bundled=false（宿主不会加载它）',
-      s3.plugins.length === 1 && s3.plugins[0].bundled === false, JSON.stringify(s3.plugins.map(p => p.bundled)))
-    check('  没有 patch 时 legacy 为空（不报假的"旧桥"）', s3.legacy === undefined, JSON.stringify(s3.legacy))
-  }
+    // ── ③ 旧插件（<0.7.3）→ bad，动作是升级 ──
+    const h3 = setupHome(mkTmp('fc-dshplug-old-'), { pluginVersion: '0.7.2' })
+    process.env.FC_DSH_HOME = h3.home
+    s = mod.detectDshPlugin('0.7.0')
+    const oldCheck = s.checks.find(c => c.key === 'plugin')
+    check('★★ 插件 0.7.2 < 签名派单门槛 0.7.3 → bad', oldCheck.status === 'bad', JSON.stringify(oldCheck))
+    check('★ 动作写明升级到 0.7.3+', /0\.7\.3/.test(oldCheck.action), oldCheck.action)
 
-  // ── ⑥ 反例：bundles 里有、dependencies 没有 → 也要露出来 ──────────────
-  {
-    fakeProfile({ bundled: true, withDep: false, patch: '' })
-    const s4 = mod.detectDshPlugin()
-    check('★ 反例：只在 bundles 里登记（dependencies 无）也要列出来，并说明来源',
-      s4.plugins.length === 1 && /bundles 里登记/.test(s4.plugins[0].spec), JSON.stringify(s4.plugins))
-  }
+    // ── ④ 派单审计：bad-signature 要翻成“哪一边旧” ──
+    process.env.FC_DSH_HOME = home
+    pushAudit(dataRoot, { at: '2026-11-21T00:00:00.000Z', ok: false, reason: 'bad-signature', source: 'gui', project: 'demo', kind: 'work', file: 'dispatch-1.md' })
+    s = mod.detectDshPlugin('0.7.0')
+    const dispatchCheck = s.checks.find(c => c.key === 'dispatch')
+    check('★★ 审计里的 bad-signature 会让派单链路变成 bad', dispatchCheck.status === 'bad', JSON.stringify(dispatchCheck))
+    check('★★ bad-signature 的说明要点名“插件比方寸旧 / 不是同一把密钥”',
+      /插件比方寸旧|同一把密钥/.test(dispatchCheck.detail), dispatchCheck.detail)
+    check('★ 动作指向升级插件并重启 DSH', /0\.7\.3|升级/.test(dispatchCheck.action) && /重启/.test(dispatchCheck.action), dispatchCheck.action)
+    check('★ verdict 会点出是「派单链路」这一环坏了', /派单/.test(s.verdict), s.verdict)
 
-  // ── ⑦ 一根都没有 → 明说"没装插件"而不是报错 ──────────────────────────
-  {
-    const dir = path.join(DSH, 'profiles', 'desktop')
-    fs.writeFileSync(path.join(dir, 'package.json'),
-      JSON.stringify({ dependencies: {}, dsh: { profile: { bundles: [] } } }), 'utf-8')
-    const s5 = mod.detectDshPlugin()
-    check('★ 装了 DSH 但没装方寸插件 → plugins 空 + summary 说清',
-      s5.plugins.length === 0 && /没装方寸插件/.test(s5.summary), s5.summary)
-  }
+    // ── ⑤ 待消费派单 >0 → warn（插件没在跑 / 不在这个 profile）──
+    // 先把上一段的拒绝记录清掉，否则“最近一次被拒”会继续压过“有文件没消费”这一事实。
+    fs.writeFileSync(path.join(dataRoot, '.dispatch-dsh', 'audit.jsonl'), '', 'utf-8')
+    const pendingDir = path.join(dataRoot, '.dispatch-dsh')
+    fs.mkdirSync(pendingDir, { recursive: true })
+    fs.writeFileSync(path.join(pendingDir, 'dispatch-2.md'), 'x', 'utf-8')
+    s = mod.detectDshPlugin('0.7.0')
+    const d2 = s.checks.find(c => c.key === 'dispatch')
+    check('★★ 有派单没被消费 → warn，并说明“插件没在跑 / 不在这个 profile”',
+      d2.status === 'warn' && /没在跑|profile/.test(d2.detail), JSON.stringify(d2))
 
-  // ── ⑧ 源码守卫：这个模块只读，不许写 DSH 的任何东西 ────────────────────
-  {
-    const code = fs.readFileSync(path.join(DIST, 'services', 'dshPlugin.js'), 'utf-8')
-      .replace(/\r\n/g, '\n')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
-    const writes = ['writeFileSync', 'appendFileSync', 'mkdirSync', 'renameSync', 'copyFileSync', 'rmSync']
-      .filter((w) => code.includes(w))
-    check('★ dshPlugin 零写调用（方寸不改 DSH 任何配置）', writes.length === 0, writes.join(','))
+    // ── ⑥ 密钥两边路径不一致 → bad（最难查的一种）──
+    const otherSecretDir = path.join(root, 'roaming', 'fangcun-desktop')
+    fs.mkdirSync(otherSecretDir, { recursive: true })
+    fs.writeFileSync(path.join(otherSecretDir, 'dispatch-secret'), 'b'.repeat(64), 'utf-8')
+    const oldAppData = process.env.APPDATA
+    process.env.APPDATA = path.join(root, 'roaming')
+    delete process.env.FC_DISPATCH_SECRET_PATH
+    // 让“方寸侧”固定在 root/dispatch-secret（存在），而插件会挑 roaming/fangcun-desktop 那份
+    const sign = require(path.join(DIST, 'services', 'dispatchSign.js'))
+    sign.configureDispatchSecretDir(root)
+    s = mod.detectDshPlugin('0.7.0')
+    const sec2 = s.checks.find(c => c.key === 'secret')
+    check('★★ 方寸写的路径与插件会挑的路径不一致 → secret 检查为 bad（验签必失败）',
+      sec2.status === 'bad' && /不是同一份/.test(sec2.detail), JSON.stringify(sec2))
+    sign.configureDispatchSecretDir('')
+    process.env.APPDATA = oldAppData
+    process.env.FC_DISPATCH_SECRET_PATH = secretPath
+
+    // ── ⑦ 只读守卫：诊断不许改动 profile / patch ──
+    const before = fs.readFileSync(path.join(profile, 'package.json'), 'utf-8')
+    mod.detectDshPlugin('0.7.0')
+    const after = fs.readFileSync(path.join(profile, 'package.json'), 'utf-8')
+    check('★★ 诊断只读：profile/package.json 逐字节不变', before === after)
+  } finally {
+    process.env.LOCALAPPDATA = oldLocal
+    try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* ignore */ }
   }
 
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
-  if (fail) {
-    console.log('失败项：')
-    for (const f of failures) console.log('  - ' + f)
-  }
+  if (fail) { console.log('失败项：'); for (const f of failures) console.log('  - ' + f) }
   console.log(`RESULT ${pass} / ${fail}`)
   process.exit(fail ? 1 : 0)
 }

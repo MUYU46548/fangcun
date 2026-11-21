@@ -409,6 +409,48 @@ async function integrateExecutor() {
     check('★★ 删掉的源文件在仓库里也删掉了（镜像双向可删，不会"删了还在"）',
       !tree3.out.includes('task-data/task-2.md'), tree3.out.trim().slice(0, 300))
 
+    // ⑤-b 只读文件回归（2026-11-21 真机：`docs/参考图/...png` 是只读的，Git 备份从此每次
+    //      `EPERM: operation not permitted, copyfile` —— 用户原话“Git 同步坏了，第一次一个
+    //      做完了的功能出问题”。根因：copyFileSync 会把只读属性带进工作副本，下一次删除/覆盖踩坑）。
+    const roSrcDir = path.join(dataRoot, 'docs', '参考图', 'ro-case')
+    fs.mkdirSync(roSrcDir, { recursive: true })
+    const roSrc = path.join(roSrcDir, 'shot.png')
+    fs.writeFileSync(roSrc, 'png-bytes')
+    fs.chmodSync(roSrc, 0o444)
+    const s3b = await gb.gitSyncData()
+    check('★ 只读源文件也能同步成功', s3b.ok === true, JSON.stringify(s3b))
+    const workRo = path.join(tmpUserData, 'git-backup-work', 'docs', '参考图', 'ro-case', 'shot.png')
+    const workRoMode = fs.existsSync(workRo) ? (fs.statSync(workRo).mode & 0o777) : 0
+    check('★★ 只读源文件拷进工作副本后**必须变成可写**（旧实现把只读属性带进去，下一次镜像覆盖就 EPERM）',
+      !!(workRoMode & 0o200), 'mode=' + workRoMode.toString(8))
+
+    // 直接钉住两条 Windows 行为：覆盖已存在的只读文件、删除含只读文件的树。
+    // （不走整条同步是因为"删除失败"需要文件被外部进程占用才复现；这里把根因单独钉死。）
+    if (typeof gb.__test?.copyIntoRobust === 'function') {
+      const T = gb.__test
+      const plainSrc = path.join(root, 'plain-src.bin')
+      fs.writeFileSync(plainSrc, 'new-content')
+      const roDst = path.join(root, 'ro-dst.bin')
+      fs.writeFileSync(roDst, 'old-content')
+      fs.chmodSync(roDst, 0o444)
+      let copyOk = true
+      try { T.copyIntoRobust(plainSrc, roDst) } catch (e) { copyOk = false; console.log('    copyIntoRobust: ' + e.message) }
+      check('★★ copyIntoRobust：覆盖**已存在的只读文件**成功（这正是 EPERM 的现场）', copyOk)
+      check('★ copyIntoRobust：覆盖后文件内容真的换了', fs.readFileSync(roDst, 'utf-8') === 'new-content')
+      check('★ copyIntoRobust：覆盖后文件可写（不再把只读状态留给下一次）',
+        !!(fs.statSync(roDst).mode & 0o200))
+
+      const roTree = path.join(root, 'ro-tree')
+      fs.mkdirSync(path.join(roTree, 'sub'), { recursive: true })
+      fs.writeFileSync(path.join(roTree, 'sub', 'a.png'), 'a')
+      fs.chmodSync(path.join(roTree, 'sub', 'a.png'), 0o444)
+      let rmOk = true
+      try { T.removeTreeRobust(roTree) } catch (e) { rmOk = false; console.log('    removeTreeRobust: ' + e.message) }
+      check('★★ removeTreeRobust：含只读文件的目录树删得掉', rmOk && !fs.existsSync(roTree))
+    } else {
+      check('  执行器导出 __test（copyIntoRobust / removeTreeRobust）', false)
+    }
+
     // ⑥ 远端领先 → 执行器应**自动救一次**并报 recovered
     const other = path.join(root, 'other')
     await gitAsync(['clone', bare, other], root)

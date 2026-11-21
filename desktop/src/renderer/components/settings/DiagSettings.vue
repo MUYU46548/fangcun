@@ -106,7 +106,7 @@ const {
                 <span class="diag-tag" :class="!s.installed ? 'bad' : (s.outdated ? 'warn' : 'ok')">
                   {{ !s.installed ? '未安装' : (s.outdated ? '副本已过时/被改' : '一致') }}</span>
               </div>
-              <div v-if="!diagSkills.skills || !diagSkills.skills.length" class="hint">没有查到可检查的技能（可能本机没有 Hermes/DSH 目录）。</div>
+              <div v-if="!diagSkills.skills || !diagSkills.skills.length" class="hint">没有查到可检查的技能（可能本机没有 DSH / Hermes 目录）。</div>
             </div>
           </div>
   

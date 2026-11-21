@@ -19,7 +19,7 @@
       <span v-if="!servicesLoading" class="services-stats">
         登记 {{ servicesRows.length }} · 监听中 {{ servicesListening }}
       </span>
-      <button class="skills-btn" @click="copyServicesSnapshot()" title="把当前清单复制成纯文本 —— 方便直接贴给任意 agent（Hermes / DSH / WorkBuddy）分析">📋 复制快照</button>
+      <button class="skills-btn" @click="copyServicesSnapshot()" title="把当前清单复制成纯文本 —— 方便直接贴给任意 agent（DSH / Hermes / WorkBuddy）分析">📋 复制快照</button>
       <button class="skills-btn" @click="loadServices()">刷新</button>
     </div>
     <div class="services-notebar">

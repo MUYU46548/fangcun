@@ -13,8 +13,8 @@
  *      都不许在技能目录里留下半个目录；
  *   ④ 安全闸门：自发布技能不许被外部覆盖、不许被"移除"；没有导入标记的目录一律不删。
  *
- * ⚠ 安全性：getHermesSkillsDir() 读 LOCALAPPDATA，本测试先把它指向临时沙盒，
- *   否则会往**用户真实的 ~/.hermes/skills** 里写东西。
+ * ⚠ 安全性：导入主落点 = DSH（在场优先）/ Hermes。本测试把 FC_DSH_HOME 与 LOCALAPPDATA
+ *   都指向临时沙盒，否则会往**用户真实的 agent 技能目录**里写东西（2026-11-21 实测踩过一次）。
  *
  * 运行：node scripts/test/e2e-skill-import.cjs
  */
@@ -35,11 +35,16 @@ Module._resolveFilename = function (request, ...args) {
 const TEST_ROOT = mkTmpPath('fc-skill-import-')
 process.env.FC_TEST_USERDATA = TEST_ROOT
 process.env.LOCALAPPDATA = path.join(TEST_ROOT, 'localappdata')
+// 2026-11-21：导入主落点改成“DSH 在场优先”。必须把 DSH home 也关进沙盒，
+// 否则会写进**真实** ~/.dsh/skills（本机实测真的写进去了，目录里还带着测试来源路径）。
+process.env.FC_DSH_HOME = path.join(TEST_ROOT, 'dshhome')
+fs.mkdirSync(process.env.FC_DSH_HOME, { recursive: true })
 
 const { makeZip } = require('./zip-fixture.cjs')
 
 const DIST = path.resolve(__dirname, '../../desktop/dist/main')
-const HERMES_SKILLS = path.join(TEST_ROOT, 'localappdata', 'hermes', 'skills')
+// 主落点 = DSH（本测试把 FC_DSH_HOME 指到沙盒）
+const HERMES_SKILLS = path.join(TEST_ROOT, 'dshhome', 'skills')
 const FIX = path.join(TEST_ROOT, 'fixtures')
 
 let pass = 0
@@ -78,9 +83,10 @@ async function main() {
   const installer = require(path.join(DIST, 'services', 'skillInstaller.js'))
   const stub = require(STUB)
 
-  check('★ 技能目录落在测试沙盒里（没碰用户真实 ~/.hermes）',
-    path.resolve(installer.getHermesSkillsDirPath()).startsWith(path.resolve(TEST_ROOT)),
-    installer.getHermesSkillsDirPath())
+  check('★ 技能目录落在测试沙盒里（没碰用户真实 ~/.dsh / ~/.hermes）',
+    path.resolve(installer.getPrimarySkillsDirPath()).startsWith(path.resolve(TEST_ROOT))
+    && path.resolve(installer.getHermesSkillsDirPath()).startsWith(path.resolve(TEST_ROOT)),
+    installer.getPrimarySkillsDirPath())
 
   // ── A. 目录导入 ────────────────────────────────────────────────────
   const dirSkill = path.join(FIX, 'demo-dir')

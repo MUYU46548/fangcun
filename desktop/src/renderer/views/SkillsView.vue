@@ -3,7 +3,7 @@
 
   ## 这一页现在只回答三件事
     ① 方寸自带哪几个技能、各自什么状态（装没装 / 是不是旧版）；
-    ② 想装到哪去（Hermes / DSH 可直装，其余 agent 给文件由它自己装）；
+    ② 想装到哪去（本机检测到的 agent 可直装，其余给文件由它自己装）；
     ③ 上次自动同步到底跑没跑、是不是已经过期。
   「DSH 插件」与「接入 MCP」**已搬到独立的「插件」页**（views/PluginsView.vue）——
   它们是常驻通道，不是提示词，混在这里会让两件事都读不清（也是这一页“又丑又乱”的主因）。
@@ -31,15 +31,15 @@
           <h3>技能</h3>
           <p class="sk-head-sub">
             技能本质只是<strong>模块化提示词</strong>，不是插件 —— 复制提示词贴给 agent，它自己装，省得手抄出错。
-            要装的是<strong>常驻通道</strong>（DSH 插件 / MCP），去左边的「插件」页。
+            要装的是<strong>常驻通道</strong>（DSH 插件 / MCP），请前往「插件」页。
           </p>
         </div>
         <div class="sk-head-acts">
           <Button variant="primary" size="tool" @click="importSkillViaPicker('file')" title="选一个 .zip 或 .md 技能包导入">📥 导入技能…</Button>
           <Button variant="outline" size="tool" @click="importSkillViaPicker('folder')" title="选一个技能文件夹（内有 SKILL.md）导入">📁 导入文件夹…</Button>
-          <Button variant="outline" size="tool" @click="installSkillsToHermes()" title="把随包分发的技能复制到 ~/.hermes/skills/ 并记 hash">⚡ 装到 Hermes</Button>
+          <Button variant="outline" size="tool" @click="installAllDetected()"
+            title="把随包分发的技能复制到本机检测到的 agent（DSH / Hermes）并逐个复核">⚡ 装到本机 agent</Button>
           <Button variant="outline" size="tool" @click="openSkillsDir('resources')" title="打开随包分发的技能目录">📂 技能目录</Button>
-          <Button variant="outline" size="tool" @click="openSkillsDir('hermes')" title="打开 Hermes 侧的技能目录">📂 Hermes 目录</Button>
           <Button variant="outline" size="tool" @click="loadSkills()">刷新</Button>
         </div>
       </header>
@@ -66,11 +66,11 @@
            方寸常驻托盘，升级后旧进程不退，新实例被顶掉 → 那句承诺实际上没执行，
            而界面上与成功时长得一模一样。现在把上次同步的时间/版本/结果摊在这儿，
            版本对不上就直接标红并给“现在同步”。 -->
-      <div class="skills-sync" :class="{ stale: skillsSyncStale }" data-skills-sync>
-        <span class="ss-ico">{{ skillsSyncStale ? '⚠' : (skillsSync && skillsSync.ok ? '✓' : '·') }}</span>
+      <div class="skills-sync" :class="{ stale: syncWarn }" data-skills-sync>
+        <span class="ss-ico">{{ syncWarn ? '⚠' : (skillsSync && skillsSync.ok ? '✓' : '·') }}</span>
         <span class="ss-text">
-          <template v-if="skillsSyncStale">
-            <b>技能可能不是最新</b> —— {{ skillsSyncStaleReason }}
+          <template v-if="syncWarn">
+            <b>技能可能不是最新</b> —— {{ syncWarnReason }}
           </template>
           <template v-else-if="skillsSync">
             自动同步 ✓ {{ syncTimeText(skillsSync.at) }} · v{{ skillsSync.appVersion }} ·
@@ -79,18 +79,40 @@
           </template>
           <template v-else>还没有同步记录 —— 点右边同步一次</template>
         </span>
+        <Button variant="outline" size="tool" :disabled="skillsSyncBusy" @click="verifySkillsNow()"
+          title="重新读盘、重算真源与副本的 md5，把两边指纹摆出来 —— 不是只看“上次同步成功”那句话">
+          🧪 核验
+        </Button>
         <Button variant="outline" size="tool" :disabled="skillsSyncBusy" @click="syncSkillsNow()"
-          title="不用重启、不用退托盘：现在就比对一遍并装掉差异">
+          title="不用重启、不用退托盘：现在就比对一遍并装掉差异（装完会再读盘复核）">
           {{ skillsSyncBusy ? '同步中…' : '现在同步' }}
         </Button>
       </div>
+
+      <!-- 逐文件凭据（2026-11-21 暮雨：“怎么确定是真同步了还是方寸假绿骗人？”）——
+           光说“已是最新”是结论；这里摆的是**源与目标两份 md5**，以及副本的最后修改时间。 -->
+      <details v-if="syncEvidence.length" class="sk-verify" data-skills-evidence>
+        <summary>逐文件凭据（{{ syncEvidenceText }}）</summary>
+        <div class="sk-verify-body">
+          <div v-for="t in syncEvidence" :key="t.id" class="sk-ev-target">
+            <div class="sk-ev-head"><b>{{ t.name }}</b><span class="sk-ev-dir" :title="t.dir">{{ t.dir }}</span></div>
+            <div v-if="!t.checks.length" class="sk-ev-row bad">这个目标没有可复核的技能</div>
+            <div v-for="c in t.checks" :key="c.id" class="sk-ev-row" :class="c.match ? 'ok' : 'bad'">
+              <span class="sk-ev-id">{{ c.id }}</span>
+              <span class="sk-ev-hash">真源 {{ shortHash(c.srcHash) }} · 副本 {{ shortHash(c.destHash) }}</span>
+              <span class="sk-ev-verdict">{{ c.match ? '✓ 与真源逐字节相同' : '✗ 与真源不同' }}</span>
+              <span v-if="c.destAt" class="sk-ev-at">副本 {{ syncTimeText(c.destAt) }}</span>
+            </div>
+          </div>
+        </div>
+      </details>
 
       <!-- 维护机制说清楚（2026-10-03 用户问“方寸自带 skill 后续如何保持更新和维护？”）
            答案就在这段里 —— 但它是“读一次就够”的背景知识，默认收起，不占第一屏。 -->
       <details class="sk-note">
         <summary>技能是怎么随方寸一起更新的？</summary>
         <div class="sk-note-body">
-          技能随方寸版本分发：<strong>升级方寸后启动会自动把新版同步到 Hermes / DSH</strong>
+          技能随方寸版本分发：<strong>升级方寸后启动会自动把新版同步到本机已检测到的 agent（DSH / Hermes 等）</strong>
           （装着的版本和方寸自带的不一样就重装）；只能手动导入的 agent，用卡片上的“真源指纹”
           对照你拖进去的那份是不是同一版。
         </div>
@@ -121,11 +143,12 @@
                 <span class="skill-id">{{ sk.id }}</span>
                 <span class="skill-state" :class="'skill-' + skillStateClass(sk)">{{ skillStateText(sk) }}</span>
                 <span class="skill-ver">v{{ sk.version || '—' }}</span>
+                <span v-if="sk.target && sk.target !== 'All'" class="skill-ver">仅 {{ sk.target }}</span>
               </div>
               <p class="skill-desc">{{ sk.desc || '(SKILL.md 里没写 description)' }}</p>
-              <div class="skill-targets" v-if="skillsTargets.length">
+              <div class="skill-targets" v-if="targetsForSkill(sk).length">
                 <span class="skill-targets-label">装到：</span>
-                <span v-for="t in skillsTargets" :key="t.id" class="skill-tgt"
+                <span v-for="t in targetsForSkill(sk)" :key="t.id" class="skill-tgt"
                       :class="'skill-tgt-' + targetSkillState(t, sk)" :title="skillTargetTitle(t, sk)">
                   {{ t.name }}{{ targetStateText(t, sk) }}
                 </span>
@@ -146,7 +169,7 @@
         <section v-if="skillsImported.length" class="sk-sec">
           <div class="sk-sec-h">
             <h4>已导入的技能（外部）</h4>
-            <span class="sk-sec-sub">直接丢进来的技能包，落在 {{ skillsHermesDir }}；不进方寸的 manifest，可单独移除</span>
+            <span class="sk-sec-sub">直接丢进来的技能包，落在 {{ skillsImportDir || '（未检测到可装 agent）' }}{{ skillsImportTargetName ? '（' + skillsImportTargetName + '）' : '' }}；不进方寸的 manifest，可单独移除</span>
           </div>
           <div class="skills-imported">
             <article v-for="im in skillsImported" :key="im.name" class="skill-card imported">
@@ -166,11 +189,11 @@
           </div>
         </section>
 
-        <!-- ── ③ 装到别的 agent（不只有 Hermes）──────────────────────── -->
+        <!-- ── ③ 装到本机 agent（2026-11-21：不再围绕 Hermes 组织）────── -->
         <section class="sk-sec">
           <div class="sk-sec-h">
-            <h4>装到别的 agent（不只有 Hermes）</h4>
-            <span class="sk-sec-sub">本机实际检测到的才列出来；方寸只往 Hermes / DSH 直装（这两家的落点实测过），其余只给文件 —— 别人的目录不猜、不写</span>
+            <h4>装到本机 agent</h4>
+            <span class="sk-sec-sub">只列本机实际检测到的；DSH / Hermes 可直装，其余只给文件 —— 别人的目录不猜、不写</span>
           </div>
           <!-- 三态而不是两态（2026-10-23）：原来只有“有数据 / 检测中…”两种，于是**通道不存在**时
                会永远停在“检测中…”—— 那不是检测中，是根本读不到（界面说假话）。
@@ -178,33 +201,31 @@
           <div class="skills-agents">
             <div v-if="agentsError" class="skills-error">{{ agentsError }}</div>
             <div v-else-if="agentsLoading && !agentTargets.length" class="plg-empty">检测中…</div>
-            <div v-else-if="!agentTargets.length" class="plg-empty">本机没检测到可装的 agent —— 不是“还在检测”</div>
-            <div v-for="a in agentTargets" :key="a.id" class="agent-row" :class="{ 'agent-off': !a.detected }">
+            <div v-else-if="!detectedAgents.length" class="plg-empty">本机没检测到可装的 agent —— 不是“还在检测”</div>
+            <div v-for="a in detectedAgents" :key="a.id" class="agent-row">
               <div class="agent-line1">
                 <span class="agent-name">{{ a.name }}</span>
                 <span class="agent-mode" :class="a.mode === 'installable' ? 'can' : 'manual'">
                   {{ a.mode === 'installable' ? '可直装' : '给文件手动导入' }}
                 </span>
-                <span class="agent-state">{{ a.detected ? '已检测到' : '没检测到' }}</span>
-                <!-- Hermes 的安装入口在页头（同一个动作不摆两遍）；其余可直装目标在本行给自己装 -->
-                <span v-if="a.detected && a.mode === 'installable' && a.id === 'hermes'" class="agent-note">
-                  装入口在顶部“⚡ 装到 Hermes”
-                </span>
-                <Button v-if="a.detected && a.mode === 'installable' && a.id !== 'hermes'"
+                <Button v-if="a.mode === 'installable'"
                         variant="primary" size="tool" @click="installToTarget(a)">⚡ 装到 {{ a.name }}</Button>
-                <Button v-if="a.detected && a.mode !== 'installable'" variant="outline" size="tool"
+                <Button v-if="a.mode !== 'installable'" variant="outline" size="tool"
                         @click="openAgentTarget(a)">▶ 打开 {{ a.name }}</Button>
                 <!-- 清单为空时**不渲染**这个按钮：传空串过去只会拿到一句“没有可显示的技能路径”，
                      是“点了就报错”的那类死按钮（主进程侧也已单独兜底）。 -->
-                <Button v-if="a.detected && a.mode !== 'installable' && skillsList.length"
+                <Button v-if="a.mode !== 'installable' && skillsList.length"
                   variant="outline" size="tool" @click="revealSkillPath(skillsList[0].absPath)">
                   📂 显示一份 SKILL.md
                 </Button>
-                <span v-if="a.detected && a.linkText" class="agent-link" :class="'agent-link-' + a.linkClass"
+                <span v-if="a.linkText" class="agent-link" :class="'agent-link-' + a.linkClass"
                       :title="a.linkDetail">{{ a.linkText }}</span>
               </div>
               <div class="agent-evidence" :title="a.evidence">{{ a.evidence }}</div>
               <div class="agent-howto">{{ a.howTo }}</div>
+            </div>
+            <div v-if="undetectedAgents.length" class="sk-agents-off" title="这些 agent 本机没装；方寸不会给它们造目录">
+              本机未检测到：{{ undetectedAgents.map(a => a.name).join('、') }}
             </div>
           </div>
         </section>
@@ -233,7 +254,7 @@ const props = defineProps<{
 //   · 真源是随包分发的 skills/manifest.json（面板只读它，不自己编清单）；
 //   · 主按钮是“复制安装提示词”—— 贴给任何 agent，它自己知道技能目录在哪，
 //     提示词里带**绝对路径**，从根上杜绝手抄出错；
-//   · 顺带给 Hermes 一键装（这正是主进程里早就有、但渲染层一直没入口的能力）。
+//   · 主进程早就有多目标安装能力；2026-11-21 起入口按“本机检测到的 agent”走，不再单列 Hermes。
 interface SkillUiRow {
   id: string
   target: string
@@ -265,7 +286,9 @@ const skillsTargets = ref<SkillTargetRow[]>([])
 const skillsLoading = ref(false)
 const skillsError = ref('')
 const skillsDir = ref('')
-const skillsHermesDir = ref('')
+/** 外部导入落点（2026-11-21：DSH 在场优先；不再写死 Hermes） */
+const skillsImportDir = ref('')
+const skillsImportTargetName = ref('')
 const skillsManifestVersion = ref('')
 const skillsUpdated = ref('')
 const skillsUnlisted = ref<string[]>([])
@@ -290,18 +313,68 @@ interface SkillSyncRow {
   trigger: string
   ok: boolean
   skills: string[]
-  targets: { id: string; name: string; present: boolean; needsInstall: boolean; installed: string[]; skipped: string[]; errors: { skill: string; error: string }[]; error?: string }[]
+  targets: {
+    id: string; name: string; present: boolean; needsInstall: boolean
+    installed: string[]; skipped: string[]; errors: { skill: string; error: string }[]; error?: string
+    /** 装完/跳过后重新读盘的逐文件指纹（2026-11-21） */
+    checks: { id: string; srcHash: string; destHash: string; match: boolean; destAt: string }[]
+    verified: boolean
+  }[]
+}
+interface SkillLiveRow {
+  id: string; name: string; dir: string; present: boolean
+  checks: { id: string; srcHash: string; destHash: string; match: boolean; destAt: string }[]
+  verified: boolean
+  mismatched: string[]
 }
 const skillsSync = ref<SkillSyncRow | null>(null)
 const skillsSyncStale = ref(false)
 const skillsSyncStaleReason = ref('')
 const skillsSyncVersion = ref('')
 const skillsSyncBusy = ref(false)
+/** 现在这一刻的磁盘实况（与“上次同步记录”分开；记录绿不代表现在绿） */
+const skillsLive = ref<SkillLiveRow[]>([])
+const skillsLiveStale = ref(false)
+const skillsLiveReason = ref('')
 
-/** 概览条：每个可直装目标「N / 总数 最新」（不在场的明说不在场，不写 0/0） */
+/** 同步记录 + 磁盘实况，任何一个说不绿就不许显示绿 */
+const syncWarn = computed(() => skillsSyncStale.value || skillsLiveStale.value)
+const syncWarnReason = computed(() => skillsSyncStaleReason.value || skillsLiveReason.value || '同步记录或磁盘实况有一处对不上')
+
+/** 只列**在场**的目标：没装的 agent 不占卡片位置（用户不一定有 Hermes） */
+const presentTargets = computed(() => skillsTargets.value.filter(t => t.present))
+/** 本机检测到的 agent（DSH 排前面 —— 方寸现在主用 DSH） */
+const detectedAgents = computed(() => {
+  const rows = (agentTargets.value || []).filter(a => a.detected)
+  return rows.slice().sort((a, b) => rankAgent(a) - rankAgent(b))
+})
+const undetectedAgents = computed(() => (agentTargets.value || []).filter(a => !a.detected))
+function rankAgent(a: AgentTargetUi): number {
+  if (a.id === 'dsh') return 0
+  if (a.id === 'hermes') return 1
+  return a.mode === 'installable' ? 2 : 3
+}
+
+/** 逐文件凭据：优先用本次同步的 checks；没有同步记录时用当前磁盘实况 */
+const syncEvidence = computed<{ id: string; name: string; dir: string; checks: SkillLiveRow['checks'] }[]>(() => {
+  const fromSync = (skillsSync.value?.targets || []).filter(t => t.present && Array.isArray(t.checks) && t.checks.length)
+  if (fromSync.length) return fromSync.map(t => ({ id: t.id, name: t.name, dir: skillsTargets.value.find(x => x.id === t.id)?.dir || '', checks: t.checks }))
+  return skillsLive.value.filter(t => t.present && t.checks.length).map(t => ({ id: t.id, name: t.name, dir: t.dir, checks: t.checks }))
+})
+const syncEvidenceText = computed(() => {
+  const rows = syncEvidence.value
+  const total = rows.reduce((n, t) => n + t.checks.length, 0)
+  const ok = rows.reduce((n, t) => n + t.checks.filter(c => c.match).length, 0)
+  return `${ok} / ${total} 个文件逐字节一致`
+})
+function shortHash(h: string): string {
+  return h ? h.slice(0, 8) : '—'
+}
+
+/** 概览条：每个可直装目标「N / 该目标该装的数 最新」（不在场的明说不在场，不写 0/0） */
 const targetSummary = computed(() => skillsTargets.value.map((t) => {
-  const total = skillsList.value.length
-  const ok = skillsList.value.filter((sk) => targetSkillState(t, sk) === 'ok').length
+  const total = (t.skills || []).length
+  const ok = (t.skills || []).filter((s) => !s.outdated && s.installed).length
   return { id: t.id, name: t.name, present: t.present, total, ok }
 }))
 
@@ -319,8 +392,16 @@ function syncTargetText(t: SkillSyncRow['targets'][number]): string {
   if (!t.present) return `${t.name} 不在场`
   if (t.error) return `${t.name} 失败`
   if (t.errors.length) return `${t.name} 失败 ${t.errors.length}`
-  if (t.installed.length) return `${t.name} 更新 ${t.installed.length}`
-  return `${t.name} ✓`
+  const checks = Array.isArray(t.checks) ? t.checks : []
+  // 旧版主进程没有 checks：退回原口径，**不许**把“没有证据”说成“复核失败”
+  if (!checks.length) {
+    if (t.installed.length) return `${t.name} 更新 ${t.installed.length}`
+    return `${t.name} ✓`
+  }
+  const ok = checks.filter(c => c.match).length
+  if (!t.verified) return `${t.name} 复核 ✗ ${ok}/${checks.length}`
+  if (t.installed.length) return `${t.name} 更新 ${t.installed.length}（复核 ${ok}/${checks.length} 一致）`
+  return `${t.name} ✓（复核 ${ok}/${checks.length} 一致）`
 }
 
 async function loadSkillSync(): Promise<void> {
@@ -331,10 +412,35 @@ async function loadSkillSync(): Promise<void> {
       skillsSyncStale.value = !!r.stale
       skillsSyncStaleReason.value = r.staleReason || ''
       skillsSyncVersion.value = r.currentVersion || ''
+      skillsLive.value = Array.isArray(r.live) ? r.live : []
+      skillsLiveStale.value = !!r.liveStale
+      skillsLiveReason.value = r.liveReason || ''
     }
   } catch {
     // 读不到状态不该让整页报错 —— 技能清单本身还能看
     skillsSync.value = null
+    skillsLive.value = []
+    skillsLiveStale.value = false
+    skillsLiveReason.value = ''
+  }
+}
+
+/** 🧪 核验：重新读盘算两边指纹（不安装、不改任何文件），把结论如实报出来 */
+async function verifySkillsNow(): Promise<void> {
+  if (skillsSyncBusy.value) return
+  skillsSyncBusy.value = true
+  try {
+    await Promise.all([loadSkillSync(), loadSkills()])
+    const rows = skillsLive.value.filter(t => t.present)
+    if (!rows.length) { props.toast('没有检测到可核验的 agent（DSH / Hermes 都不在本机）', 'info'); return }
+    const total = rows.reduce((n, t) => n + t.checks.length, 0)
+    const ok = rows.reduce((n, t) => n + t.checks.filter(c => c.match).length, 0)
+    if (ok === total && total > 0) props.toast(`核验完成：${ok}/${total} 个技能副本与真源逐字节一致（两边 md5 已列在下方凭据里）`, 'success')
+    else props.toast(`核验发现不一致：${ok}/${total} 一致 —— 点「现在同步」重装，或看下方逐文件凭据`, 'error')
+  } catch (e: any) {
+    props.toast('核验失败：' + (e?.message || e), 'error')
+  } finally {
+    skillsSyncBusy.value = false
   }
 }
 
@@ -349,9 +455,12 @@ async function syncSkillsNow(): Promise<void> {
     } else {
       const t = (r.lastRun && r.lastRun.targets) || []
       const n = t.reduce((a: number, x: any) => a + (x.installed ? x.installed.length : 0), 0)
-      const bad = t.filter((x: any) => x.error || (x.errors && x.errors.length)).length
-      if (bad) props.toast(`同步跑完了，但有 ${bad} 个目标失败（技能页上方有明细）`, 'error')
-      else props.toast(n ? `已同步 ${n} 个技能副本` : '已是最新，没有需要更新的', 'success')
+      const bad = t.filter((x: any) => x.error || (x.errors && x.errors.length) || (x.present && x.verified === false)).length
+      const checks = t.reduce((a: number, x: any) => a + ((x.checks || []).length), 0)
+      const okChecks = t.reduce((a: number, x: any) => a + ((x.checks || []).filter((c: any) => c.match).length), 0)
+      const proof = checks ? `，复核 ${okChecks}/${checks} 个文件一致` : ''
+      if (bad) props.toast(`同步跑完了，但有 ${bad} 个目标没通过复核${proof}（技能页上方有逐文件凭据）`, 'error')
+      else props.toast(n ? `已同步 ${n} 个技能副本${proof}` : `已是最新，没有需要更新的${proof}`, 'success')
       await loadSkillSync()
       await loadSkills()
     }
@@ -374,7 +483,8 @@ async function loadSkills(): Promise<void> {
       skillsList.value = r.skills || []
       skillsTargets.value = r.targets || []
       skillsDir.value = r.skillsDir || ''
-      skillsHermesDir.value = r.hermesDir || ''
+      skillsImportDir.value = r.importDir || r.hermesDir || ''
+      skillsImportTargetName.value = r.importTargetName || ''
       skillsManifestVersion.value = r.version || ''
       skillsUpdated.value = r.lastUpdated || ''
       skillsUnlisted.value = r.unlisted || []
@@ -419,21 +529,28 @@ function skillTargetTitle(t: SkillTargetRow, sk: SkillUiRow): string {
   }
 }
 
+/** 这张技能卡该显示哪些目标：`All` 通吃；写了具体 agent 的就只显示那一家（本机没装则不显示） */
+function targetsForSkill(sk: SkillUiRow): SkillTargetRow[] {
+  const want = String(sk.target || 'All').toLowerCase()
+  if (want === 'all' || want === 'any') return presentTargets.value
+  return presentTargets.value.filter((t) => t.id.toLowerCase() === want || t.name.toLowerCase() === want)
+}
+
 /** 状态文案的取值只有三种事实：文件在不在 / 装没装 / 是不是旧的 */
 function skillStateText(sk: SkillUiRow): string {
   if (!sk.exists) return '文件缺失'
-  const present = skillsTargets.value.filter(t => t.present)
-  if (!present.length) return '无可直装目标'
-  const states = present.map(t => targetSkillState(t, sk))
+  if (!targetsForSkill(sk).length) {
+    return sk.target && sk.target !== 'All' ? `仅 ${sk.target} · 本机没装` : '无可直装目标'
+  }
+  const states = targetsForSkill(sk).map(t => targetSkillState(t, sk))
   if (states.every(s => s === 'idle')) return '未装'
   if (states.some(s => s === 'warn')) return '有更新'
   return '已装（最新）'
 }
 function skillStateClass(sk: SkillUiRow): string {
   if (!sk.exists) return 'bad'
-  const present = skillsTargets.value.filter(t => t.present)
-  if (!present.length) return 'idle'
-  const states = present.map(t => targetSkillState(t, sk))
+  if (!targetsForSkill(sk).length) return 'idle'
+  const states = targetsForSkill(sk).map(t => targetSkillState(t, sk))
   if (states.every(s => s === 'idle')) return 'idle'
   return states.some(s => s === 'warn') ? 'warn' : 'good'
 }
@@ -447,16 +564,27 @@ async function copySkillBody(sk: SkillUiRow): Promise<void> {
   await props.copy(sk.body, `已复制“${sk.id}”SKILL.md 全文（${sk.body.length} 字）`)
 }
 
-async function installSkillsToHermes(): Promise<void> {
-  const r: any = await window.tegula.skillsInstall()
-  if (!r) { props.toast('安装失败：主进程没有返回', 'error'); return }
-  const parts: string[] = []
-  if (r.installed && r.installed.length) parts.push(`已装 ${r.installed.length}`)
-  if (r.skipped && r.skipped.length) parts.push(`跳过 ${r.skipped.length}`)
-  if (r.errors && r.errors.length) parts.push(`失败 ${r.errors.length}`)
-  props.toast(`技能安装：${parts.join(' / ') || '无变化'}${r.errors && r.errors.length ? '（' + r.errors[0].error + '）' : ''}`,
-    r.errors && r.errors.length ? 'error' : 'success')
-  await loadSkills()
+/**
+ * ⚡ 装到本机 agent（2026-11-21）：一次遍历**本机检测到的可直装目标**。
+ * 不再有“装到 Hermes”这种把某一家的名字写进按钮的入口 —— DSH 在场就先装 DSH。
+ */
+async function installAllDetected(): Promise<void> {
+  const t: any = window.tegula
+  if (typeof t.skillsInstallTo !== 'function') { props.toast('当前主进程是旧版本，没有这个通道', 'error'); return }
+  const rows = detectedAgents.value.filter(a => a.mode === 'installable')
+  if (!rows.length) { props.toast('本机没有可直装的 agent（DSH / Hermes 都没检测到）', 'info'); return }
+  let installed = 0
+  const failed: string[] = []
+  for (const a of rows) {
+    const r: any = await t.skillsInstallTo(a.id)
+    if (!r || (r.errors && r.errors.length)) failed.push(a.name)
+    else installed += (r.installed || []).length
+  }
+  props.toast(failed.length
+    ? `装到本机 agent：失败 ${failed.join('、')}（技能页上方有明细）`
+    : `装到本机 agent：${installed ? `更新 ${installed} 个副本` : '已是最新'} —— 已重新读盘复核`,
+    failed.length ? 'error' : 'success')
+  await Promise.all([loadSkills(), loadAgents(), loadSkillSync()])
 }
 
 // ── 技能直接导入（2026-09-26 卡 005）──────────────────────────────────────

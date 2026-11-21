@@ -332,8 +332,13 @@ const store = {
       ok: true,
       skills: ['fangcun-bridge', 'skill-management-policy'],
       targets: [
-        { id: 'hermes', name: 'Hermes', present: true, needsInstall: false, installed: [], skipped: ['fangcun-bridge', 'skill-management-policy'], errors: [] },
-        { id: 'dsh', name: 'DSH', present: true, needsInstall: false, installed: [], skipped: ['fangcun-bridge', 'skill-management-policy'], errors: [] },
+        { id: 'hermes', name: 'Hermes', present: true, needsInstall: false, installed: [], skipped: ['fangcun-bridge', 'skill-management-policy'], errors: [], checks: [
+          { id: 'fangcun-bridge', srcHash: 'a'.repeat(32), destHash: 'a'.repeat(32), match: true, destAt: '2026-11-05T01:20:00.000Z' },
+          { id: 'skill-management-policy', srcHash: 'b'.repeat(32), destHash: 'b'.repeat(32), match: true, destAt: '2026-11-05T01:20:00.000Z' },
+        ], verified: true },
+        { id: 'dsh', name: 'DSH', present: true, needsInstall: false, installed: [], skipped: ['fangcun-bridge'], errors: [], checks: [
+          { id: 'fangcun-bridge', srcHash: 'a'.repeat(32), destHash: 'a'.repeat(32), match: true, destAt: '2026-11-05T01:20:00.000Z' },
+        ], verified: true },
       ],
     },
   },
@@ -1943,10 +1948,11 @@ contextBridge.exposeInMainWorld('tegula', {
       prompt: `请把方寸（tegula）的“${id}”这个技能装到你自己身上：\n- 技能文件（绝对路径）：${dir}/${id}/SKILL.md`,
     })
     return ok({
-      version: '0.2.6', lastUpdated: '2026-09-25', skillsDir: dir, hermesDir: hermes, unlisted: [],
+      version: '0.2.6', lastUpdated: '2026-09-25', skillsDir: dir, hermesDir: hermes,
+      importDir: 'C:/mock/home/.dsh/skills', importTargetName: 'DSH', unlisted: [],
       skills: [
-        mk('fangcun-bridge', 'Hermes', '1.0.0', true, '---\nname: 方寸接线卡\n---\n正文甲'),
-        mk('skill-management-policy', 'All', '1.1.0', false, '---\nname: 技能纪律\n---\n正文乙'),
+        mk('fangcun-bridge', 'All', '1.0.0', true, '---\nname: 方寸接线卡\n---\n正文甲'),
+        mk('skill-management-policy', 'Hermes', '1.1.0', false, '---\nname: 技能纪律\n---\n正文乙'),
       ],
       // 多目标状态（卡 010/011）：fangcun-bridge 在 Hermes 最新、在 DSH 有更新；
       // skill-management-policy 两边都没装 —— 卡片上三种徽章文案都能被断言到。
@@ -2134,17 +2140,37 @@ contextBridge.exposeInMainWorld('tegula', {
   // 暮雨：“依然未体现 DSH 插件相关，且 DSH 插件应该自带把方寸接入的功能。”
   mcpDshPlugin: () => {
     rec('mcpDshPlugin')
+    const VER = window.__FC_VER || '0.0.0'
     return ok({
       dshHome: 'C:/mock/.dsh',
       installed: true,
+      dshVersion: '0.2.2-rc.5',
+      dshVersionFrom: 'C:/mock/Programs/DeepSeek Harness/resources/app.asar',
       profile: 'desktop',
       profileDir: 'C:/mock/.dsh/profiles/desktop',
       plugins: [{
         name: 'dsh-fangcun', bundled: true, version: '0.3.0',
         spec: 'link:E:/CODE/CangKu/dsh-fangcun', linkedDir: 'E:/CODE/CangKu/dsh-fangcun',
         selfConnect: '命名管道（插件自己直连方寸，不需要在 patch 里写 command）',
+        compatDsh: '>=0.2.1-rc.2', compatReleases: { '0.2.2-rc.3': 'verified' },
       }],
       pipe: { path: '\\\\.\\pipe\\tegula-mcp', alive: true },
+      dispatch: {
+        dir: 'C:/mock/fangcun/.dispatch-dsh', pending: 0, rejected: 0,
+        secret: { present: true, path: 'C:/mock/roaming/fangcun-desktop/dispatch-secret', pluginPath: 'C:/mock/roaming/fangcun-desktop/dispatch-secret', same: true },
+        last: { at: '2026-11-20T10:00:00.000Z', ok: true, project: 'demo', kind: 'work', sessionId: 'sess-12345678' },
+        recent: [{ at: '2026-11-20T10:00:00.000Z', ok: true, project: 'demo', kind: 'work', sessionId: 'sess-12345678' }],
+      },
+      checks: [
+        { key: 'app', label: '方寸本体', status: 'ok', detail: 'v' + VER, action: '' },
+        { key: 'dsh', label: 'DSH 基座', status: 'ok', detail: 'v0.2.2-rc.5', action: '' },
+        { key: 'plugin', label: '方寸插件', status: 'bad', detail: 'dsh-fangcun 0.3.0（已进 bundles）', action: '升到 0.7.3+：更旧的插件不认识签名派单' },
+        { key: 'compat', label: '插件 ↔ DSH 兼容', status: 'unknown', detail: '插件没登记 DSH 0.2.2-rc.5', action: '升级 dsh-fangcun 到覆盖当前 DSH 的版本' },
+        { key: 'pipe', label: 'MCP 通道', status: 'ok', detail: '\\\\.\\pipe\\tegula-mcp —— 通', action: '' },
+        { key: 'secret', label: '派单签名密钥', status: 'ok', detail: '两边读同一份', action: '' },
+        { key: 'dispatch', label: '派单链路', status: 'ok', detail: '最近一次成功：2026-11-20 10:00 · demo · 会话 sess-123', action: '' },
+      ],
+      verdict: '有 1 处明确不通：方寸插件 —— 先修「方寸插件」',
       legacy: {
         line: 38, plugin: '@deepseek-ai/dsh-mcp-client',
         command: 'E:\\CODE\\CangKu\\fangcun\\desktop\\node_modules\\electron\\dist\\electron.exe',
@@ -2714,18 +2740,27 @@ contextBridge.exposeInMainWorld('tegula', {
   backupPickRestoreFile: () => null,
   backupPickDir: () => null,
   // 月度花销（2026-10-22 · 03 任务三）：按自然月。夹具刻意两个月、其中一条无 usage。
+  // 2026-11-21：月份改成**跟着今天走**。原来写死 2026-10，页面却一直印“本月 TOKEN”，
+  // 于是测试与界面一起把“上个月”说成本月 —— 这种夹具本身就是假绿。
   llmUsageMonthly: () => {
     rec('llmUsageMonthly')
+    const now = new Date()
+    const ym = (off) => {
+      const d = new Date(now.getFullYear(), now.getMonth() + off, 1)
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    }
+    const curMonth = ym(0)
+    const prevMonth = ym(-1)
     return {
       months: [
-        // 金额三态各来一条（2026-10-25 卡 005）：十月有金额且 1 笔未折算；九月纯未折算
-        { month: '2026-10', calls: 3, ok: 2, fail: 1, token_calls: 2, prompt_tokens: 90, completion_tokens: 40, total_tokens: 1300, new_input_tokens: 70, cache_read_tokens: 20, cost: '0.42000000', cost_calls: 2, provider_cost_calls: 1, unpriced_calls: 1, external_calls: 1, byTrigger: [{ trigger: 'desktop.ask', calls: 2, total_tokens: 300 }], days: [
-          { date: '2026-10-01', calls: 1, new_input_tokens: 30, completion_tokens: 10, total_tokens: 30 },
-          { date: '2026-10-02', calls: 1, new_input_tokens: 25, completion_tokens: 20, total_tokens: 45 },
-          { date: '2026-10-03', calls: 1, new_input_tokens: 15, completion_tokens: 10, total_tokens: 35 },
+        // 金额三态各来一条（2026-10-25 卡 005）：本月有金额且 1 笔未折算；上月纯未折算
+        { month: curMonth, calls: 3, ok: 2, fail: 1, token_calls: 2, prompt_tokens: 90, completion_tokens: 40, total_tokens: 1300, new_input_tokens: 70, cache_read_tokens: 20, cost: '0.42000000', cost_calls: 2, provider_cost_calls: 1, unpriced_calls: 1, external_calls: 1, byTrigger: [{ trigger: 'desktop.ask', calls: 2, total_tokens: 300 }], days: [
+          { date: `${curMonth}-01`, calls: 1, new_input_tokens: 30, completion_tokens: 10, total_tokens: 30 },
+          { date: `${curMonth}-02`, calls: 1, new_input_tokens: 25, completion_tokens: 20, total_tokens: 45 },
+          { date: `${curMonth}-03`, calls: 1, new_input_tokens: 15, completion_tokens: 10, total_tokens: 35 },
         ] },
-        { month: '2026-09', calls: 1, ok: 1, fail: 0, token_calls: 1, prompt_tokens: 10, completion_tokens: 5, total_tokens: 500, new_input_tokens: 8, cache_read_tokens: 2, cost: '0.00000000', cost_calls: 0, provider_cost_calls: 0, unpriced_calls: 1, external_calls: 0, byTrigger: [{ trigger: 'desktop.draftProjectBrief', calls: 1, total_tokens: 500 }], days: [
-          { date: '2026-09-01', calls: 1, new_input_tokens: 8, completion_tokens: 5, total_tokens: 500 },
+        { month: prevMonth, calls: 1, ok: 1, fail: 0, token_calls: 1, prompt_tokens: 10, completion_tokens: 5, total_tokens: 500, new_input_tokens: 8, cache_read_tokens: 2, cost: '0.00000000', cost_calls: 0, provider_cost_calls: 0, unpriced_calls: 1, external_calls: 0, byTrigger: [{ trigger: 'desktop.draftProjectBrief', calls: 1, total_tokens: 500 }], days: [
+          { date: `${prevMonth}-01`, calls: 1, new_input_tokens: 8, completion_tokens: 5, total_tokens: 500 },
         ] },
       ],
     }

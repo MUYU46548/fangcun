@@ -1001,6 +1001,59 @@ function main() {
       && !/fs\.unlinkSync/.test(logsSrc.slice(logsSrc.indexOf('export function purgeArchivedBefore'), logsSrc.indexOf('export function purgeArchivedBefore') + 2600)))
   }
 
+  // ── 自动收口（2026-11-21 · 暮雨：“验收通过后日志没自动已读，还在挂着干扰我”）──
+  // 判据：任务**签收**（完成）后，关联日志如果还有没签的任务 → 不收；全部签完 → 自动变已完成。
+  // 驳回不等同于签收（要返工），日志必须继续留着；running 的日志也不许被收走。
+  {
+    const tasks = require(path.join(DIST, 'data', 'tasks.js'))
+    const auto = require(path.join(DIST, 'services', 'logAutoClose.js'))
+    auto.installLogAutoClose()
+
+    const a1 = tasks.createTask({ title: '收口-A1', project: 'demo', status: '进行中' })
+    const a2 = tasks.createTask({ title: '收口-A2', project: 'demo', status: '进行中' })
+    const la = logs.createLog('收口日志A', 'demo', '正文不许被改', null, { taskIds: [a1.id, a2.id] })
+    check('自动收口：准备日志（关联两张卡）', la.ok === true && !!la.data)
+
+    tasks.moveStatus(a1.id, '完成')
+    check('★ 只签收一张时日志**仍是待处理**（不许提前收口）',
+      logs.getLog(la.data.id).status === 'active', logs.getLog(la.data.id).status)
+
+    tasks.updateTask(a2.id, { status: '完成' })
+    const afterA = logs.getLog(la.data.id)
+    check('★★ 关联任务全部签收后，日志自动变成已完成', afterA.status === 'completed', afterA.status)
+    check('★ 自动收口写明理由（完成确认里有“自动收口”，不是静默改状态）',
+      String(afterA.note || '').includes('自动收口'), String(afterA.note || ''))
+    check('★ 自动收口**不动正文**（交接记录不许被擦掉）',
+      String(afterA.content || '').includes('正文不许被改'), String(afterA.content || '').slice(0, 40))
+
+    // 驳回不收口
+    const b1 = tasks.createTask({ title: '收口-B1', project: 'demo', status: '进行中' })
+    const b2 = tasks.createTask({ title: '收口-B2', project: 'demo', status: '进行中' })
+    const lb = logs.createLog('收口日志B', 'demo', '驳回要返工', null, { taskIds: [b1.id, b2.id] })
+    tasks.moveStatus(b1.id, '驳回')
+    tasks.moveStatus(b2.id, '驳回')
+    check('★★ 全部**驳回**时不自动收口（驳回 = 要返工，日志还得接着用）',
+      logs.getLog(lb.data.id).status === 'active', logs.getLog(lb.data.id).status)
+
+    // “进行中”的日志不收口（有人正在跑）
+    const c1 = tasks.createTask({ title: '收口-C1', project: 'demo', status: '进行中' })
+    const c2 = tasks.createTask({ title: '收口-C2', project: 'demo', status: '进行中' })
+    const lc = logs.createLog('收口日志C', 'demo', '正在跑', null, { taskIds: [c1.id, c2.id] })
+    logs.setLogRunning(lc.data.id, true)
+    tasks.moveStatus(c1.id, '完成')
+    tasks.moveStatus(c2.id, '完成')
+    const afterC = logs.getLog(lc.data.id)
+    check('★★ “进行中”的日志不被自动收口（有人正在跑，收口会把人撵走）',
+      afterC.status === 'active' && afterC.running === true, `${afterC.status}/${afterC.running}`)
+
+    // 没有关联任务的日志不受影响
+    const ld = logs.createLog('收口日志D', 'demo', '无关联', null, {})
+    check('  没有关联任务的日志保持待处理（自动收口只认关联关系）',
+      logs.getLog(ld.data.id).status === 'active')
+
+    auto.uninstallLogAutoClose()
+  }
+
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {
     console.log('\n失败项：')

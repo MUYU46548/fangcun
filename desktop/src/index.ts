@@ -17,6 +17,7 @@ import { startScanner, stopScanner } from './main/services/notifier'
 import { startIdleReminder, stopIdleReminder } from './main/services/idleReminder'
 import { syncSelfRepoOnBoot } from './main/services/selfSync'
 import { autoCheckSkills } from './main/services/skillInstaller'
+import { installLogAutoClose } from './main/services/logAutoClose'
 import * as appLog from './main/services/appLog'
 
 // ── 入口分流的说明（2026-10-18）──────────────────────────────────────────
@@ -30,6 +31,12 @@ import * as appLog from './main/services/appLog'
 // 未捕获异常/未处理 rejection 直接消失，终端里只剩 vite 的噪声。
 // 必须在任何业务 import 的副作用之前跑，越早越好。
 appLog.installProcessHandlers()
+
+// ── 执行日志自动收口（2026-11-21）────────────────────────────────────────
+// 用户签收一张卡后，挂着它的日志如果关联任务**全都**签完了，就自动标“已完成”。
+// 不这么做，日志会一直留在「待处理」，下一轮开工又把过时的“下一步”当交接单读。
+// 只挂回调、不 import 日志实现到 data 层（避免成环），失败也不影响任务写盘。
+installLogAutoClose()
 
 // ── userData 目录统一（发版阻塞项，2026-09-20 修复）──
 // Electron 默认 userData 在打包态取 productName（= %APPDATA%/方寸），

@@ -29,6 +29,76 @@ function skillDirIds(): string[] {
   return readSkillIdsFromDir(getResourcesSkillsDir())
 }
 
+/**
+ * manifest 里的「技能 → 目标 agent」对照（2026-11-21）。
+ *
+ * 为什么需要：`skill-management-policy` 教的是 Hermes 侧的分区/写权限纪律，
+ * 往 DSH 里装只会变成噪音。manifest 的 `target` 字段本来就有（此前只用于界面展示），
+ * 现在真正参与分发：`Hermes` 只装 Hermes，`All` 装所有可直装目标。
+ * 读不到 manifest 时退回“全部技能、目标 All”（宁可多装，不静默漏装）。
+ */
+function skillEntries(): { id: string; target: string }[] {
+  const dir = getResourcesSkillsDir()
+  try {
+    const mp = path.join(dir, 'manifest.json')
+    if (fs.existsSync(mp)) {
+      const m = JSON.parse(fs.readFileSync(mp, 'utf-8'))
+      const rows = (Array.isArray(m?.skills) ? m.skills : [])
+        .map((e: any) => ({ id: String(e?.id || '').trim(), target: String(e?.target || 'All').trim() }))
+        .filter((e: any) => !!e.id)
+      if (rows.length) return rows
+    }
+  } catch { /* manifest 坏了 → 目录扫描兜底 */ }
+  return skillDirIds().map((id) => ({ id, target: 'All' }))
+}
+
+/** 某个目标该分到哪些技能（`All` 通吃；大小写不敏感）。 */
+function skillIdsForTarget(targetId: string): string[] {
+  const want = String(targetId || '').toLowerCase()
+  return skillEntries()
+    .filter((e) => {
+      const t = e.target.toLowerCase()
+      return t === 'all' || t === 'any' || t === want
+    })
+    .map((e) => e.id)
+}
+
+/**
+ * 同步/跳过之后**重新读盘**的逐技能复核（2026-11-21）。
+ *
+ * 用户原话：“运提示已是最新。但我怎么确定是真同步了还是方寸假绿骗人？”
+ * 所以不能再拿“刚才安装函数没报错”当结论 —— 必须把源与目标两份文件各算一次 md5，
+ * 把**两份指纹**一起交给界面。`match` 只认“两边都有且相等”。
+ */
+export interface SkillCheckRow {
+  id: string
+  /** 真源 SKILL.md 的 md5（读不到为空串） */
+  srcHash: string
+  /** 目标端当前 SKILL.md 的 md5（没装为空串） */
+  destHash: string
+  match: boolean
+  /** 目标端文件的最后修改时间（ISO；没装为空串） */
+  destAt: string
+}
+
+function verifyTarget(targetId: string): { checks: SkillCheckRow[]; verified: boolean } {
+  const target = findTarget(targetId)
+  const checks: SkillCheckRow[] = []
+  if (!target) return { checks, verified: false }
+  const resourcesDir = getResourcesSkillsDir()
+  const destRoot = target.dir()
+  for (const id of skillIdsForTarget(targetId)) {
+    const src = path.join(resourcesDir, id, 'SKILL.md')
+    const dest = path.join(destRoot, id, 'SKILL.md')
+    const srcHash = fileMd5Safe(src)
+    const destHash = fileMd5Safe(dest)
+    let destAt = ''
+    try { if (fs.existsSync(dest)) destAt = fs.statSync(dest).mtime.toISOString() } catch { /* 读不到就留空 */ }
+    checks.push({ id, srcHash, destHash, match: !!srcHash && srcHash === destHash, destAt })
+  }
+  return { checks, verified: checks.length > 0 && checks.every((c) => c.match) }
+}
+
 
 interface SkillInstallResult {
   installed: string[]
@@ -69,9 +139,36 @@ function getResourcesSkillsDir(): string {
   return base
 }
 
+/** 供 skillImport 复用：方寸技能的「主落点」（DSH 在场优先，否则 Hermes）。 */
+export function getPrimarySkillsDirPath(): string {
+  return getPrimaryInstallTarget().dir()
+}
+
+/** 主落点的名字（界面文案用，避免把 Hermes 写死）。 */
+export function getPrimarySkillsTargetName(): string {
+  return getPrimaryInstallTarget().name
+}
+
+/**
+ * 外部导入的落点：**DSH 在场就落 DSH，否则才落 Hermes**（2026-11-21）。
+ *
+ * 背景：暮雨反馈“方寸本来就不是只给 Hermes 做的……用户不一定有 Hermes，或者根本不知道那是什么”。
+ * 导入技能若仍写死 `~/.hermes/skills`，没有 Hermes 的机器会被凭空造出一个 hermes 目录。
+ */
+export function getPrimaryInstallTarget(): InstallTargetDef {
+  const dsh = findTarget('dsh')
+  if (dsh && dsh.present()) return dsh
+  return findTarget('hermes') || INSTALL_TARGETS[0]
+}
+
 /** 供 skillImport 复用：Hermes 技能目录（不另造第二个真相源） */
 export function getHermesSkillsDirPath(): string {
   return getHermesSkillsDir()
+}
+
+/** 供 skillImport 复用：DSH 技能目录（外部导入的另一个候选落点）。 */
+export function getDshSkillsDirPath(): string {
+  return getDshSkillsDir()
 }
 
 /**
@@ -185,7 +282,7 @@ export function checkSkillsStatus(targetId = 'hermes'): {
   const resourcesDir = getResourcesSkillsDir()
   const destRoot = target.dir()
 
-  for (const skillDir of skillDirIds()) {
+  for (const skillDir of skillIdsForTarget(target.id)) {
     const srcSkillMd = path.join(resourcesDir, skillDir, 'SKILL.md')
     if (!fs.existsSync(srcSkillMd)) continue
 
@@ -237,7 +334,7 @@ export function installSkillsTo(targetId: string): SkillInstallResult {
 
   appLog.info('skills', `开始安装 skills → ${target.name}，源: ${resourcesDir}`)
 
-  for (const skillDir of skillDirIds()) {
+  for (const skillDir of skillIdsForTarget(target.id)) {
     try {
       const srcSkillMd = path.join(resourcesDir, skillDir, 'SKILL.md')
       if (!fs.existsSync(srcSkillMd)) {
@@ -290,6 +387,13 @@ export interface SkillSyncTarget {
   errors: { skill: string; error: string }[]
   /** 整个目标级别的异常（目录不可写之类） */
   error?: string
+  /**
+   * 动作之后**重新读盘**的逐技能指纹（2026-11-21）。
+   * 这是“不是假绿”的凭据：界面把源/目标两份 md5 都摆出来，用户能自己对。
+   */
+  checks: SkillCheckRow[]
+  /** checks 全部一致才 true（一个技能都没有时 false —— 没得验不能算绿） */
+  verified: boolean
 }
 
 /** 一次自动同步的完整留痕（落盘，界面可读） */
@@ -357,7 +461,7 @@ export function autoCheckSkills(trigger = 'boot'): SkillSyncStatus {
   for (const t of INSTALL_TARGETS) {
     const row: SkillSyncTarget = {
       id: t.id, name: t.name, present: false, needsInstall: false,
-      installed: [], skipped: [], errors: [],
+      installed: [], skipped: [], errors: [], checks: [], verified: false,
     }
     try {
       if (!t.present()) {
@@ -376,8 +480,16 @@ export function autoCheckSkills(trigger = 'boot'): SkillSyncStatus {
         row.errors = result.errors
         appLog.info('skills', `${t.name}：自动安装完成——已装 ${result.installed.length}，跳过 ${result.skipped.length}，失败 ${result.errors.length}`)
       } else {
-        row.skipped = ids.slice()
+        row.skipped = skillIdsForTarget(t.id)
         appLog.info('skills', `${t.name}：skills 已是最新，无需安装`)
+      }
+      // ★ 复核：不看刚才那句“装完了”，重新把源与目标两份文件读出来算指纹。
+      //   这才是对用户那句“怎么确定不是假绿”的回答。
+      const after = verifyTarget(t.id)
+      row.checks = after.checks
+      row.verified = after.verified
+      if (!after.verified) {
+        appLog.warn('skills', `${t.name}：同步后复核**仍未一致**（${after.checks.filter((c) => !c.match).map((c) => c.id).join('、') || '没有可复核的技能'}）`)
       }
     } catch (e: any) {
       row.error = e?.message || String(e)
@@ -390,7 +502,8 @@ export function autoCheckSkills(trigger = 'boot'): SkillSyncStatus {
     appVersion: app.getVersion(),
     skills: ids,
     trigger,
-    ok: targets.every((x) => !x.error && x.errors.length === 0),
+    // ok = 没有异常 **且** 在场目标的复核都一致（不在场的没得验，不算失败）
+    ok: targets.every((x) => !x.error && x.errors.length === 0 && (!x.present || x.verified)),
     targets,
   }
   writeSyncStatus(s)
@@ -416,12 +529,51 @@ export function getSkillSyncStatus(): {
   staleReason: string
   /** 这次会同步哪些技能（读的是 manifest，不是写死） */
   skills: string[]
+  /**
+   * 现在这一刻的磁盘实况（2026-11-21）。
+   *
+   * 为什么不能只回“上次同步记录”：那份记录只说明“当时装完没报错”，
+   * 说明不了“现在磁盘上还对”。用户点开页面时，副本可能已被别的 agent 改掉/删掉。
+   * 所以每次读取都把在场目标重新算一遍 md5，并把不一致的 id 点名。
+   */
+  live: {
+    id: string
+    name: string
+    dir: string
+    present: boolean
+    checks: SkillCheckRow[]
+    verified: boolean
+    mismatched: string[]
+  }[]
+  /** 磁盘实况是否已经与记录不符（true = 界面不许再显示绿） */
+  liveStale: boolean
+  /** 为什么 liveStale（给人看的一句话；一致时为空串） */
+  liveReason: string
 } {
   const s = readSyncStatus()
   const currentVersion = app.getVersion()
   // 判据在 shared/skillSync.ts（纯函数）：e2e-skill-sync 直接喂它两组数据验正反。
   const { stale, reason: staleReason } = judgeSkillSyncStale(s, currentVersion)
-  return { ok: true, status: s, currentVersion, stale, staleReason, skills: skillDirIds() }
+  const live = INSTALL_TARGETS.map((t) => {
+    const present = (() => { try { return t.present() } catch { return false } })()
+    const after = present ? verifyTarget(t.id) : { checks: [] as SkillCheckRow[], verified: false }
+    return {
+      id: t.id,
+      name: t.name,
+      dir: (() => { try { return t.dir() } catch { return '' } })(),
+      present,
+      checks: after.checks,
+      verified: after.verified,
+      mismatched: after.checks.filter((c) => !c.match).map((c) => c.id),
+    }
+  })
+  const presentLive = live.filter((x) => x.present)
+  const liveStale = presentLive.length > 0 && presentLive.some((x) => !x.verified)
+  const bad = presentLive.filter((x) => !x.verified)
+  const liveReason = liveStale
+    ? bad.map((x) => `${x.name}：${x.mismatched.length ? x.mismatched.join('、') + ' 与真源不一致' : '没有可复核的技能'}`).join('；')
+    : ''
+  return { ok: true, status: s, currentVersion, stale, staleReason, skills: skillDirIds(), live, liveStale, liveReason }
 }
 
 
@@ -471,7 +623,11 @@ export interface SkillsUiPayload {
   version: string
   lastUpdated: string
   skillsDir: string
+  /** ⚠ 历史字段（Hermes 侧目录）。界面已改用 `importDir`；保留只为旧渲染层不炸。 */
   hermesDir: string
+  /** 外部导入的落点（DSH 在场优先）与它属于哪个 agent —— 不再写死 Hermes */
+  importDir: string
+  importTargetName: string
   /** 磁盘上有 SKILL.md、但 manifest 没登记的目录 */
   unlisted: string[]
   skills: SkillUiItem[]
@@ -496,7 +652,7 @@ function buildInstallPrompt(it: { id: string; target: string; absPath: string })
     `- 技能文件（绝对路径）：${it.absPath}`,
     '',
     '做法：先读这个文件，再按你自己的技能机制把它装好',
-    '（例如 Hermes 是 ~/.hermes/skills/<技能ID>/SKILL.md），',
+    '（例如 DSH 是 ~/.dsh/skills/<技能ID>/SKILL.md，Hermes 是 ~/.hermes/skills/<技能ID>/SKILL.md），',
     '装完告诉我落在哪个路径、要不要重载会话。内容不要改写、不要总结。',
     '',
     '说明：技能本质只是模块化提示词，不是插件。',
@@ -522,9 +678,13 @@ function skillDescription(body: string): string {
 export function listSkillsForUi(): SkillsUiPayload {
   const skillsDir = getResourcesSkillsDir()
   const hermesDir = getHermesSkillsDir()
+  const primaryTarget = getPrimaryInstallTarget()
+  const primaryDir = primaryTarget.dir()
   const manifestPath = path.join(skillsDir, 'manifest.json')
   const out: SkillsUiPayload = {
-    ok: true, version: '', lastUpdated: '', skillsDir, hermesDir, unlisted: [], skills: [], targets: [],
+    ok: true, version: '', lastUpdated: '', skillsDir, hermesDir,
+    importDir: primaryDir, importTargetName: primaryTarget.name,
+    unlisted: [], skills: [], targets: [],
   }
 
   let manifest: any = null
@@ -561,7 +721,7 @@ export function listSkillsForUi(): SkillsUiPayload {
         if (body.length > 200_000) body = body.slice(0, 200_000) + '\n\n…（超过 200KB，已截断）'
       }
     } catch { /* 读不到就当不存在，界面会显示 */ }
-    const dest = path.join(hermesDir, id, 'SKILL.md')
+    const dest = path.join(primaryDir, id, 'SKILL.md')
     const installed = fs.existsSync(dest)
     const saved = readInstalledManifest(hermesDir)[id]
     out.skills.push({
@@ -594,7 +754,9 @@ export function listSkillsForUi(): SkillsUiPayload {
   // ⚠ 每个目标的已装判据都必须**看磁盘实际内容**，不能只看各自那本 manifest（同 checkSkillsStatus 的道理）。
   out.targets = INSTALL_TARGETS.map(t => {
     const dir = t.dir()
-    const sk = out.skills.map(s => {
+    // 只列这个目标**该装**的技能：Hermes 专属技能不该在 DSH 那行显示“未装/过时”
+    const mine = new Set(skillIdsForTarget(t.id))
+    const sk = out.skills.filter(s => mine.has(s.id)).map(s => {
       const dest = path.join(dir, s.id, 'SKILL.md')
       const inst = fs.existsSync(dest)
       return { id: s.id, installed: inst, outdated: s.exists && (!inst || fileMd5Safe(dest) !== s.hash) }
@@ -628,14 +790,16 @@ export function resolveRevealTarget(dirOrFile: string): {
   const raw = String(dirOrFile || '').trim()
   if (!raw) return { ok: false, message: '没有可显示的技能路径（技能清单为空？）' }
   const p = path.resolve(raw)
+  const primary = getPrimaryInstallTarget()
   const roots = [
+    { root: path.resolve(primary.dir()), label: `${primary.name} 侧副本` },
     { root: path.resolve(getHermesSkillsDir()), label: 'Hermes 侧副本' },
     { root: path.resolve(getDshSkillsDir()), label: 'DSH 侧副本' },
     { root: path.resolve(getResourcesSkillsDir()), label: '方寸真源' },
   ]
   const hit = roots.find(r => p === r.root || p.startsWith(r.root + path.sep))
   if (!hit) {
-    return { ok: false, message: `路径不在技能目录内（只允许 Hermes 技能目录或方寸真源 skills 目录）：${p}` }
+    return { ok: false, message: `路径不在技能目录内（只允许已装副本或方寸真源 skills 目录）：${p}` }
   }
   let isDir = false
   try { isDir = fs.statSync(p).isDirectory() } catch { isDir = false }

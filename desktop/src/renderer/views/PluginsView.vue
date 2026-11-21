@@ -21,7 +21,7 @@
         <h3>插件</h3>
         <p class="plg-head-sub">
           方寸自己的 DSH 插件，以及给别的 agent 用的 MCP 接入材料 —— 都是<strong>通道</strong>，不是技能。
-          这一页只读、只给材料；方寸不写别人的配置文件（Hermes 那一条是唯一的例外，会先问你）。
+          这一页只读、只给材料；方寸不写别人的配置文件（MCP 那一段里有唯一的例外，只在检测到对方时出现，且会先问你）。
         </p>
       </div>
       <div class="plg-head-acts">
@@ -35,6 +35,10 @@
         <span class="plg-sum-k">方寸本体</span>
         <span class="plg-sum-v">v{{ appVersion || '—' }}</span>
       </div>
+      <div class="plg-sum-cell" :class="{ 'is-warn': !dshStatus || !dshStatus.dshVersion }">
+        <span class="plg-sum-k">DSH 基座</span>
+        <span class="plg-sum-v">{{ dshStatus ? (dshStatus.dshVersion ? 'v' + dshStatus.dshVersion : '读不到') : '—' }}</span>
+      </div>
       <div class="plg-sum-cell" :class="{ 'is-warn': !dshPlugged }">
         <span class="plg-sum-k">DSH 插件</span>
         <span class="plg-sum-v">{{ dshPluginVersion || (dshStatus && dshStatus.installed ? '未装插件' : 'DSH 不在场') }}</span>
@@ -42,6 +46,10 @@
       <div class="plg-sum-cell" :class="{ 'is-warn': dshStatus && !dshStatus.pipe.alive }">
         <span class="plg-sum-k">自带通道</span>
         <span class="plg-sum-v">{{ dshStatus ? (dshStatus.pipe.alive ? '通' : '不通') : '—' }}</span>
+      </div>
+      <div class="plg-sum-cell" :class="{ 'is-warn': dshDispatchBad }">
+        <span class="plg-sum-k">派单最近一次</span>
+        <span class="plg-sum-v">{{ dshDispatchText }}</span>
       </div>
       <div class="plg-sum-cell">
         <span class="plg-sum-k">MCP 已接入</span>
@@ -83,6 +91,27 @@
               {{ dshStatus.legacy.commandExists ? '文件存在' : '文件不存在（这条其实连不上）' }}{{ dshStatus.legacy.isDevPath ? '，且是开发目录' : '' }}。
               插件已自带接入，这条可以删掉（方寸不代改 DSH 配置）。
             </div>
+          </div>
+
+          <!-- ── 三方版本 / 派单链路诊断（2026-11-21）──────────────────
+               暮雨原话：“插件页就算写‘不通’，世界上也不会有任何人知道有什么问题。”
+               所以这里不是再写一个“通/不通”，而是**逐环给结论 + 该升级哪一边**：
+               方寸本体 / DSH 基座 / 插件 / 兼容声明 / 通道 / 签名密钥 / 派单审计。 -->
+          <div class="plg-verdict" v-if="dshStatus.checks && dshStatus.checks.length" :class="'plg-v-' + dshWorst" data-dsh-verdict>
+            <b>{{ dshWorstText }}</b>
+            <span>{{ dshStatus.verdict }}</span>
+          </div>
+          <div class="plg-checks" v-if="dshStatus.checks && dshStatus.checks.length" data-dsh-checks>
+            <div v-for="c in dshStatus.checks" :key="c.key" class="plg-check" :class="'plg-check-' + c.status">
+              <span class="plg-check-badge">{{ checkBadge(c.status) }}</span>
+              <span class="plg-check-label">{{ c.label }}</span>
+              <span class="plg-check-detail">{{ c.detail }}</span>
+              <span v-if="c.action" class="plg-check-action">→ {{ c.action }}</span>
+            </div>
+          </div>
+          <div class="agent-howto" v-if="dshStatus.dispatch">
+            派单审计：待消费 {{ dshStatus.dispatch.pending || 0 }} · 被拒 {{ dshStatus.dispatch.rejected || 0 }} ·
+            {{ dshStatus.dispatch.dir }}
           </div>
         </template>
       </div>
@@ -162,11 +191,31 @@ const props = defineProps<{
 // 它自己直连方寸的命名管道 —— 根本不需要在 cordis.patch.yml 里抄 command/args/env。
 interface DshPluginRowUi {
   name: string; bundled: boolean; version: string; spec: string; linkedDir?: string; selfConnect: string
+  compatDsh?: string; compatReleases?: Record<string, string>
+}
+interface DshCheckUi {
+  key: string
+  label: string
+  status: 'ok' | 'warn' | 'bad' | 'unknown'
+  detail: string
+  action: string
+}
+interface DshDispatchUi {
+  dir: string
+  pending: number
+  rejected: number
+  secret: { present: boolean; path: string }
+  last?: { at: string; ok: boolean; reason?: string; project?: string; kind?: string; sessionId?: string; error?: string }
+  recent: { at: string; ok: boolean; reason?: string; project?: string; kind?: string; sessionId?: string; error?: string }[]
 }
 interface DshPluginUi {
   dshHome: string; installed: boolean; profile: string; profileDir: string
+  dshVersion: string; dshVersionFrom: string
   plugins: DshPluginRowUi[]
   pipe: { path: string; alive: boolean }
+  dispatch: DshDispatchUi
+  checks: DshCheckUi[]
+  verdict: string
   legacy?: { line: number; plugin: string; command: string; commandExists: boolean; isDevPath: boolean }
   summary: string
 }
@@ -181,6 +230,35 @@ const dshPluginVersion = computed(() => {
   if (!p) return ''
   return p.version ? 'v' + p.version : '版本未知'
 })
+
+/** 诊断清单里最严重的一档（页面顶部的结论色就用它，不另算一套口径） */
+const dshWorst = computed<DshCheckUi['status']>(() => {
+  const rank: Record<DshCheckUi['status'], number> = { ok: 0, unknown: 1, warn: 2, bad: 3 }
+  const rows = dshStatus.value?.checks || []
+  if (!rows.length) return 'unknown'
+  return rows.reduce((acc, c) => (rank[c.status] > rank[acc] ? c.status : acc), 'ok' as DshCheckUi['status'])
+})
+const dshWorstText = computed(() => ({
+  ok: '三方一致', warn: '能通，但有需要注意的', bad: '有明确不通的环节', unknown: '有一项读不到证据',
+} as Record<DshCheckUi['status'], string>)[dshWorst.value])
+
+/** 派单最近一次：失败就标警（这是“到底有没有开成会话”的唯一客观记录） */
+const dshDispatchBad = computed(() => {
+  const d = dshStatus.value?.dispatch
+  if (!d) return false
+  return (!!d.last && d.last.ok === false) || d.pending > 0
+})
+const dshDispatchText = computed(() => {
+  const d = dshStatus.value?.dispatch
+  if (!d) return '—'
+  if (d.last && d.last.ok === false) return '被拒 · ' + String(d.last.reason || '未知')
+  if (d.pending > 0) return `待消费 ${d.pending}`
+  if (d.last) return '成功 · ' + String(d.last.at || '').slice(5, 16).replace('T', ' ')
+  return '还没有'
+})
+function checkBadge(s: DshCheckUi['status']): string {
+  return ({ ok: '✓', warn: '!', bad: '✗', unknown: '?' } as Record<DshCheckUi['status'], string>)[s]
+}
 
 async function loadDshPlugin(): Promise<void> {
   dshLoading.value = true

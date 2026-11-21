@@ -378,6 +378,32 @@ export function readTask(id: string): Task | null {
   return scan(taskDir, true) ?? scan(taskDir, false) ?? scan(trashDir, true) ?? scan(trashDir, false)
 }
 
+// ── 任务终态回调（2026-11-21）────────────────────────────────────────────
+// 用途：用户**签收**一张卡（状态真的变成 完成/驳回）时，让日志侧把"关联任务都签完了"
+// 的执行日志自动收口——否则日志会一直挂在「待处理」，下一轮开工又把过时的"下一步"当交接单读
+// （暮雨 2026-11-21：“验收通过后日志没自动已读，还在挂着干扰我”）。
+//
+// 为什么用回调而不是在 tasks.ts 里 import logs：logs.ts 已经 import data 层，
+// 反向 import 会成环。安装方（主进程启动时）负责注册，业务写盘路径不感知日志实现。
+export type TaskTerminalStatus = '完成' | '驳回'
+export type TaskTerminalHook = (task: Task, nextStatus: TaskTerminalStatus, previousStatus: string) => void
+let taskTerminalHook: TaskTerminalHook | null = null
+
+/** 安装/替换终态回调（传 null 卸载；测试可用来隔离）。 */
+export function setTaskTerminalHook(fn: TaskTerminalHook | null): void {
+  taskTerminalHook = fn
+}
+
+/** 触发终态回调。**回调失败绝不能让任务写盘失败**——日志收口是附带动作。 */
+function fireTaskTerminal(task: Task, nextStatus: TaskTerminalStatus, previousStatus: string): void {
+  if (!taskTerminalHook) return
+  try {
+    taskTerminalHook(task, nextStatus, previousStatus)
+  } catch (e: any) {
+    console.warn('[tasks] 终态回调失败（任务本身已写盘）：' + (e?.message || e))
+  }
+}
+
 export function updateTask(id: string, rawFields: Partial<TaskFrontmatter> & { body?: string }): Task | null {
   const task = readTask(id)
   if (!task) return null
@@ -428,6 +454,10 @@ export function updateTask(id: string, rawFields: Partial<TaskFrontmatter> & { b
     recordQnDelivery(task, nextStatus as '完成' | '驳回')
   } else if (nextStatus === '驳回' && fields.reject_reason !== undefined) {
     recordQnDelivery(task, '驳回', { merge: true })
+  }
+  // 状态**真的**进终态时才通知（驳回理由补写不会重复触发）
+  if ((nextStatus === '完成' || nextStatus === '驳回') && nextStatus !== prevStatus) {
+    fireTaskTerminal(task, nextStatus as TaskTerminalStatus, prevStatus)
   }
   return task
 }
@@ -593,6 +623,7 @@ export function assertReviewChecklist(fm: any): void {
 export function moveStatus(id: string, newStatus: Status): Task | null {
   const task = readTask(id)
   if (!task) return null
+  const prevStatus = String(task.fm.status || '')
 
   // 进队列闸（2026-11-11）：状态变成「待办」= 这张卡可派了，必须先过澄清卷。
   // 抛错而不是静默放行：调用方（ipc.moveStatus / MCP）把 message 原样回给用户/agent，
@@ -608,6 +639,9 @@ export function moveStatus(id: string, newStatus: Status): Task | null {
   atomicWrite(task.path, renderTask(task))
   logActivity(id, 'move_status', newStatus)
   if (newStatus === '完成' || newStatus === '驳回') recordQnDelivery(task, newStatus)
+  if ((newStatus === '完成' || newStatus === '驳回') && newStatus !== prevStatus) {
+    fireTaskTerminal(task, newStatus as TaskTerminalStatus, prevStatus)
+  }
   return task
 }
 
