@@ -4596,6 +4596,8 @@ button[data-cost]::after {
 .plg-v-bad { border-color: var(--danger); }
 .plg-v-bad b { color: var(--danger); }
 .plg-v-unknown b { color: var(--muted); }
+/* 主动修复条（2026-11-21）：只放方寸有资格做的动作 + 一段给 DSH 的提示词 */
+.plg-fixbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; }
 .plg-checks { display: flex; flex-direction: column; gap: 2px; margin: 0 0 6px; }
 .plg-check {
   display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;

@@ -31,7 +31,7 @@ import * as tripBoard from './services/tripBoard'
 import * as ask from './services/ask'
 import * as correct from './services/correct'
 import * as contextPack from './services/contextPack'
-import { configureDispatchSecretDir } from './services/dispatchSign'
+import { configureDispatchSecretDir, ensureDispatchSecret, resolveDispatchSecretPath } from './services/dispatchSign'
 import * as brief from './services/brief'
 import * as prefs from './services/prefs'
 import * as projectTiers from './services/projectTiers'
@@ -1655,6 +1655,28 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
   // DSH 侧的方寸插件（2026-11-06：暮雨“依然未体现 DSH 插件相关”）——
   // 只读 DSH 的 profile / 管道状态，不写、不改任何 DSH 配置。
   guardedHandle('mcp:dshPlugin', () => ({ ok: true, ...detectDshPlugin(app.getVersion()) }))
+  // 2026-11-21：诊断页的“主动修复”只有两件方寸**有资格**做的：
+  //   ① 生成自己的派单密钥（落在方寸 userData，不碰 DSH）；
+  //   ② 打开 DSH profile 目录（只打开资源管理器，不写）。
+  // 插件升级 / 删旧桥这类要改 DSH 配置的动作，方寸仍然只给提示词，由用户或 DSH 自己动手。
+  guardedHandle('dispatch:ensureSecret', () => {
+    try {
+      ensureDispatchSecret()
+      return { ok: true, path: resolveDispatchSecretPath() }
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+  guardedHandle('mcp:dshProfileOpen', async () => {
+    const s = detectDshPlugin(app.getVersion())
+    if (!s.profileDir) return { ok: false, message: '读不到 DSH profile 目录' }
+    try {
+      const err = await shell.openPath(s.profileDir)
+      return err ? { ok: false, message: err, dir: s.profileDir } : { ok: true, dir: s.profileDir, message: '已打开 DSH profile 目录' }
+    } catch (e: any) {
+      return { ok: false, message: e?.message || String(e), dir: s.profileDir }
+    }
+  })
 
   // ── “哪些待办其实没人碰过”的界面出口（2026-10-27 卡 20261025-006 第三件）──
   // 在此之前这件事**只在 MCP 侧存在**：`never_read` 是个 MCP 工具，主进程没有 IPC、

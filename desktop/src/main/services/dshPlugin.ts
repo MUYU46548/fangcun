@@ -200,28 +200,54 @@ function findLegacyBridge(patchPath: string): DshLegacyBridge | undefined {
 // 为什么要读 asar：DSH 的 `version` 文件写的是 Electron 版本（本机实测 44.7.0），
 // 不是 DSH 自己的版本；而插件 compat 表比的是 DSH 版本，拿 Electron 版本去比只会得出假结论。
 // asar 头格式：offset 0 / 4 / 8 各一个 u32，offset 12 = 头 JSON 长度，JSON 从 offset 16 开始。
+//
+// ⚠ 2026-11-21 真机修（暮雨截图：DSH 基座“读不到”）：Electron 给 `fs` 打了 asar 补丁，
+//   `fs.openSync('...\\app.asar')` 会被当成“打开 asar 里的某个路径”，直接 ENOENT——
+//   普通 Node 里同样的代码是好的（我的单测就是这么过的），只有打包后的 Electron 会坏。
+//   修法：读 asar **本体**一律走 `original-fs`（Electron 提供的不带 asar 补丁的 fs）。
+function rawFs(): typeof fs {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const ofs = require('original-fs')
+    if (ofs && typeof ofs.openSync === 'function') return ofs as typeof fs
+  } catch { /* 纯 Node / 单测没有 original-fs → 用普通 fs */ }
+  return fs
+}
+
+function readAllAt(fd: number, buf: Buffer, position: number): number {
+  const rfs = rawFs()
+  let off = 0
+  while (off < buf.length) {
+    const n = rfs.readSync(fd, buf, off, buf.length - off, position + off)
+    if (!n) break
+    off += n
+  }
+  return off
+}
+
 function readAsarPackage(asarPath: string): { version: string; name: string } | null {
+  const rfs = rawFs()
   let fd = -1
   try {
-    fd = fs.openSync(asarPath, 'r')
+    fd = rfs.openSync(asarPath, 'r')
     const head = Buffer.alloc(16)
-    fs.readSync(fd, head, 0, 16, 0)
+    if (readAllAt(fd, head, 0) < 16) return null
     const headerLen = head.readUInt32LE(12)
     if (!headerLen || headerLen > 64 * 1024 * 1024) return null
     const headerBuf = Buffer.alloc(headerLen)
-    fs.readSync(fd, headerBuf, 0, headerLen, 16)
+    if (readAllAt(fd, headerBuf, 16) < headerLen) return null
     const header = JSON.parse(headerBuf.toString('utf8'))
     const entry = header?.files?.['package.json']
     if (!entry || !Number.isFinite(Number(entry.size))) return null
     const base = 16 + Math.ceil(headerLen / 4) * 4
     const buf = Buffer.alloc(Number(entry.size))
-    fs.readSync(fd, buf, 0, buf.length, base + Number(entry.offset))
+    if (readAllAt(fd, buf, base + Number(entry.offset)) < buf.length) return null
     const pkg = JSON.parse(buf.toString('utf8'))
     return { version: String(pkg?.version || ''), name: String(pkg?.name || '') }
   } catch {
     return null
   } finally {
-    if (fd >= 0) { try { fs.closeSync(fd) } catch { /* 关不掉也不影响读到的结果 */ } }
+    if (fd >= 0) { try { rfs.closeSync(fd) } catch { /* 关不掉也不影响读到的结果 */ } }
   }
 }
 

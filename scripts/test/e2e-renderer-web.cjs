@@ -1216,6 +1216,8 @@ function main() {
 ` : ''}
   ${extra === 'skills' || extra === 'plugins' ? `
   // 2026-11-20：技能页 / 插件页都在「更多」里 —— 先开更多再点页签（见 CASES_ALL 那段注释）。
+  // 2026-11-21：插件页截图要同时看见“密钥缺失 → 生成密钥”这个主动修复入口。
+  ${extra === 'plugins' ? `if (window.__fcTest && window.__fcTest.setDshSecretMissing) window.__fcTest.setDshSecretMissing(true)` : ''}
   {
     const mb0 = document.querySelector('#views .more-btn')
     if (mb0) { mb0.click(); await sleep(400) }

@@ -6747,7 +6747,50 @@
         /派单审计/.test(diagTxt) && /待消费/.test(diagTxt))
       const verdictEl = $('.plugins-view [data-dsh-verdict]')
       check('★★ 顶部有一句结论（哪一环坏了，必须先修它）',
-        !!verdictEl && /明确不通/.test((verdictEl.textContent || '')), verdictEl ? (verdictEl.textContent || '').slice(0, 100) : '(无)')
+        !!verdictEl && /有不通的环节|有注意项|明确不通/.test((verdictEl.textContent || '')), verdictEl ? (verdictEl.textContent || '').slice(0, 100) : '(无)')
+    }
+
+    // ── 主动修复（2026-11-21 暮雨：“没有任何主动修复按钮，也没有复制提示词给 DSH 修复的选项”）──
+    // 方寸有资格做的只有：生成自己的密钥、打开 DSH profile（只开不写）；
+    // 要改 DSH 配置的给一段可复制提示词，由用户贴给 DSH。
+    {
+      const fix = $('.plugins-view [data-dsh-fixbar]')
+      check('★★ 诊断有问题时给主动修复入口（不只是文字说明）', !!fix,
+        'fixbar=' + !!fix)
+
+      window.__fcTest.reset()
+      const copyBtn = $$('.plugins-view [data-dsh-fixbar] button').find((b) => /复制修复提示词/.test(b.textContent || ''))
+      if (copyBtn) copyBtn.click()
+      check('★★ 点「复制修复提示词」真走剪贴板通道',
+        await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'clipboardWriteText'), 4000, 'clipboard'),
+        JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'clipboardWriteText').map((c) => String(c.args && c.args[0]).slice(0, 40))))
+      const clipCall = window.__fcTest.calls().find((c) => c.name === 'clipboardWriteText')
+      const prompt = String((clipCall && clipCall.args && clipCall.args[0]) || '')
+      check('★★ 复制出来的是**逐条修复提示词**（含 0.7.3 门槛 / cordis.patch.yml / 派单审计），不是一句空话',
+        /0\.7\.3/.test(prompt) && /cordis\.patch\.yml/.test(prompt) && /派单审计/.test(prompt) && /备份/.test(prompt),
+        prompt.slice(0, 160))
+
+      window.__fcTest.reset()
+      const openBtn = $$('.plugins-view [data-dsh-fixbar] button').find((b) => /打开 DSH 配置目录/.test(b.textContent || ''))
+      if (openBtn) openBtn.click()
+      check('★ 点「打开 DSH 配置目录」真走 mcpDshProfileOpen（只打开，不写）',
+        await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'mcpDshProfileOpen'), 4000, 'profileOpen'))
+
+      // 造“密钥还没生成”的形态 → 出现「生成派单密钥」，点完真的调 IPC
+      window.__fcTest.setDshSecretMissing(true)
+      await openViewTab('技能'); await sleep(250)
+      await openViewTab('插件'); await sleep(600)
+      const genBtn = $$('.plugins-view [data-dsh-fixbar] button').find((b) => /生成派单密钥/.test(b.textContent || ''))
+      check('★★ 密钥缺失时出现「生成派单密钥」按钮（主动修复，不是只让你去点别处）', !!genBtn)
+      if (genBtn) {
+        window.__fcTest.reset()
+        genBtn.click()
+        check('★★ 点它真调 dispatchEnsureSecret',
+          await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'dispatchEnsureSecret'), 4000, 'ensureSecret'))
+        check('★ 生成后这个按钮消失（状态真的刷新，不是只弹 toast）',
+          await waitFor(() => !$$('.plugins-view [data-dsh-fixbar] button').some((b) => /生成派单密钥/.test(b.textContent || '')), 4000, 'gone'))
+      }
+      window.__fcTest.setDshSecretMissing(false)
     }
 
     await sleep(300)

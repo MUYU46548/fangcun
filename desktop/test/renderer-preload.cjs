@@ -24,6 +24,8 @@ const store = {
   // 2026-11-21：截图/断言要看到“近 14 天有柱”时先 setUsageRecent(true)；
   // 默认 false，旧的“每天 3 根柱”断言不受影响。
   usageRecent: false,
+  /** 诊断页“生成派单密钥”测试用：true = 插件状态里密钥还没生成 */
+  dshSecretMissing: false,
   // 记忆层（2026-11-17）· 夹具默认给**真形状的三条**：
   // 一条事故、一条纪律、一条已撤销。为什么不全空 —— 空数组会让
   // "列表渲染出来了吗"和"筛选生效了吗"永远无法区分（本仓栽过）。
@@ -2141,6 +2143,12 @@ contextBridge.exposeInMainWorld('tegula', {
   // 否则“点了按钮到底走没走主进程”这件事在渲染层永远测不到。
   // 2026-11-06：DSH 侧的方寸插件（只读块）。
   // 暮雨：“依然未体现 DSH 插件相关，且 DSH 插件应该自带把方寸接入的功能。”
+  mcpDshProfileOpen: () => { rec('mcpDshProfileOpen'); return { ok: true, dir: 'C:/mock/.dsh/profiles/desktop', message: '已打开 DSH profile 目录' } },
+  dispatchEnsureSecret: () => {
+    rec('dispatchEnsureSecret')
+    store.dshSecretMissing = false
+    return { ok: true, path: 'C:/mock/roaming/fangcun-desktop/dispatch-secret' }
+  },
   mcpDshPlugin: () => {
     rec('mcpDshPlugin')
     const VER = window.__FC_VER || '0.0.0'
@@ -2160,7 +2168,7 @@ contextBridge.exposeInMainWorld('tegula', {
       pipe: { path: '\\\\.\\pipe\\tegula-mcp', alive: true },
       dispatch: {
         dir: 'C:/mock/fangcun/.dispatch-dsh', pending: 0, rejected: 0,
-        secret: { present: true, path: 'C:/mock/roaming/fangcun-desktop/dispatch-secret', pluginPath: 'C:/mock/roaming/fangcun-desktop/dispatch-secret', same: true },
+        secret: { present: !store.dshSecretMissing, path: 'C:/mock/roaming/fangcun-desktop/dispatch-secret', pluginPath: 'C:/mock/roaming/fangcun-desktop/dispatch-secret', same: !store.dshSecretMissing },
         last: { at: '2026-11-20T10:00:00.000Z', ok: true, project: 'demo', kind: 'work', sessionId: 'sess-12345678' },
         recent: [{ at: '2026-11-20T10:00:00.000Z', ok: true, project: 'demo', kind: 'work', sessionId: 'sess-12345678' }],
       },
@@ -2170,7 +2178,7 @@ contextBridge.exposeInMainWorld('tegula', {
         { key: 'plugin', label: '方寸插件', status: 'bad', detail: 'dsh-fangcun 0.3.0（已进 bundles）', action: '升到 0.7.3+：更旧的插件不认识签名派单' },
         { key: 'compat', label: '插件 ↔ DSH 兼容', status: 'unknown', detail: '插件没登记 DSH 0.2.2-rc.5', action: '升级 dsh-fangcun 到覆盖当前 DSH 的版本' },
         { key: 'pipe', label: 'MCP 通道', status: 'ok', detail: '\\\\.\\pipe\\tegula-mcp —— 通', action: '' },
-        { key: 'secret', label: '派单签名密钥', status: 'ok', detail: '两边读同一份', action: '' },
+        { key: 'secret', label: '派单签名密钥', status: store.dshSecretMissing ? 'warn' : 'ok', detail: store.dshSecretMissing ? '还没有（第一次点「发送给 DSH」时会自动生成，不是故障）' : '两边读同一份', action: store.dshSecretMissing ? '点一次「发送给 DSH」生成密钥' : '' },
         { key: 'dispatch', label: '派单链路', status: 'ok', detail: '最近一次成功：2026-11-20 10:00 · demo · 会话 sess-123', action: '' },
       ],
       verdict: '有 1 处明确不通：方寸插件 —— 先修「方寸插件」',
@@ -3062,6 +3070,8 @@ contextBridge.exposeInMainWorld('__fcTest', {
   },
   /** 2026-11-21：给“近 14 天柱”补两根今天的柱（截图/目检用；默认关，旧断言不受影响） */
   setUsageRecent: (v) => { store.usageRecent = v !== false; return store.usageRecent },
+  /** 2026-11-21：把“派单密钥还没生成”这个形态造出来，验主动修复按钮 */
+  setDshSecretMissing: (v) => { store.dshSecretMissing = v !== false; return store.dshSecretMissing },
   resetPlanDocs: () => {
     const p0 = PLAN_DOCS[0].stages.find(s => s.id === 'P0')
     if (p0) { p0.status = '已冻结'; p0.verdict = '通过 · 2026-10-29'; p0.rejectReason = '' }

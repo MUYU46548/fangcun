@@ -125,6 +125,13 @@ function main() {
       JSON.stringify(s.plugins))
     check('★ 插件自报的 compat 表透传（界面要拿它跟 DSH 版本核对）',
       s.plugins[0].compatReleases && s.plugins[0].compatReleases['0.2.2-rc.5'] === 'verified')
+    // 2026-11-21 真机：Electron 的 fs 带 asar 补丁，直接 openSync('...app.asar') 会 ENOENT。
+    // 普通 Node 里测不出来，所以必须用源码守卫钉住“读 asar 本体走 original-fs”。
+    {
+      const src = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'main', 'services', 'dshPlugin.ts'), 'utf-8')
+      check('★★ 读 DSH 的 app.asar 必须绕开 Electron 的 asar fs 补丁（original-fs），否则打包后“读不到基座版本”',
+        /original-fs/.test(src) && /readAsarPackage/.test(src), 'dshPlugin.ts')
+    }
     check('★ 密钥两边同一份 → secret 检查为 ok',
       (s.checks.find(c => c.key === 'secret') || {}).status === 'ok', JSON.stringify(s.checks.find(c => c.key === 'secret')))
     check('★ 兼容表覆盖当前 DSH → compat 检查为 ok',

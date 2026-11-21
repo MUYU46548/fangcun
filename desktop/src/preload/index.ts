@@ -514,6 +514,10 @@ contextBridge.exposeInMainWorld('tegula', {
   mcpLinkHermes: (entryId: string) => ipcRenderer.invoke('mcp:linkHermes', entryId),
   /** DSH 侧的方寸插件状态（只读：插件装没装、自带通道通不通、旧的手工桥指向哪） */
   mcpDshPlugin: () => ipcRenderer.invoke('mcp:dshPlugin'),
+  /** 打开 DSH profile 目录（只打开资源管理器，不写任何配置） */
+  mcpDshProfileOpen: () => ipcRenderer.invoke('mcp:dshProfileOpen'),
+  /** 生成方寸自己的派单签名密钥（只写方寸 userData，不碰 DSH） */
+  dispatchEnsureSecret: () => ipcRenderer.invoke('dispatch:ensureSecret'),
   /** “哪些待办没人碰过”（卡 20261025-006 第三件）—— 只读，来自 mcp-usage.jsonl */
   usageNeverRead: (days?: number) => ipcRenderer.invoke('usage:neverRead', days),
   checkMismatch: (days?: number) => ipcRenderer.invoke('mismatch:check', days),
