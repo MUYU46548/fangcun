@@ -269,7 +269,7 @@
                ⚠ 显示标题而不是 id：id 只对人有用（贴给 AI）；翻日志的人在找的是"那件事"。 -->
           <span v-if="logTaskIdsOf(log).length" class="log-task"
             :title="'关联任务：' + logTaskIdsOf(log).join(' · ')">
-            📍 {{ logTaskIdsOf(log).slice(0, 2).map((id: string) => taskTitleOf(id) || id).join(' · ') }}<template
+            📍 {{ logTaskLabel(log) }}<template
               v-if="logTaskIdsOf(log).length > 2"> 等 {{ logTaskIdsOf(log).length }} 张</template>
           </span>
           <span v-if="log.agentName" class="log-agent" title="本次执行 Agent">🤖 {{ log.agentName }}</span>
@@ -461,4 +461,9 @@ const {
 
 // 进入日志页就读一次“今天推哪一格”：裁决发生在项目页，这里不做长时间缓存
 onMounted(() => { void loadDailyBand() })
+
+/** 关联任务卡面文案（2026-11-21）：模板里别写箭头函数的类型标注，拆到脚本里 */
+function logTaskLabel(log: any): string {
+  return (logTaskIdsOf(log) || []).slice(0, 2).map((id: string) => taskTitleOf(id) || id).join(' · ')
+}
 </script>

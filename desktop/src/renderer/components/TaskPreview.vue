@@ -167,20 +167,23 @@
         <div class="acts-group">
           <span class="acts-label">流转</span>
           <button
-            v-if="previewTask.status === '完成' || previewTask.status === '驳回'"
+            v-if="previewTask.status === '完成'"
             class="ok"
-            :title="previewTask.status === '驳回'
-              ? '退回“待办”重新开工 —— 只改状态，文件一个不动'
-              : '退回“待办”—— 只改状态，文件一个不动'"
+            title="退回“待办”—— 只改状态，文件一个不动"
             @click="restoreTask(previewTask)"
-          >{{ previewTask.status === '驳回' ? '↩ 退回返工' : '↩ 退回待办' }}</button>
+          >↩ 退回待办</button>
           <!-- 终态的“删除”不放这里：它与“操作”组里那个删除按钮重复（用户 2026-09-25 第 5 条）。
                底部“操作”组的删除对任何状态都在，单一入口，不重复。
                2026-10-06 用户报“驳回任务只能还原和归档，为了省事点了归档”——
                删除其实在下面“操作”组，但流转组只摆两个按钮时，人不会往下找。
                所以这里补一句**出路提示**（不加第三个按钮）：三种去向 + 各自后果一次说清。 -->
           <span v-if="previewTask.status === '完成' || previewTask.status === '驳回'" class="acts-hint">
-            接着做 →“退回”｜先收起 →“归档”（文件移进 archive/，随时能还原）｜不要了 → 下面“操作”组最右的“删除”（进回收站，可找回）
+            <template v-if="previewTask.status === '驳回'">
+              驳回不是终态：AI 下次取活会直接读这张卡和理由返工，不用退回待办｜不要了 →“归档”或“删除”
+            </template>
+            <template v-else>
+              接着做 →“退回待办”｜先收起 →“归档”（文件移进 archive/，随时能还原）｜不要了 → 下面“操作”组最右的“删除”（进回收站，可找回）
+            </template>
           </span>
           <template v-else>
             <!-- 验收裁决弹窗（accept / reject + 驳回理由）此前**没有任何入口** ——

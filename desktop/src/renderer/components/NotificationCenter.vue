@@ -36,7 +36,7 @@
           <button class="font-[inherit]" :class="{ on: ncFilter === 'read' }" @click="ncSetFilter('read')">已读<span class="n">{{ ncCounts.read }}</span></button>
         </div>
         <!-- 2026-11-21：按类型筛 —— “没用的通知一堆”时至少能只看一类；不持久化，重开面板回全部。 -->
-        <select class="nc-type-sel" :value="ncType" title="只看某一类通知" @change="ncSetType(($event.target as HTMLSelectElement).value)">
+        <select class="nc-type-sel" :value="ncType" title="只看某一类通知" @change="ncSetType($event.target.value)">
           <option value="">全部类型</option>
           <option v-for="t in ncTypes" :key="t.id" :value="t.id">{{ t.label }}（{{ t.n }}）</option>
         </select>
@@ -54,7 +54,7 @@
         <div class="nc-sub-grid">
           <label v-for="t in ncAllTypes" :key="t.id" class="nc-sub-item" :class="{ off: ncHidden.includes(t.id) }">
             <input type="checkbox" :checked="!ncHidden.includes(t.id)"
-              @change="ncToggleType(t.id, ($event.target as HTMLInputElement).checked)" />
+              @change="ncToggleType(t.id, $event.target.checked)" />
             <span class="lbl">{{ t.label }}</span>
             <span class="n">{{ t.n }}</span>
           </label>
@@ -63,7 +63,7 @@
         <div v-if="ncProjects.length" class="nc-sub-grid nc-sub-projects">
           <label v-for="p in ncProjects" :key="p.id" class="nc-sub-item" :class="{ off: ncHiddenProjects.includes(p.id) }">
             <input type="checkbox" :checked="!ncHiddenProjects.includes(p.id)"
-              @change="ncToggleProject(p.id, ($event.target as HTMLInputElement).checked)" />
+              @change="ncToggleProject(p.id, $event.target.checked)" />
             <span class="lbl" :title="p.id">{{ p.name }}</span>
           </label>
         </div>

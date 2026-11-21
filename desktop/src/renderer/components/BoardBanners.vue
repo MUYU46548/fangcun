@@ -70,7 +70,7 @@ const age = (d: unknown) => formatAge(Number(d))
         </div>
         <button class="ok font-[inherit]" title="通过验收（可写一句话验收结论）"
           @click="emit('accept-card', r.id)">✅ 通过</button>
-        <button class="danger font-[inherit]" title="驳回：写清哪里不行，退回待办让 agent 返工"
+        <button class="danger font-[inherit]" title="驳回：写清哪里不行；AI 会直接读这张卡返工，不用退回待办"
           @click="emit('reject-card', r.id)">↩ 驳回</button>
       </div>
       <div class="review-foot">
