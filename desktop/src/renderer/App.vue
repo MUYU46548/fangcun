@@ -4312,6 +4312,8 @@ async function copyContextPack(p: any): Promise<void> {
  */
 const dispatchCooldownUntil = reactive<Record<string, number>>({})
 const dispatchSending = reactive<Record<string, boolean>>({})
+/** 日志「发送给 DSH」的在途标记（按日志 id；防连点） */
+const logDispatchSending = reactive<Record<string, boolean>>({})
 const dispatchClock = ref(Date.now())
 let dispatchClockTimer: ReturnType<typeof setInterval> | null = null
 
@@ -4431,6 +4433,78 @@ async function dispatchToDsh(p: any, kind: 'work' | 'plan' = 'work'): Promise<vo
     showToast('发送异常：' + (e?.message || e), 'error')
   } finally {
     dispatchSending[pid] = false
+  }
+}
+
+/**
+ * 日志页「发送给 DSH」（2026-11-21 暮雨：「后续在日志里加个按钮我顺手测就行」）。
+ *
+ * 与项目卡的「发送给 DSH」走同一条派单通道（`context:dispatchMessage`），
+ * 区别只在任务书由**这条日志的「下一步」+ 正文节选**拼成 —— 这样测派单不用等一张任务卡。
+ *
+ * 边界：
+ * - 日志必须已有项目归属（上下文包按项目拼；没项目就明说，不瞎猜一个项目）；
+ * - 花钱确认仍走 `costAsk`（默认开，关掉过就不再问）；
+ * - 不写日志、不改日志状态；只读它的字段拼一段任务书。
+ */
+async function dispatchLogToDsh(log: any): Promise<void> {
+  const id = String(log?.id || '')
+  const pid = String(log?.project || '').trim()
+  if (!id) return
+  if (!pid) {
+    showToast('这条日志没写项目归属 —— 先编辑它选一个项目，再发送给 DSH', 'error')
+    return
+  }
+  const tegula = (window as any).tegula
+  if (typeof tegula?.dispatchMessageDsh !== 'function') {
+    showToast('这个版本还没有「带任务书的 DSH 派单」通道 —— 请更新方寸后再试', 'error')
+    return
+  }
+  if (logDispatchSending[id]) {
+    showToast('这条日志上一单还在发送，别连点', 'error')
+    return
+  }
+  logDispatchSending[id] = true
+  try {
+    const go = await costAsk({
+      title: `发送给 DSH：日志「${log.title || id}」`,
+      detail: '会把这条日志的「下一步」+ 正文节选写成任务书，并在 DSH 里开一个新会话；DSH 会用你配置的模型继续做，可能产生真实费用。',
+      confirmText: '继续（会开 DSH 会话）',
+    })
+    if (!go) return
+    const parts = [
+      `这是方寸执行日志「${log.title || id}」的续作任务。请从它的「下一步」接着做；日志正文是过程记录，不是任务卡。`,
+      `- 日志 id：${id}`,
+      `- 项目：${pid}`,
+      log.agentName ? `- 上次执行：${log.agentName}` : '',
+      Array.isArray(log.taskIds) && log.taskIds.length ? `- 关联任务：${log.taskIds.join(' / ')}` : '',
+      '',
+      '## 下一步（优先按这个）',
+      String(log.nextSteps || '').trim()
+        || '（这条日志没写“下一步”——请先读正文，自己判断最小可交付的一步，并在开工前先用一句话说清你要做什么。）',
+      '',
+      '## 日志正文（节选）',
+      String(log.content || '').trim().slice(0, 4000) || '（无正文）',
+      '',
+      '## 边界',
+      '- 只改这次任务涉及的文件；改前先备份。',
+      '- 不要通过 MCP / 插件 / CLI 写方寸执行日志（agent 没有写口）；结果回写到任务卡，日志由用户在界面维护。',
+      '- 做完把「改了什么 / 验证结果 / 还差什么」写清楚，交回方寸。',
+    ].filter(Boolean)
+    const msg = parts.join('\n')
+    const r: any = await tegula.dispatchMessageDsh(pid, 'work', msg)
+    if (!r || r.ok === false) {
+      showToast(`发送失败：${(r && r.error) || '未知原因'}`, 'error')
+      return
+    }
+    showToast(`已发送给 DSH：日志「${log.title || id}」的下一步（${r.chars || msg.length} 字）—— DSH 那边会冒出一个新会话`, 'ok')
+    if (Array.isArray(r.missing) && r.missing.length) {
+      showToast(`这包缺：${r.missing.join('、')} —— agent 会以为这项目没这些规矩`, 'error')
+    }
+  } catch (e: any) {
+    showToast('发送异常：' + (e?.message || e), 'error')
+  } finally {
+    logDispatchSending[id] = false
   }
 }
 
@@ -7717,6 +7791,7 @@ const logsViewCtl = reactive({
   // 单条
   openNewLog, openLog, openLogMenu, onLogCardClick, openRelay, openLogPurge,
   copyId, copyLogAsPrompt, copyLogsAsPrompt, askConvertLog, openLogPreview,
+  dispatchLogToDsh, logDispatchSending,
   toggleLogRunning, completeLogItem, reopenLogItem, archiveLogItem, destroyLogItem,
   executeLogCleanup, importLogFile,
   // 主日志 + 附属日志（2026-10-30 第 4 条）

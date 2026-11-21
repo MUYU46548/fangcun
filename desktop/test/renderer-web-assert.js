@@ -3991,6 +3991,39 @@
       JSON.stringify((window.__fcTest.calls().filter(c => c.name === 'logsSetAttached').pop() || {}).args || null))
     await sleep(300)
 
+    // ══ 日志 → DSH（2026-11-21 暮雨：「后续在日志里加个按钮我顺手测就行」）══════
+    // 目的：测派单不用等一张任务卡；任务书必须真带这条日志的“下一步”+ 正文节选。
+    window.__fcTest.setLogs([
+      { id: 'log-dsh-1', title: '把日志发给 DSH 的测试', content: '正文里的关键现场：服务起不来。',
+        nextSteps: '先做 A，再做 B。', status: 'active', project: 'demo',
+        created: '2026-11-21T01:00:00.000Z', agentName: 'dsh' },
+      { id: 'log-dsh-noproj', title: '没项目的日志', content: 'x', status: 'active', project: '',
+        created: '2026-11-21T00:00:00.000Z' },
+    ])
+    clickText('看板'); await sleep(300); check('重进日志页（DSH 派单夹具就位）', clickText('日志')); await sleep(700)
+    const logDshCard = $('.log-card[data-log-id="log-dsh-1"]')
+    const logDshBtn = logDshCard && logDshCard.querySelector('.log-dsh-btn')
+    check('★★ 日志卡上有「发送给 DSH」按钮（测派单不用等任务卡）', !!logDshBtn,
+      logDshCard ? logDshCard.textContent.replace(/\s+/g, ' ').slice(0, 80) : 'no card')
+    window.__fcTest.reset()
+    if (logDshBtn) logDshBtn.click()
+    check('★★ 点它真走带任务书的派单通道 dispatchMessageDsh',
+      await waitFor(() => window.__fcTest.calls().some(c => c.name === 'dispatchMessageDsh'), 4000, 'dispatchMessageDsh'),
+      JSON.stringify((window.__fcTest.calls().find(c => c.name === 'dispatchMessageDsh') || {}).args || null).slice(0, 160))
+    {
+      const call = window.__fcTest.calls().find(c => c.name === 'dispatchMessageDsh')
+      const msg = String((call && call.args && call.args[2]) || '')
+      check('★★ 任务书带这条日志的「下一步」和正文节选，项目取日志归属',
+        !!call && call.args[0] === 'demo' && call.args[1] === 'work'
+          && /先做 A，再做 B/.test(msg) && /服务起不来/.test(msg) && /把日志发给 DSH 的测试/.test(msg),
+        msg.slice(0, 160))
+    }
+    const logNoprojCard = $('.log-card[data-log-id="log-dsh-noproj"]')
+    const logNoprojBtn = logNoprojCard && logNoprojCard.querySelector('.log-dsh-btn')
+    check('★★ 没项目的日志：按钮禁用，并说明先选项目（不许瞎猜一个项目发出去）',
+      !!logNoprojBtn && logNoprojBtn.disabled === true,
+      logNoprojBtn ? 'disabled=' + logNoprojBtn.disabled + ' title=' + logNoprojBtn.title : 'no button')
+
     // ══ 日志卡面上的关联任务：长的一条日志要能看见**全部**（2026-11-13 卡 2b1e3d59）══
     // 病根：卡面只渲染 `log.taskId`，而它恒等于 `taskIds[0]`（logs.ts:285）→
     // 一条挂了 7 张卡的日志，日志页上只显示 1 个 📍，另外 6 张在日志页根本不存在。
