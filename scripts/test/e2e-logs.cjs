@@ -44,6 +44,7 @@ function main() {
   const data = require(path.join(DIST, 'data', 'index.js'))
   data.setDataDir(TEST_ROOT)
   const logs = require(path.join(DIST, 'services', 'logs.js'))
+  const tasksSvc = require(path.join(DIST, 'data', 'tasks.js'))
 
   const LOGS_DIR = path.join(TEST_ROOT, 'docs', '执行日志')
 
@@ -245,6 +246,21 @@ function main() {
     String(logs.listLogs({ project: 'nf' }).length))
   check('★ query 不命中 = 空列表（不会把不相干的漏出来）',
     logs.listLogs({ query: '这个关键词不可能存在xyz' }).length === 0)
+
+  // ── 7b-2. 按任务反查（2026-11-21 · P0-1 检索组 #1）────────────────────
+  // 现场：用户记得的是“挂在某张卡下的日志”，但 listLogs 只搜日志自己的字段，
+  // 搜卡名/卡 id 一律零结果，只能先去任务页再手动翻。
+  const linkedTask = tasksSvc.createTask({ title: '按任务反查的卡' })
+  const linkedLog = logs.createLog('挂在卡下的日志', 'nf', '正文', linkedTask.id).data
+  check('★★ 搜卡名能找到挂着它的日志（此前只能搜日志自己的字段）',
+    logs.listLogs({ query: '按任务反查的卡' }).some(l => l.id === linkedLog.id),
+    JSON.stringify(logs.listLogs({ query: '按任务反查的卡' }).map(l => l.id)))
+  check('★ 搜任务 id 也能找到（同一套索引，不是只认标题）',
+    logs.listLogs({ query: linkedTask.id }).some(l => l.id === linkedLog.id),
+    linkedTask.id)
+  check('★ 不相关的任务名不会误命中（搜的是关联关系，不是全局任务表）',
+    !logs.listLogs({ query: '按任务反查的卡' }).some(l => l.id === s2.id),
+    's2=' + s2.id)
 
   // ── 7c. 附件：日志 ↔ 文件（2026-10-01 用户第 1 条 → 卡 036）────────────
   // 验收三问：存哪（数据目录内）、入口（预览/编辑的附件区）、备份（同目录随日志走）。

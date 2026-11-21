@@ -5780,7 +5780,10 @@ const {
 const { saveLogEdit, saveLogFieldsOnly } = useLogEditorSave({
   logEdit_, logCompleting, logArchiveMode, logRetainDays, logRetainDefault, logNote,
   logPendingCount, normalizeLogTaskIds, flushPendingAttach, resetPendingAttach,
-  closeLogNow, offerLogReopenUndo, toast: showToast, reload: loadLogs,
+  closeLogNow, offerLogReopenUndo, toast: showToast,
+  // 2026-11-21（P0-1 检索组 #5）：任务详情右侧“关联日志”是另一份数据（logsForTask），
+  // 不跟着 loadLogs 刷；改完关联任务/正文后必须一起重读，否则面板还显示旧关系。
+  reload: async () => { await loadLogs(); await loadLogsForTask(previewTask.value?.id || '') },
 })
 
 /** 日志状态动作：进行中 / 完成入口 / 归档入口 / 撤销 / 销毁 */

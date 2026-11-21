@@ -52,6 +52,9 @@ const EXEMPTIONS = {
     // 2026-11-07：架构图生成进度。11-03 驳回"挂着窗口干等"，所以现在把"第几次/在审计哪一条"
     // 推给界面（arch:generate 里 event.sender.send）。它是单向推送，没有 invoke handler。
     'arch:progress': '主→渲染推送通道（event.sender.send，架构图生成的阶段与尝试次数）',
+    // 2026-11-21：通知落盘变更 → 面板重拉列表。主进程 webContents.send，渲染层订阅；
+    // 不是 invoke，扫描器看不到 send，故豁免。
+    'notifications:changed': '主→渲染推送通道（webContents.send，任何通知增删改后让面板重拉）',
   },
   // 未接线模块：文件路径（相对仓库根，正斜杠）
   // ⚠ 2026-09-22：入口探测修正为 src/index.ts 后，updater.ts **已达可达集**

@@ -469,6 +469,21 @@ export function listLogs(filter?: {
   if (!fs.existsSync(dir)) return []
   const q = String(filter?.query || '').trim().toLowerCase()
   const hit = (s: string) => String(s || '').toLowerCase().includes(q)
+  // 2026-11-21（P0-1 检索组 #1）：搜卡名/卡 id 也要能找到挂着它的日志。
+  // 此前只搜日志自己的标题/正文/下一步/项目 —— 用户记得的是“那张卡”，不是日志标题。
+  let taskTitleById: Map<string, string> | null = null
+  if (q) {
+    try {
+      taskTitleById = new Map(loadTasks('all').map((t) => [String(t.id), String(t.fm?.title || '')]))
+    } catch { taskTitleById = null }
+  }
+  const taskHit = (entry: LogEntry): boolean => {
+    if (!q) return false
+    const ids = Array.isArray(entry.taskIds) && entry.taskIds.length
+      ? entry.taskIds
+      : (entry.taskId ? [entry.taskId] : [])
+    return ids.some((id) => hit(id) || hit(taskTitleById?.get(String(id)) || ''))
+  }
   const logs: LogEntry[] = []
   for (const entry of loadAllLogs()) {
     if (filter?.project && entry.project !== filter.project) continue
@@ -481,7 +496,7 @@ export function listLogs(filter?: {
     if (filter?.dateTo && entryDate > filter.dateTo) continue
     // 关键词：标题 / 执行内容 / 下一步 / 项目（比 searchLogs 多查一步“下一步”，
     // 日志里最该被搜到的往往正是它）
-    if (q && !(hit(entry.title) || hit(entry.content) || hit(entry.nextSteps) || hit(entry.project))) continue
+    if (q && !(hit(entry.title) || hit(entry.content) || hit(entry.nextSteps) || hit(entry.project) || taskHit(entry))) continue
     logs.push(entry)
   }
   // 置顶优先（2026-09-26 卡 037）：Array.sort 在 V8 里是稳定的，组内保持原有顺序（文件名倒序 = 新的在前）
