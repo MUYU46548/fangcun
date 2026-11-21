@@ -332,6 +332,27 @@ function main() {
   const HOVER_GUARD_SEED = `window.__fcHoverNoLayout = ${window_guard.ok ? 'true' : 'false'};`
     + `window.__fcHoverDetail = ${JSON.stringify(window_guard.detail)};\n`
 
+  // 2026-11-21（卡 ae6b82cd「归档后卡片仍留在看板」）：loadAll 的并发序号守卫。
+  // 这是“更早发起、更晚返回的加载把新结果覆盖掉”的唯一根因；源码里少一处 seq 检查，
+  // 归档/删除就会重新出现“切个页签才消失”。用源码守卫钉住，防止被后续重构悄悄删掉。
+  const loadRaceGuard = (() => {
+    try {
+      const src = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'App.vue'), 'utf-8')
+      const seqDecl = /let\s+loadAllSeq\s*=\s*0/.test(src)
+      const bumps = (src.match(/\+\+loadAllSeq/g) || []).length
+      const checks = (src.match(/seq\s*!==\s*loadAllSeq/g) || []).length
+      const optimistic = /async function archiveTask[\s\S]{0,1200}?tasks\.value\s*=\s*tasks\.value\.filter/.test(src)
+      return {
+        ok: seqDecl && bumps >= 1 && checks >= 2 && optimistic,
+        detail: `decl=${seqDecl} bumps=${bumps} checks=${checks} optimistic=${optimistic}`,
+      }
+    } catch (e) {
+      return { ok: false, detail: '读不到 App.vue：' + (e && e.message || e) }
+    }
+  })()
+  const LOAD_RACE_GUARD_SEED = `window.__fcLoadRaceGuard = ${loadRaceGuard.ok ? 'true' : 'false'};`
+    + `window.__fcLoadRaceDetail = ${JSON.stringify(loadRaceGuard.detail)};\n`
+
 
   //
   // 为什么要**在这一侧**再加一条（DOM 断言已经有一条了）：
@@ -1284,6 +1305,7 @@ function main() {
   const seedVer = 'window.__FC_VER=' + JSON.stringify(pkgVer) + ';\n'
     // 源码守卫结果（hover 抖动）：拼进 seed，断言里读 window.__fcHoverNoLayout
     + HOVER_GUARD_SEED
+    + LOAD_RACE_GUARD_SEED
   fs.writeFileSync(harnessPath, harness(fs.readFileSync(ASSERT, 'utf-8'), seedVer), 'utf-8')
   console.log('== 渲染层 DOM 断言（无头浏览器）==')
   console.log('browser:', browser)

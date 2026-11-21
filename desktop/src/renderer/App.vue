@@ -3217,33 +3217,44 @@ async function refreshAllData(): Promise<void> {
   }
 }
 
+let loadAllSeq = 0
 async function loadAll() {
+  // 2026-11-21（卡 ae6b82cd「归档后卡片仍留在看板」）：
+  // loadAll 是异步的，归档/删除/切页签/扫描器会同时发起多次；没有序号时，
+  // **更早发起、更晚返回**的那次会用旧数组覆盖新结果，表现就是“已归档还在看板，
+  // 切个页签才消失”。只认最后一次发起的加载。
+  const seq = ++loadAllSeq
+  const view = curView.value
   const [t, p, b, dd] = await Promise.all([
-    window.tegula.loadTasks(curView.value),
+    window.tegula.loadTasks(view),
     window.tegula.loadProjects(),
     window.tegula.findBlockers(),
     window.tegula.getDataDir(),
   ])
+  if (seq !== loadAllSeq) return
   tasks.value = t
-  countView.value = curView.value   // 顶栏计数只对“本次加载的视图”负责（用户第 12 条）
+  countView.value = view   // 顶栏计数只对“本次加载的视图”负责（用户第 12 条）
   projects.value = p
   blockers.value = b
   dataDir.value = dd
   // also load progress for task preview
   await loadProjectProgressMap()
+  if (seq !== loadAllSeq) return
   if (searchIncludeArchive.value) {
     try {
       const arch = await window.tegula.loadTasks('archive')
+      if (seq !== loadAllSeq) return
       archivedTasks.value = arch.map((a: Task) => ({ ...a, _archived: true }))
-    } catch { archivedTasks.value = [] }
+    } catch { if (seq === loadAllSeq) archivedTasks.value = [] }
   } else {
     archivedTasks.value = []
   }
   // 解析失败的文件必须显性可见 —— 静默跳过才是任务"人间蒸发"的根因
   try {
-    parseErrors.value = await window.tegula.parseErrors()
+    const errs = await window.tegula.parseErrors()
+    if (seq === loadAllSeq) parseErrors.value = errs
   } catch {
-    parseErrors.value = []
+    if (seq === loadAllSeq) parseErrors.value = []
   }
   // 返工台的天数按"现在"算（不要用挂载那一刻的 now，否则开一天窗口会显示旧天数）
   bannerNow.value = Date.now()
@@ -3408,7 +3419,8 @@ async function executeBatchArchive() {  const ids = [...selectedBatch.value]
   }
   selectedBatch.value = []
   batchMode.value = false
-  loadAll()
+  tasks.value = tasks.value.filter((x: any) => !ids.includes(x.id))
+  void loadAll()
 }
 
 async function executeBatchDelete() {
@@ -3423,7 +3435,8 @@ async function executeBatchDelete() {
   }
   selectedBatch.value = []
   batchMode.value = false
-  loadAll()
+  tasks.value = tasks.value.filter((x: any) => !ids.includes(x.id))
+  void loadAll()
 }
 
 // ── Natural Query ─────────────────────────────────────────────────────
@@ -3845,14 +3858,50 @@ async function deleteTask(id: string) {
   }
 }
 
-async function archiveTask(t: Task) {
-  if (!confirm(`确认归档“${t.title}”？\n归档后任务将进入归档视图，此操作不可自动逆转。`)) return
+/**
+ * 结构地图「签字并应用」（2026-11-21 · 交接文档下一刀 #2）。
+ *
+ * 此前：用户要把卡手动拖到「完成」= 签字，再让 agent 调 `smap_apply` 才真正写进方针卡。
+ * 两步都是用户的手，却没有任何界面把第二步接上。现在一个按钮做完：
+ *   ① 卡不是完成 → 先 `moveStatus(完成)`（这就是签字；不写结论、不填理由，与手动拖一致）；
+ *   ② 调主进程 `smap:apply` —— 与 MCP `smap_apply` 共用同一份 service（写前备份 + 读回校验）。
+ * 如果 ①成功 ②失败：卡已经是完成（签字已发生），报错让用户修好后重试，不偷偷回滚签字。
+ */
+async function signAndApplySmap(t: Task): Promise<void> {
+  if (!t?.id) return
+  const wasDone = t.status === '完成'
+  const ok = confirm(wasDone
+    ? `把这张卡里的结构地图写入「${t.project || '项目'}」方针卡？\n\n写前自动备份，写后读回校验；只替换「## 结构地图」一节。`
+    : `签字并应用结构地图？\n\n这会先把这张卡标为「完成」（= 你的签字），再把地图写入「${t.project || '项目'}」方针卡；写前备份，写后读回校验。`)
+  if (!ok) return
+  if (!wasDone) {
+    const r: any = await window.tegula.moveStatus(t.id, '完成')
+    if (!r || r.ok === false) {
+      showToast(`签字失败：${(r && r.error) || '未知原因'}`, 'error')
+      return
+    }
+  }
+  const a: any = await window.tegula.smapApply(t.id)
+  if (!a || a.ok === false) {
+    showToast(`结构地图没写进去：${(a && a.error) || '未知原因'}（卡已签字，修好后可再应用一次）`, 'error')
+    await loadAll()
+    return
+  }
+  previewTask.value = null
+  showToast(`已写入「${a.project}」的结构地图（${a.bytes || 0} 字节）—— 写前已备份，写后读回一致`, 'success')
+  await loadAll()
+}
+
+async function archiveTask(t: Task) {  if (!confirm(`确认归档“${t.title}”？\n归档后任务将进入归档视图，此操作不可自动逆转。`)) return
   const snap = snapOfTask(t.id)
   const result = await window.tegula.archiveTask(t.id)
   if (result.ok) {
     previewTask.value = null
     showToast('已归档', 'success')
-    loadAll()
+    // 先本地摘掉再后台刷新：即使刷新被更早的加载覆盖，用户也不会再看到这张卡。
+    tasks.value = tasks.value.filter((x: any) => x.id !== t.id)
+    archivedTasks.value = archivedTasks.value.filter((x: any) => x.id !== t.id)
+    void loadAll()
     if (snap && !snap.archived) {
       offerUndo(`已归档“${t.title}”`, async () => {
         await restoreTaskSnap(t.id, snap)
@@ -7724,7 +7773,7 @@ const taskPreviewCtl = reactive({
   previewTimeLabel, rejectReasonOf, startRejectEdit, saveRejectEdit, onBodyChange,
   openLogPreview, quickCompleteLog, reopenLogItem, openLogForTask,
   logStatusClass, logStatusLabel,
-  restoreTask, openReview, forceCloseTask, openDirectReject, archiveTask,
+  restoreTask, openReview, forceCloseTask, openDirectReject, archiveTask, signAndApplySmap,
   openEdit, openCalAssignTask, copyId, openTaskFile, copyTaskClick, deleteTask,
   // 2026-11-15：详情弹窗「操作」行也放一枚「📐 派工单」——
   // 它原来只在右键菜单里，而右键没有任何视觉提示，等于藏起来了。

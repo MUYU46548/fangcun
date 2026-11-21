@@ -40,7 +40,8 @@ import { levelOfMap, riceSummary, scoreOf } from '../../shared/rice'
 //   · 方针的写口是 savePolicy（界面在用）；结构地图也在同一份文件里。
 // 也就是说：**读口在这一层开，写口将来从同一层接** —— 下面三个 case 是唯一入口。
 import { loadDecisions, normalizeDecisionStatus } from '../data/decisions'
-import { getPolicy, savePolicy, policyPath } from '../services/policies'
+import { getPolicy, savePolicy } from '../services/policies'
+import { applySmapFromTask } from '../services/smapApply'
 import { listPlanFiles, readPlan, proposeStage, parkedPlanSummary } from '../data/plans'
 // 结构地图“结构大改就过期”（2026-11-08）：判断在 shared，取数在 services
 import { structureDrift } from '../services/structureDrift'
@@ -48,9 +49,8 @@ import { structureDrift } from '../services/structureDrift'
 import { listDecks, createDeck, convergenceStatus } from '../data/questionnaires'
 import { bankStats, nextOpen, importQuestions } from '../data/questionBank'
 // 结构地图“提议 → 签字 → 落地”（2026-11-08 暮雨拍板：AI 写进去落一张待审批卡）
-import { rotateBackup } from '../data'
 import {
-  buildSmapProposalBody, smapProposalCriteria, extractSmapProposal,
+  buildSmapProposalBody, smapProposalCriteria,
 } from '../../shared/smapProposal'
 
 // 2026-10-01 P0-3：这里**曾经**有一份私有 loadAllTasks 扫描（自己 walk task 目录、
@@ -1993,60 +1993,13 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
     }
 
     case 'smap_apply': {
-      const id = String(args.taskId || '').trim()
-      if (!id) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: 'taskId 必填' }) }], isError: true }
-      const all = loadTasks('all')
-      const t = all.find((x: any) => String(x.id) === id)
-      if (!t) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: `找不到这张卡：${id}` }) }], isError: true }
-      const st = String(t.fm?.status || '').trim()
-      // ★ 这条闸是整件事的全部意义：**完成 = 用户签字**，没签字一个字节都不动。
-      if (st !== '完成') {
-        return { content: [{ type: 'text', text: JSON.stringify({
-          ok: false,
-          error: `这张卡的状态是“${st}”，不是“完成” —— 结构地图的写入以你的签字为准。`,
-          required: '完成',
-          howTo: '先在卡上验收（移到「完成」），再让 agent 调本工具。或者直接打回/归档，那就什么都不改。',
-        }) }], isError: true }
+      // 2026-11-21：逻辑抽到 services/smapApply.ts —— 界面「签字并应用」与 MCP
+      // 必须走同一份闸/备份/读回，不能两套。
+      const r = applySmapFromTask(String(args.taskId || ''))
+      return {
+        content: [{ type: 'text', text: JSON.stringify(r, null, 2) }],
+        ...(r.ok ? {} : { isError: true }),
       }
-      const ex = extractSmapProposal(String(t.body || ''))
-      if (!ex.ok) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: String(ex.error || '抽不出结构地图') }) }], isError: true }
-      const projRaw: any = t.fm?.project
-      const project = (Array.isArray(projRaw) ? String(projRaw[0] || '') : String(projRaw || '')).trim()
-      if (!project) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: '这张卡没有项目 —— 不知道该写进哪份方针卡' }) }], isError: true }
-      const before = getPolicy(project)
-      if (!before) {
-        return { content: [{ type: 'text', text: JSON.stringify({
-          ok: false, error: `项目 ${project} 还没有方针卡 —— 没有落地目标，先让用户建一张方针卡`,
-        }) }], isError: true }
-      }
-      // 破坏性操作先快照：备份失败就**不写**（宁可没改，也不能没备份地改）
-      try {
-        rotateBackup(policyPath(project))
-      } catch (e: any) {
-        return { content: [{ type: 'text', text: JSON.stringify({
-          ok: false, error: `写前备份失败，已中止：${e?.message || e}`,
-        }) }], isError: true }
-      }
-      savePolicy({ ...before, projectId: project, structureMap: String(ex.mapText || '') })
-      // 写后读回自证（“写成功”不算，读回来一样才算）
-      const after = getPolicy(project)
-      const wrote = String(after?.structureMap || '').trim()
-      if (wrote !== ex.mapText.trim()) {
-        return { content: [{ type: 'text', text: JSON.stringify({
-          ok: false, error: '写后读回不一致 —— 没写对（旧备份在 policies/.backup/，可以回滚）',
-          expectedLen: String(ex.mapText || '').trim().length, actualLen: wrote.length,
-        }) }], isError: true }
-      }
-      return { content: [{ type: 'text', text: JSON.stringify({
-        ok: true,
-        project,
-        taskId: id,
-        verifiedAt: String(ex.verifiedAt || ''),
-        bytes: wrote.length,
-        kept: ['使命', '当前目标', '应用场景', '方针边界'],
-        backup: 'policies/.backup/（写前自动备份）',
-        note: '只写了「## 结构地图」这一节，其余四节逐字未动；已读回校验。',
-      }, null, 2) }] }
     }
 
     case 'list_logs': {

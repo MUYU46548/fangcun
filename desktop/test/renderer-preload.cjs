@@ -2482,6 +2482,8 @@ contextBridge.exposeInMainWorld('tegula', {
     return { ok: true, policy: Object.assign({ projectId: id, mission: '', goal: '', scenario: '', boundary: '', structureMap: '', coreVerdict: '', updatedAt: '' }, p) }
   },
   policySave: (p) => { rec('policySave', [p]); return ok({ path: 'C:/mock/policies/' + (p && p.projectId) + '.md' }) },
+  // 2026-11-21 结构地图「签字并应用」：界面只负责先 moveStatus(完成) 再调它
+  smapApply: (taskId) => { rec('smapApply', [taskId]); return { ok: true, project: 'demo', taskId, bytes: 321, note: '夹具' } },
   policyText: () => '',
   // 使命草稿（2026-11-14 · P1-2）：从 README 取一句。
   // 默认给一条**看起来像真的**夹具（草稿 + 原文），断言据此验"填进去了且原文也展示了"。

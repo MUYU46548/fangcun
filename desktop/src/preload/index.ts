@@ -372,6 +372,8 @@ contextBridge.exposeInMainWorld('tegula', {
   // Launchpad
   policyGet: (projectId: string) => ipcRenderer.invoke('policy:get', projectId),
   policySave: (p: any) => ipcRenderer.invoke('policy:save', p),
+  /** 结构地图落地：只认状态=完成（用户签字）；返回写前备份/写后读回结果 */
+  smapApply: (taskId: string) => ipcRenderer.invoke('smap:apply', taskId),
   // 使命草稿（2026-11-14 · P1-2）：从项目 README 取一句当建议；只读、不写盘
   policyMissionDraft: (projectId: string) => ipcRenderer.invoke('policy:missionDraft', projectId),
   policyText: (projectId: string) => ipcRenderer.invoke('policy:text', projectId),

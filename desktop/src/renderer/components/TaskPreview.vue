@@ -212,6 +212,14 @@
             >✕ 驳回</button>
           </template>
           <button
+            v-if="smapProposal.ok"
+            class="pri"
+            :title="previewTask.status === '完成'
+              ? '把这张卡里的结构地图写入项目方针卡：写前备份、写后读回，只替换「## 结构地图」一节'
+              : '签字并应用：先把这张卡标为完成（= 你的签字），再把结构地图写入项目方针卡（写前备份、写后读回）'"
+            @click="signAndApplySmap(previewTask)"
+          >{{ previewTask.status === '完成' ? '🗺 应用结构地图' : '🗺 签字并应用结构地图' }}</button>
+          <button
             class="warning"
             title="移入归档视图（文件移到 task-data/archive/）。任何状态都可以归档"
             @click="archiveTask(previewTask)"
@@ -241,6 +249,7 @@
 import { computed, toRef } from 'vue'
 import { statusClass } from '../../shared/status'
 import { extractMirror, LEN_CAVEAT } from '../../shared/planMirror'
+import { extractSmapProposal } from '../../shared/smapProposal'
 import { priorityLabel } from '../../shared/priority'
 import { formatDate, formatDateTime } from '../../shared/time'
 import { renderBody } from '../markdown'
@@ -259,6 +268,8 @@ const previewTask = toRef(ctl, 'previewTask')
 const previewArch = toRef(ctl, 'previewArch')
 /** 对照镜：body 已经在预览对象里，直接算 —— 不新增 IPC，也不多读一次盘。 */
 const mirror = computed(() => extractMirror(previewTask.value?.body || ''))
+/** 结构地图提议（2026-11-21）：body 里有「## 结构地图」且格式合格才露「签字并应用」 */
+const smapProposal = computed(() => extractSmapProposal(previewTask.value?.body || ''))
 const rejectEdit = toRef(ctl, 'rejectEdit')
 const rejectEditText = toRef(ctl, 'rejectEditText')
 const rejectSaving = toRef(ctl, 'rejectSaving')
@@ -271,7 +282,7 @@ const {
   previewTimeLabel, rejectReasonOf, startRejectEdit, saveRejectEdit, onBodyChange,
   openLogPreview, quickCompleteLog, reopenLogItem, openLogForTask,
   logStatusClass, logStatusLabel,
-  restoreTask, openReview, forceCloseTask, openDirectReject, archiveTask,
+  restoreTask, openReview, forceCloseTask, openDirectReject, archiveTask, signAndApplySmap,
   openEdit, openCalAssignTask, copyId, openTaskFile, copyTaskClick, deleteTask,
   copyTaskAsDispatch,
 } = ctl

@@ -27,6 +27,7 @@ import { registerQuestionnaireIpcHandlers } from './questionnaire-ipc'
 import { runBackup } from './backup'
 import * as launchpad from './launchpad'
 import * as policies from './services/policies'
+import { applySmapFromTask } from './services/smapApply'
 import * as tripBoard from './services/tripBoard'
 import * as ask from './services/ask'
 import * as correct from './services/correct'
@@ -753,6 +754,12 @@ export function registerIpcHandlers(): void {
   guardedHandle('policy:save', (_event, p: any) => {
     try { return policies.savePolicy(p) }
     catch (e: any) { return { ok: false, error: e.message } }
+  })
+
+  /** 结构地图落地（2026-11-21）：界面「签字并应用」与 MCP `smap_apply` 共用同一份 service */
+  guardedHandle('smap:apply', (_event, taskId: string) => {
+    try { return applySmapFromTask(String(taskId || '')) }
+    catch (e: any) { return { ok: false, error: e?.message || String(e) } }
   })
 
   /**

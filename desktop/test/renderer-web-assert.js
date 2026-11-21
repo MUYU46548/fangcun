@@ -92,6 +92,10 @@
     // 等于“抖动根因”没有回归保护。现在接到断言上：hover 改布局属性就红。
     check('★★ 打分/排序行 hover 只改颜色/阴影，不许改布局属性（画面抖动根因）',
       window.__fcHoverNoLayout === true, String(window.__fcHoverDetail || ''))
+    // 2026-11-21 卡 ae6b82cd：loadAll 并发序号 + 归档先本地摘除；缺一处就会回到
+    // “已归档还在看板，切页签才消失”。
+    check('★★ 归档/删除后列表立刻更新：loadAll 只认最后一次加载 + 归档先本地摘卡',
+      window.__fcLoadRaceGuard === true, String(window.__fcLoadRaceDetail || ''))
 
     // ══ 免责与知情声明 · 首启强制确认（2026-10-16 暮雨第 1 条）══════════════
     // 这一节**必须排在最前**：无头 profile 每次都是全新的（e2e-renderer-web.cjs 现 mkdtemp），
@@ -8644,6 +8648,52 @@
       check('★★ 填过值的卡也显示“架构图”（填过就还在，不因没标签而藏起来）',
         !!l3 && l3.includes('架构图'), JSON.stringify(l3 && l3.slice(-4)))
 
+      window.__fcTest.setTasks(saved)
+      clickText('看板'); await sleep(200)
+    }
+
+    // ══ 结构地图「签字并应用」（2026-11-21 · 交接下一刀 #2）════════════════
+    // 此前用户要手动把卡拖到完成（签字），再让 agent 调 smap_apply；界面缺第二步。
+    // 现在一个按钮：先 moveStatus(完成)，再 smapApply；两步顺序不能反（apply 只认完成）。
+    {
+      const saved = window.__fcTest.tasks()
+      const smapBody = [
+        '## 新版结构地图',
+        'desktop/src/main 是主进程，renderer 是界面，shared 是两边共用。',
+        '最后核实：2026-11-21',
+        '',
+        '## 批准后怎么落地',
+        '写进项目方针卡的「## 结构地图」一节。',
+      ].join('\n')
+      window.__fcTest.setTasks([{
+        id: 'smap-ui-1', title: '结构地图提议卡', status: '待审批', priority: '中', project: 'demo',
+        tags: [], body: smapBody,
+        fm: { id: 'smap-ui-1', title: '结构地图提议卡', status: '待审批', priority: '中', project: 'demo' },
+        path: 'C:/mock/task-data/smap-ui-1.md',
+      }])
+      clickText('看板'); await sleep(400)
+      const card = $$('#board .card, #board .brow').find((c) => (c.textContent || '').indexOf('结构地图提议卡') >= 0)
+      check('★★ 结构地图提议卡能打开预览（夹具就位）', !!card, card ? 'card ok' : 'no card')
+      if (card) card.click()
+      check('★ 预览里出现「签字并应用结构地图」按钮',
+        await waitFor(() => !!$('#roverlay') && $$('#rmodal button').some((b) => /签字并应用结构地图/.test(b.textContent || '')), 3000, 'smap button'),
+        (($('#rmodal') || {}).textContent || '').slice(0, 120))
+      const btn = $$('#rmodal button').find((b) => /签字并应用结构地图/.test(b.textContent || ''))
+      const oldConfirm = window.confirm
+      window.confirm = () => true
+      window.__fcTest.reset()
+      if (btn) btn.click()
+      check('★★ 点它先签字（moveStatus→完成）再应用（smapApply），顺序不能反',
+        await waitFor(() => {
+          const cs = window.__fcTest.calls()
+          const a = cs.findIndex((c) => c.name === 'moveStatus')
+          const b = cs.findIndex((c) => c.name === 'smapApply')
+          return a >= 0 && b > a
+        }, 4000, 'moveStatus→smapApply'),
+        JSON.stringify(window.__fcTest.calls().filter((c) => ['moveStatus', 'smapApply'].includes(c.name)).map((c) => c.name)))
+      check('★ 应用成功后预览关闭（不是留着让你再点一次）',
+        await waitFor(() => !$('#roverlay'), 3000, 'roverlay closed'))
+      window.confirm = oldConfirm
       window.__fcTest.setTasks(saved)
       clickText('看板'); await sleep(200)
     }

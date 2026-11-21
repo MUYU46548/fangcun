@@ -186,11 +186,14 @@ check('★★★ 源码守卫：smap_propose 里没有 savePolicy / atomicWrite�
   proposeBody.length > 0 && proposeBody.indexOf('savePolicy') < 0 && proposeBody.indexOf('atomicWrite') < 0,
   ['savePolicy', 'atomicWrite'].filter((f) => proposeBody.indexOf(f) >= 0).join(','))
 const applyBody = sliceCase('smap_apply')
+const smapSvc = fs.readFileSync(D + '/src/main/services/smapApply.ts', 'utf-8')
 check('★★★ 源码守卫：smap_apply 的“完成”闸写在保存之前（先验签字，再动手）',
-  applyBody.length > 0
-  && applyBody.indexOf("st !== '完成'") >= 0
-  && applyBody.indexOf("st !== '完成'") < applyBody.indexOf('savePolicy'),
-  'gate=' + applyBody.indexOf("st !== '完成'") + ' save=' + applyBody.indexOf('savePolicy'))
+  smapSvc.indexOf("st !== '完成'") >= 0
+  && smapSvc.indexOf("st !== '完成'") < smapSvc.indexOf('savePolicy({'),
+  'gate=' + smapSvc.indexOf("st !== '完成'") + ' save=' + smapSvc.indexOf('savePolicy({'))
+check('★ MCP handler 只转调 service（界面与 MCP 共用一份，不许两套逻辑）',
+  applyBody.indexOf('applySmapFromTask') >= 0 && applyBody.indexOf('savePolicy') < 0,
+  applyBody.slice(0, 160))
 
 console.log(JSON.stringify(out))
 `
