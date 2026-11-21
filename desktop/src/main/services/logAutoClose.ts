@@ -22,6 +22,7 @@
 
 import { readTask, setTaskTerminalHook, type Task } from '../data/tasks'
 import * as logs from './logs'
+import * as notifications from './notifications'
 import * as appLog from './appLog'
 
 export interface AutoCloseResult {
@@ -90,11 +91,18 @@ export function autoCloseLogsForTask(taskId: string): AutoCloseResult {
 }
 
 /**
- * 安装到任务终态回调上。**只对「完成」生效**：
+ * 安装到任务终态回调上。**日志收口只对「完成」生效**：
  * 驳回 = 要返工，日志还得接着用，不能当成“交接结束”。
+ *
+ * 2026-11-21 加：无论完成还是驳回，任务都已离开「待验收」，
+ * 立刻把它的 `task-review` 通知消解掉 —— 别等下一轮 60s 扫描，
+ * 更别让面板一直挂着“等你拍板”（暮雨：“全验收了通知里还在挂着”）。
  */
 export function installLogAutoClose(): void {
   setTaskTerminalHook((task, nextStatus) => {
+    try {
+      notifications.resolveNotifications('task-review', task.id)
+    } catch { /* 通知消解失败不影响任务与日志 */ }
     if (nextStatus !== '完成') return
     autoCloseLogsForTask(task.id)
   })

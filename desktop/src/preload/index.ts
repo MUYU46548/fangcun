@@ -334,6 +334,15 @@ contextBridge.exposeInMainWorld('tegula', {
   notificationsDelete: (id: string) => ipcRenderer.invoke('notifications:delete', id),
   notificationsClear: () => ipcRenderer.invoke('notifications:clear'),
   notificationsScan: () => ipcRenderer.invoke('notifications:scan'),
+  /**
+   * 通知列表变更广播（2026-11-21）：主进程每次落盘变更后推一次。
+   * 返回退订函数；老版本没有这条，调用方要按“可选增强”处理。
+   */
+  onNotificationsChanged: (cb: () => void) => {
+    const fn = () => { try { cb() } catch { /* 渲染层自己处理 */ } }
+    ipcRenderer.on('notifications:changed', fn)
+    return () => ipcRenderer.removeListener('notifications:changed', fn)
+  },
   // 2026-10-01 P0-4/P0-5：扫描器状态 + 被静音提醒的可见与恢复
   notificationsScannerStatus: () => ipcRenderer.invoke('notifications:scannerStatus'),
   notificationsListMuted: () => ipcRenderer.invoke('notifications:listMuted'),

@@ -10,6 +10,7 @@ import { registerWasteIpcHandlers } from './main/waste-ipc'
 import { registeredChannels } from './main/guarded-ipc'
 import { isQuitting, markQuitting } from './main/quitGate'
 import { getPref } from './main/services/prefs'
+import { setNotificationChangeHook } from './main/services/notifications'
 import { startMCPServer, stopMCPServer } from './main/mcp'
 import { initUpdater, registerUpdaterIpc } from './main/updater'
 import { startScheduler } from './main/backup/scheduler'
@@ -397,6 +398,15 @@ function createTray(): void {
 app.whenReady().then(() => {
   createWindow()
   createTray()
+
+  // 通知变更 → 广播给渲染层（2026-11-21 暮雨：“全验收了通知里还在挂着”）。
+  // 之前渲染层只在打开面板时拉一次列表、之后只轮询未读数，所以任务已经完成、
+  // 磁盘里的 task-review 也已经消解，面板仍挂着旧条目。现在任何落盘变更都主动推一次。
+  setNotificationChangeHook(() => {
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (!w.isDestroyed()) w.webContents.send('notifications:changed')
+    }
+  })
 
   // 各子系统的启动失败此前是静默的（抛了就抛了）。逐个包起来并落盘。
   const boot = (name: string, fn: () => void) => {

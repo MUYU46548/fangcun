@@ -226,7 +226,7 @@ function submitReject(): void {
             @click="emit('approve')">{{ approved ? '✅ 已通过' : '✅ 通过这张图' }}</button>
         </template>
         <template v-else>
-          <input v-model="rejectText" class="archd-reject-in" placeholder="哪里不行（例如：主进程太碎 / 有一条线对不上）"
+          <input v-model="rejectText" class="archd-reject-in" placeholder="哪里不行（例如：主进程太碎 / 有一条线连错了）"
             @keydown.enter="submitReject" />
           <Button variant="ghost" size="tool" @click="rejecting = false">取消</Button>
           <button class="danger" :disabled="busy" @click="submitReject">驳回并按诊断重画</button>

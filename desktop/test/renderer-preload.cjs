@@ -958,6 +958,12 @@ contextBridge.exposeInMainWorld('tegula', {
   notificationsUnreadCount: () =>
     Promise.resolve((store.notifications || []).filter(n => !n.read).length),
   notificationsScan: () => ({ ok: true }),
+  // 2026-11-21：主进程通知变更广播的桩；测试用 __fcTest.emitNotificationsChanged() 触发
+  onNotificationsChanged: (cb) => {
+    if (!Array.isArray(store.ncChangeSubs)) store.ncChangeSubs = []
+    store.ncChangeSubs.push(cb)
+    return () => { store.ncChangeSubs = (store.ncChangeSubs || []).filter(x => x !== cb) }
+  },
   // P0-4/P0-5：扫描器状态 + 被静音提醒（夹具可由测试注入）
   notificationsScannerStatus: () => (store.ncStatus || { running: true, lastScanAt: new Date().toISOString() }),
   notificationsListMuted: () => (store.ncMuted || []).slice(),
@@ -3150,6 +3156,14 @@ contextBridge.exposeInMainWorld('__fcTest', {
   /** 重新灌测试数据：前面的回收站测试会把两条都还原/彻底删掉，后面的预览测试要重来一遍 */
   setTrash: (items) => { store.trash = (items || []).slice() },
   setLogs: (items) => { store.logs = (items || []).slice() },
+  /** 通知夹具（2026-11-21）：验“任务验收后面板真的把僵尸条目刷掉” */
+  setNotifications: (items) => { store.notifications = (items || []).slice() },
+  /** 手动触发一次主进程的 notifications:changed 广播 */
+  emitNotificationsChanged: () => {
+    const subs = (store.ncChangeSubs || []).slice()
+    subs.forEach((cb) => { try { cb() } catch { /* 组件已卸 */ } })
+    return subs.length
+  },
   /** 自仓同步状态（W1-1C）：传 null 恢复默认“已是最新” */
   setSelfSync: (obj) => { store.selfSync = obj || null },
   /** 项目路线文档（W1-批次 2）：传 null 恢复默认夹具；传 ok:false 造“读不到”形态 */

@@ -68,6 +68,7 @@ export function useNotifications(ctx: UseNotificationsOptions) {
   const ncItems = ref<any[]>([])
   const ncFilter = ref<'all' | 'unread' | 'read'>('unread')
   let ncTimer: number | null = null
+  let ncChangeOff: (() => void) | null = null
 
   const ncCounts = computed(() => {
     const unread = ncItems.value.filter(n => !n.read).length
@@ -340,14 +341,24 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     document.addEventListener('mousedown', onDocumentClick)
     document.addEventListener('keydown', onKeydown)
     ncLoad()
-    // 30s 轮询未读数（轻量，只拉计数）
+    // 2026-11-21：主进程每次落盘变更都推一次；面板开着就重拉列表，
+    // 关着就只刷新未读数（别为一条已读去拉 300 条）。
+    if (typeof t.onNotificationsChanged === 'function') {
+      ncChangeOff = t.onNotificationsChanged(() => {
+        if (ncOpen.value) { void ncLoad(); return }
+        t.notificationsUnreadCount().then((c: number) => { ncUnread.value = c || 0 }).catch(() => {})
+      })
+    }
+    // 兜底轮询：事件丢了/老 preload 也能收敛。面板开着拉列表，关着只拉计数。
     ncTimer = window.setInterval(() => {
+      if (ncOpen.value) { void ncLoad(); return }
       (window as any).tegula.notificationsUnreadCount().then((c: number) => { ncUnread.value = c || 0 }).catch(() => {})
-    }, 30_000)
+    }, 15_000)
   }
 
   onUnmounted(() => {
     if (ncTimer) { clearInterval(ncTimer); ncTimer = null }
+    if (ncChangeOff) { try { ncChangeOff() } catch { /* ignore */ } ncChangeOff = null }
     document.removeEventListener('mousedown', onDocumentClick)
     document.removeEventListener('keydown', onKeydown)
   })

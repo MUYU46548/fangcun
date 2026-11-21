@@ -471,12 +471,15 @@ function main() {
   // 这是全站唯一「既有动作又有时间性」的一条：agent 交了活，你不点头整条链就停着
   // （不归档、不驳回、下一格也推不动）。此前它**一条通知都没有** ——
   // 而“任务没动静”（用户什么也做不了）反倒有两份。
+  let ncChanges = 0
+  notif.setNotificationChangeHook(() => { ncChanges++ })
   const rvTask = tasks.createTask({ title: '等我拍板的卡' })
   tasks.moveStatus(rvTask.id, '待验收')
   notifier.scanOnce()
   const rvNotifs = notif.listNotifications().filter(n => n.type === 'task-review' && n.sourceId === rvTask.id)
   check('★★ 状态“待验收” → 产生 task-review（此前这类卡一条通知都没有）',
     rvNotifs.length === 1, String(rvNotifs.length))
+  check('★ 产生通知时广播了变更（渲染层不用等 30s 轮询）', ncChanges >= 1, 'changes=' + ncChanges)
   check('★ 标题点出“等你拍板”（不是又一句“任务状态变更”）',
     rvNotifs.length === 1 && /等你拍板/.test(String(rvNotifs[0].title)),
     rvNotifs[0] && rvNotifs[0].title)
@@ -494,11 +497,22 @@ function main() {
   check('★★ 反例：待办 / 完成的卡不产生 task-review（催的是“等你点头”，不是所有卡）',
     !notif.listNotifications().some(n => n.type === 'task-review'
       && (n.sourceId === otherTodo.id || n.sourceId === otherDone.id)))
-  // 拍板 → 自动消解（resolveNotifications 是**移除**，不是标已读）
+  // 拍板 → 自动消解（resolveNotifications 是**移除**，不是标已读）。
+  // 2026-11-21：不只要“扫描后消失”，还要**签收当下就消失** —— 用户点完成时面板正开着，
+  // 等 60s 扫描或关掉重开都算僵尸。终态回调里直接消解。
+  const autoClose = require(path.join(DIST, 'services', 'logAutoClose.js'))
+  autoClose.installLogAutoClose()
+  const changesBeforeDone = ncChanges
   tasks.moveStatus(rvTask.id, '完成')
-  notifier.scanOnce()
-  check('★★ 拍板（转完成）后 task-review 被移除（不留僵尸）',
+  check('★★ 拍板（转完成）当下 task-review 就被移除，不用等下一轮扫描（面板不挂僵尸）',
     !notif.listNotifications().some(n => n.type === 'task-review' && n.sourceId === rvTask.id))
+  check('★ 消解也广播了变更（面板开着会立刻刷新）', ncChanges > changesBeforeDone,
+    'before=' + changesBeforeDone + ' after=' + ncChanges)
+  autoClose.uninstallLogAutoClose()
+  notifier.scanOnce()
+  check('★★ 拍板（转完成）后 task-review 被移除（扫描兜底也不留僵尸）',
+    !notif.listNotifications().some(n => n.type === 'task-review' && n.sourceId === rvTask.id))
+  notif.setNotificationChangeHook(null)
 
   // ══ B10c. 已删的 task-timeout（2026-11-05）═══════════════════════════════
   // 它只看「派活 → 现在」，与文件有没有被回写毫无关系 —— 同一张卡会与 task-stalled 各报一条，

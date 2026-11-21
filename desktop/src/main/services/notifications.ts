@@ -46,6 +46,25 @@ function getStorePath(): string {
   return path.join(dir, 'index.json')
 }
 
+/**
+ * 通知变更回调（2026-11-21 暮雨：“全验收了通知里还在挂着”）。
+ *
+ * 现场：任务已经点完成，磁盘上的 task-review 也已经被 scanOnce 删掉，但**通知面板还挂着旧条目**。
+ * 真因不是扫描器，是渲染层只在打开面板时拉一次列表、之后每 30s 只拉未读数 ——
+ * 列表没有刷新入口，用户不关掉重开就永远看到僵尸。
+ *
+ * 这里在每次落盘变更后主动通知渲染层；index.ts 把它接到 `notifications:changed` 广播上。
+ * 纯服务保持无 Electron 依赖，测试可以直接注册函数数次数。
+ */
+let changeHook: (() => void) | null = null
+export function setNotificationChangeHook(fn: (() => void) | null): void {
+  changeHook = fn
+}
+function notifyChanged(): void {
+  if (!changeHook) return
+  try { changeHook() } catch { /* 广播失败不能影响已落盘的数据 */ }
+}
+
 function normalize(raw: any): Notification {
   return {
     id: String(raw?.id ?? ''),
@@ -164,6 +183,7 @@ export function pushNotification(input: PushInput): { notification: Notification
     existing.level = input.level ?? existing.level
     existing.updatedAt = now
     saveAll(list)
+    notifyChanged()
     return { notification: existing, created: false }
   }
   const n: Notification = {
@@ -180,6 +200,7 @@ export function pushNotification(input: PushInput): { notification: Notification
   }
   list.unshift(n)
   saveAll(list)
+  notifyChanged()
   return { notification: n, created: true }
 }
 
@@ -200,6 +221,7 @@ export function markRead(id: string): boolean {
   n.read = true
   n.updatedAt = new Date().toISOString()
   saveAll(list)
+  notifyChanged()
   return true
 }
 
@@ -212,7 +234,7 @@ export function markAllRead(): number {
       c++
     }
   }
-  if (c) saveAll(list)
+  if (c) { saveAll(list); notifyChanged() }
   return c
 }
 
@@ -227,6 +249,7 @@ export function deleteNotification(id: string): boolean {
   const muted = loadMuted()
   muted.set(dedupKey(removed), Date.now() + muteTtlMs)
   saveMuted(muted)
+  notifyChanged()
   return true
 }
 
@@ -235,6 +258,7 @@ export function clearAll(): number {
   const list = loadAll()
   const c = list.length
   saveAll([])
+  if (c) notifyChanged()
   return c
 }
 
@@ -247,7 +271,7 @@ export function resolveNotifications(type: string, sourceId?: string): number {
   const list = loadAll()
   const kept = list.filter(n => !(n.type === type && (sourceId === undefined || n.sourceId === sourceId)))
   const c = list.length - kept.length
-  if (c) saveAll(kept)
+  if (c) { saveAll(kept); notifyChanged() }
   return c
 }
 
@@ -261,6 +285,7 @@ export function prune(): number {
   const drop = new Set(sorted.slice(0, list.length - MAX_NOTIFICATIONS).map(n => n.id))
   const kept = list.filter(n => !drop.has(n.id))
   saveAll(kept)
+  if (drop.size) notifyChanged()
   return drop.size
 }
 
@@ -290,7 +315,7 @@ export function cleanupExpired(now = new Date()): number {
     return t >= cutoff                 // 未超期 = 保留
   })
   const c = list.length - kept.length
-  if (c) saveAll(kept)
+  if (c) { saveAll(kept); notifyChanged() }
   return c
 }
 export function _resetForTest(): void {

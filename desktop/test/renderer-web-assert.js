@@ -88,6 +88,10 @@
     check('渲染层在无头浏览器里挂载成功（#bar 出现）', mounted)
     check('preload 假后端可用（window.tegula 在）', typeof window.tegula === 'object' && window.tegula !== null)
     check('测试侧只读入口在（window.__fcTest 在）', typeof window.__fcTest === 'object' && window.__fcTest !== null)
+    // 2026-11-21 P0-1 复核：这条源码守卫此前**只算不判**（seed 传进来了，却没人 check）——
+    // 等于“抖动根因”没有回归保护。现在接到断言上：hover 改布局属性就红。
+    check('★★ 打分/排序行 hover 只改颜色/阴影，不许改布局属性（画面抖动根因）',
+      window.__fcHoverNoLayout === true, String(window.__fcHoverDetail || ''))
 
     // ══ 免责与知情声明 · 首启强制确认（2026-10-16 暮雨第 1 条）══════════════
     // 这一节**必须排在最前**：无头 profile 每次都是全新的（e2e-renderer-web.cjs 现 mkdtemp），
@@ -6226,6 +6230,34 @@
       const bell3 = $('.nc-bell')
       if (bell3) bell3.click()
       await sleep(200)
+    }
+
+    // ── 2026-11-21：验收后通知必须当场消失，不能等关掉重开 ──
+    // 现场：任务已点完成、磁盘里的 task-review 已消解，面板仍挂着“等你拍板”；
+    // 真因是渲染层只在打开时拉列表、之后只轮询未读数。主进程现在每次落盘变更都广播。
+    {
+      const ncT = new Date().toISOString()
+      window.__fcTest.setNotifications([
+        { id: 'nc-live-1', type: 'task-review', level: 'warning', title: '等你拍板：刚验收的那张',
+          body: '状态“待验收”', sourceId: 'nt-task-1', key: 'review',
+          read: false, createdAt: ncT, updatedAt: ncT },
+      ])
+      const bell4 = $('.nc-bell')
+      if (bell4) bell4.click()
+      check('★ 面板打开时能看到这条“等你拍板”',
+        await waitFor(() => $$('.nc-item').length === 1, 2500, 'nc live 1'),
+        'items=' + $$('.nc-item').length)
+      // 模拟主进程在任务签收后消解了 task-review 并发广播（真身见 notifications.resolveNotifications）
+      window.__fcTest.setNotifications([])
+      window.__fcTest.emitNotificationsChanged()
+      check('★★ 主进程广播后，面板不关不重开也当场清掉僵尸条目',
+        await waitFor(() => $$('.nc-item').length === 0, 3000, 'nc live 0'),
+        'items=' + $$('.nc-item').length)
+      if ($('.nc-wrap')) {
+        const bell5 = $('.nc-bell')
+        if (bell5) bell5.click()
+        await sleep(200)
+      }
     }
 
     // ══ 问卷（2026-11-05 · 暮雨“我设想的就是问卷弹窗”）════════════════════════
