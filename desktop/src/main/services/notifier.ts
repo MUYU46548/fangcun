@@ -296,6 +296,32 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
   // 否则面板里会永远挂着再也不会被刷新的旧条目（“僵尸通知”比不提醒更糟）。
   resolved += notifications.resolveNotifications('task-timeout')
 
+  // ── 3c. 驳回后没人处理（2026-11-21 暮雨：“驳回的真的永远不看，永远不修复”）──
+  // 驳回在语义上不是终态：它欠一个“退回返工”或“归档不要了”的决定。
+  // 这里只对 **status=驳回** 提醒（退回待办那条用户说已经没问题，不再重复催）；
+  // 与返工台同一套口径，但不再依赖用户主动打开体检面板 —— 通知中心里能看见。
+  const rejectedIds = new Set<string>()
+  for (const t of activeTasks) {
+    if (t.fm.status !== '驳回') continue
+    rejectedIds.add(t.id)
+    const reason = String((t.fm as any).reject_reason || '').trim()
+    if (push({
+      type: 'task-rework', level: 'warning', osNotify: false,
+      title: `驳回还没处理：${t.fm.title ?? t.id}`,
+      body: reason
+        ? `上次驳回：${reason} —— 要么退回返工，要么归档（不要了）；停在“驳回”不会自己消失`
+        : '这张卡被驳回但没写理由 —— 退回返工或归档，别让它一直停着',
+      sourceId: t.id,
+      key: 'v1:' + String((t.fm as any).reject_at || ''),
+      project: projectOfTask(t),
+    })) created++
+  }
+  for (const n of notifications.listNotifications()) {
+    if (n.type === 'task-rework' && !rejectedIds.has(n.sourceId ?? '')) {
+      resolved += notifications.resolveNotifications('task-rework', n.sourceId)
+    }
+  }
+
   // ── 4. 解析失败（持续可见，事件存在即保持未读） ──
   const perrs = data.getParseErrors()
   const errPaths = new Set(perrs)

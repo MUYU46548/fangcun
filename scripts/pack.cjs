@@ -396,8 +396,25 @@ function main() {
   //    留一份“只增不减”的仓库外副本，等于把“不许清理”换个地方实现；而老包本来就该清。
   //    现在只保留一件事：`pkg` 里按 KEEP_INSTALLERS 自动清，想留几版用 FC_PKG_KEEP 调。
 
+  // ⑤b 装完验收清单（2026-11-21）：本版所有待验收卡的判据原文，版本号从 package.json 读。
+  //     写不进 pkg 只警告，不阻断打包 —— 清单是给人用的，不是安装包的一部分。
+  let checklistPath = ''
+  try {
+    const { writeReleaseChecklist } = require('./lib/releaseChecklist.cjs')
+    const r = writeReleaseChecklist({
+      repoRoot: path.resolve(__dirname, '..'),
+      outDir: OUT,
+      version: pkg.version,
+    })
+    checklistPath = r.path
+    log(`✓ 装完验收清单：${r.path}（${r.cards} 张待验收卡）`)
+  } catch (e) {
+    log(`⚠ 装完验收清单没写成（不影响安装包）：${(e && e.message) || e}`)
+  }
+
   if (verifyDir !== OUT) log(`\n注意：自检查的是 ${verifyDir}（pkg 里有文件被占没换掉，见上）`)
   log(ok ? `\n完成：${exe}` : '\n有自检项没过，别发版')
+  if (checklistPath) log(`验收清单：${checklistPath}`)
   process.exit(ok ? 0 : 1)
 }
 
