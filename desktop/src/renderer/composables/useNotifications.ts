@@ -73,19 +73,25 @@ export function useNotifications(ctx: UseNotificationsOptions) {
   const ncType = ref('')
   // 2026-11-21：分类订阅 —— 关掉的类型不进未读计数，历史仍保留，可随时恢复。
   const ncHidden = ref<string[]>([])
+  // 2026-11-21：按项目订阅 —— 与类型订阅叠加；没有 project 的全局通知不受影响。
+  const ncHiddenProjects = ref<string[]>([])
+  const ncProjects = ref<Array<{ id: string; name: string }>>([])
   const ncSubOpen = ref(false)
   let ncTimer: number | null = null
   let ncChangeOff: (() => void) | null = null
 
+  const isHidden = (n: any): boolean =>
+    ncHidden.value.includes(n.type)
+    || (!!n.project && ncHiddenProjects.value.includes(String(n.project)))
   const ncCounts = computed(() => {
-    const active = ncItems.value.filter(n => !ncHidden.value.includes(n.type))
+    const active = ncItems.value.filter(n => !isHidden(n))
     const unread = active.filter(n => !n.read).length
     const hidden = ncItems.value.length - active.length
     return { all: active.length, unread, read: active.length - unread, hidden }
   })
-  /** 未读数：订阅关掉的类型不算 —— 否则“关了还在角标上”等于没关 */
+  /** 未读数：订阅关掉的类型/项目不算 —— 否则“关了还在角标上”等于没关 */
   const ncUnread = computed(() => {
-    const hiddenUnread = ncItems.value.filter(n => !n.read && ncHidden.value.includes(n.type)).length
+    const hiddenUnread = ncItems.value.filter(n => !n.read && isHidden(n)).length
     return Math.max(0, ncUnreadRaw.value - hiddenUnread)
   })
   /** 订阅清单：所有已知类型（没有的也列出来，用户可以先关掉以后再出现的类型） */
@@ -99,14 +105,14 @@ export function useNotifications(ctx: UseNotificationsOptions) {
   /** 类型筛选项：只列当前通知里真出现过的类型，带条数（不造空选项） */
   const ncTypes = computed(() => {
     const m = new Map<string, number>()
-    for (const n of ncItems.value) if (!ncHidden.value.includes(n.type)) m.set(n.type, (m.get(n.type) || 0) + 1)
+    for (const n of ncItems.value) if (!isHidden(n)) m.set(n.type, (m.get(n.type) || 0) + 1)
     return [...m.entries()]
       .map(([id, n]) => ({ id, n, label: NC_TYPE_META[id]?.label || id }))
       .sort((a, b) => b.n - a.n || a.label.localeCompare(b.label))
   })
   const ncVisible = computed(() => {
     return ncItems.value.filter(n => {
-      if (ncHidden.value.includes(n.type)) return false
+      if (isHidden(n)) return false
       if (ncFilter.value === 'unread' && n.read) return false
       if (ncFilter.value === 'read' && !n.read) return false
       if (ncType.value && n.type !== ncType.value) return false
@@ -199,12 +205,22 @@ export function useNotifications(ctx: UseNotificationsOptions) {
       const p: any = await (window as any).tegula.prefsGet()
       const raw = Array.isArray(p?.ncHiddenTypes) ? p.ncHiddenTypes : []
       ncHidden.value = raw.map((x: any) => String(x)).filter((x: string) => !!NC_TYPE_META[x])
+      const rp = Array.isArray(p?.ncHiddenProjects) ? p.ncHiddenProjects : []
+      ncHiddenProjects.value = rp.map((x: any) => String(x)).filter(Boolean)
     } catch { /* 读不到偏好按“全订阅”处理，不挡面板 */ }
+    try {
+      const ps: any[] = await (window as any).tegula.loadProjects()
+      ncProjects.value = (ps || []).map((p: any) => ({ id: String(p.id || ''), name: String(p.name || p.id || '') }))
+        .filter((p) => !!p.id)
+    } catch { ncProjects.value = [] }
   }
 
   async function ncSaveHidden(): Promise<void> {
     try {
-      const r: any = await (window as any).tegula.prefsSetMany({ ncHiddenTypes: [...ncHidden.value] })
+      const r: any = await (window as any).tegula.prefsSetMany({
+        ncHiddenTypes: [...ncHidden.value],
+        ncHiddenProjects: [...ncHiddenProjects.value],
+      })
       if (r && r.ok === false) ctx.toast('订阅没存进去：' + (r.error || '未知原因'), 'error')
     } catch (e: any) {
       ctx.toast('订阅没存进去：' + (e?.message || e), 'error')
@@ -219,10 +235,19 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     await ncSaveHidden()
   }
 
+  async function ncToggleProject(id: string, on: boolean): Promise<void> {
+    const p = String(id || '')
+    if (!p) return
+    if (on) ncHiddenProjects.value = ncHiddenProjects.value.filter((x) => x !== p)
+    else if (!ncHiddenProjects.value.includes(p)) ncHiddenProjects.value = [...ncHiddenProjects.value, p]
+    await ncSaveHidden()
+  }
+
   async function ncResetSubs(): Promise<void> {
     ncHidden.value = []
+    ncHiddenProjects.value = []
     await ncSaveHidden()
-    ctx.toast('已恢复全部通知类型', 'success')
+    ctx.toast('已恢复全部通知类型与项目', 'success')
   }
 
   /**
@@ -433,6 +458,6 @@ export function useNotifications(ctx: UseNotificationsOptions) {
   })
 
   return {
-    NC_TYPE_META, ncOpen, ncReady, ncLoading, ncUnread, ncItems, ncFilter, ncType, ncTypes, ncHidden, ncSubOpen, ncAllTypes, ncCounts, ncVisible, ncHeadSub, ncRelTime, ncStatus, ncMuted, ncStatusText, ncLoad, ncUnmuteAll, ncRefresh, ncToggle, closePanel, ncSetFilter, ncSetType, ncToggleType, ncResetSubs, ncLoadHidden, ncTargetOf, ncJump, ncClickItem, ncToggleRead, ncMarkAllRead, ncDelete, ncClearAll, ncInit
+    NC_TYPE_META, ncOpen, ncReady, ncLoading, ncUnread, ncItems, ncFilter, ncType, ncTypes, ncHidden, ncHiddenProjects, ncProjects, ncSubOpen, ncAllTypes, ncCounts, ncVisible, ncHeadSub, ncRelTime, ncStatus, ncMuted, ncStatusText, ncLoad, ncUnmuteAll, ncRefresh, ncToggle, closePanel, ncSetFilter, ncSetType, ncToggleType, ncToggleProject, ncResetSubs, ncLoadHidden, ncTargetOf, ncJump, ncClickItem, ncToggleRead, ncMarkAllRead, ncDelete, ncClearAll, ncInit
   }
 }

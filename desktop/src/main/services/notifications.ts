@@ -22,6 +22,8 @@ export interface Notification {
   body?: string
   sourceId?: string
   key?: string
+  /** 所属项目（2026-11-21 按项目订阅）：能归到项目的事件才带；全局事件留空 */
+  project?: string
   createdAt: string
   updatedAt: string
   read: boolean
@@ -34,6 +36,7 @@ export interface PushInput {
   body?: string
   sourceId?: string
   key?: string
+  project?: string
   osNotify?: boolean
 }
 
@@ -74,6 +77,7 @@ function normalize(raw: any): Notification {
     body: raw?.body === undefined ? undefined : String(raw.body),
     sourceId: raw?.sourceId === undefined ? undefined : String(raw.sourceId),
     key: raw?.key === undefined ? undefined : String(raw.key),
+    project: raw?.project === undefined ? undefined : String(raw.project),
     createdAt: String(raw?.createdAt ?? ''),
     updatedAt: String(raw?.updatedAt ?? ''),
     read: !!raw?.read,
@@ -181,6 +185,7 @@ export function pushNotification(input: PushInput): { notification: Notification
     existing.title = input.title
     existing.body = input.body
     existing.level = input.level ?? existing.level
+    if (input.project !== undefined) existing.project = input.project
     existing.updatedAt = now
     saveAll(list)
     notifyChanged()
@@ -194,6 +199,7 @@ export function pushNotification(input: PushInput): { notification: Notification
     body: input.body,
     sourceId: input.sourceId,
     key: input.key,
+    project: input.project,
     createdAt: now,
     updatedAt: now,
     read: false,

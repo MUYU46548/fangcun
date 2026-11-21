@@ -1274,6 +1274,8 @@ export interface BrokenBlocker {
   taskId: string
   taskTitle: string
   blockerId: string
+  /** 所属项目（2026-11-21 通知按项目订阅用；没有项目时空串） */
+  project?: string
 }
 
 /**
@@ -1294,7 +1296,12 @@ export function detectBrokenBlockers(): BrokenBlocker[] {
     if (st === '完成' || st === '驳回') continue
     for (const bid of t.fm.blockers || []) {
       if (!bid || known.has(bid)) continue
-      out.push({ taskId: t.id, taskTitle: t.fm.title || t.id, blockerId: bid })
+      out.push({
+        taskId: t.id,
+        taskTitle: t.fm.title || t.id,
+        blockerId: bid,
+        project: (Array.isArray(t.fm.project) ? String(t.fm.project[0] || '') : String(t.fm.project || '')).trim(),
+      })
     }
   }
   return out

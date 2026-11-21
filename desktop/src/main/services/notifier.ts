@@ -119,6 +119,12 @@ function push(input: notifications.PushInput): boolean {
   return r.created
 }
 
+/** 任务所属项目（`project` 可能是数组/单值）；没有就空串，按项目订阅时视为“全局” */
+function projectOfTask(t: any): string {
+  const p = t?.fm?.project ?? t?.project
+  return (Array.isArray(p) ? String(p[0] || '') : String(p || '')).trim()
+}
+
 /**
  * 更新包下载完成 → 必须“看得见”（012，2026-09-25）。
  *
@@ -224,6 +230,7 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
         sourceId: t.id,
         // 指纹含时间：改期/改时间 = 新事件；没时间时保持老键（不制造一次性重复弹窗）
         key: `${String(t.due ?? '')}${t.dueTime ? ' ' + String(t.dueTime) : ''}`,
+        project: String((t as any).project || ''),
       })) created++
     }
   }
@@ -247,6 +254,7 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
         title: `任务逾期：${t.fm.title ?? t.id}`,
         body: `截止 ${String(t.fm.deadline ?? '')}，当前状态 ${t.fm.status ?? '未知'}`,
         sourceId: t.id, key: String(t.fm.deadline ?? ''),
+        project: projectOfTask(t),
       })) created++
     }
   }
@@ -271,6 +279,7 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
       body: `状态“待验收” —— 觉得行就点“通过”（归档），不行就打回重做；不点它就一直停在这儿`,
       sourceId: t.id,
       key: 'review',
+      project: projectOfTask(t),
     })) created++
   }
   for (const n of notifications.listNotifications()) {
@@ -315,6 +324,7 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
       title: `阻塞链断裂：${b.taskTitle}`,
       body: `它依赖的 ${b.blockerId} 已不存在（可能被删除或进了回收站）`,
       sourceId: b.taskId, key: b.blockerId,   // 每对“任务×缺失阻塞源”一条，避免互相挤掉
+      project: b.project || '',
     })) created++
   }
   for (const n of notifications.listNotifications()) {
@@ -350,6 +360,7 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
         body: `${d.total} 题${d.project ? ' · ' + d.project : ''} —— 答完并批准之前，依赖它的规划/派工单出不来`,
         sourceId: d.deck,
         key: `v1:${d.total}`,
+        project: String((d as any).project || ''),
       })) created++
     }
   } catch (e: any) {

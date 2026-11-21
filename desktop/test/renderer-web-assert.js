@@ -6188,10 +6188,10 @@
     const ncNow = new Date().toISOString()
     window.__fcTest.setNotifications([
       { id: 'nc-1', type: 'task-stalled', level: 'warning', title: '任务没动静：通知跳转目标任务',
-        body: '任务文件已 72 小时没有任何写入', sourceId: 'nt-task-1', key: 'stalled',
+        body: '任务文件已 72 小时没有任何写入', sourceId: 'nt-task-1', key: 'stalled', project: 'demo',
         read: false, createdAt: ncNow, updatedAt: ncNow },
       { id: 'nc-2', type: 'todo-due', level: 'warning', title: '待办到期：示例',
-        body: '今天到期', sourceId: 'nt-todo-1', key: 'due',
+        body: '今天到期', sourceId: 'nt-todo-1', key: 'due', project: 'other',
         read: true, createdAt: ncNow, updatedAt: ncNow },
     ])
     clickText('看板'); await sleep(400)
@@ -6263,6 +6263,35 @@
         await waitFor(() => $$('.nc-item').length === 2
           && !(window.__fcTest.prefs().ncHiddenTypes || []).includes('task-stalled'), 3000, 'restore'),
         JSON.stringify(window.__fcTest.prefs().ncHiddenTypes))
+      // 按项目订阅（2026-11-21）：关掉 demo 项目 → 只有 demo 那条消失
+      {
+        const prow = $$('.nc-sub-projects .nc-sub-item').find((l) => {
+          const lbl = l.querySelector('.lbl')
+          return lbl && lbl.getAttribute('title') === 'demo'
+        })
+        const pbox = prow ? prow.querySelector('input[type="checkbox"]') : null
+        check('★★ 订阅面板列出项目（demo 可勾掉）', !!pbox && pbox.checked === true,
+          prow ? (prow.textContent || '').trim() : '(没有 demo 项目项)')
+        if (pbox) {
+          pbox.checked = false
+          pbox.dispatchEvent(new Event('change', { bubbles: true }))
+        }
+        check('★★ 关掉一个项目后只少该项目的通知',
+          await waitFor(() => $$('.nc-item').length === 1
+            && (((($$('.nc-item')[0] || {}).textContent) || '').indexOf('待办到期') >= 0), 3000, 'project filter'),
+          'items=' + $$('.nc-item').length)
+        check('★★ 项目订阅写进 prefs.ncHiddenProjects',
+          await waitFor(() => Array.isArray(window.__fcTest.prefs().ncHiddenProjects)
+            && window.__fcTest.prefs().ncHiddenProjects.includes('demo'), 3000, 'prefs ncHiddenProjects'),
+          JSON.stringify(window.__fcTest.prefs().ncHiddenProjects))
+        if (pbox) {
+          pbox.checked = true
+          pbox.dispatchEvent(new Event('change', { bubbles: true }))
+        }
+        check('★ 恢复项目后两条都回来',
+          await waitFor(() => $$('.nc-item').length === 2
+            && !(window.__fcTest.prefs().ncHiddenProjects || []).includes('demo'), 3000, 'project restore'))
+      }
       if ($('.nc-sub-toggle') && $('.nc-sub-panel')) {
         $('.nc-sub-toggle').click()
         await sleep(150)

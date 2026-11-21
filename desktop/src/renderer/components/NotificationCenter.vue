@@ -59,9 +59,21 @@
             <span class="n">{{ t.n }}</span>
           </label>
         </div>
+        <div class="nc-sub-sep">按项目（关掉某个项目的通知；全局通知不受影响）</div>
+        <div v-if="ncProjects.length" class="nc-sub-grid nc-sub-projects">
+          <label v-for="p in ncProjects" :key="p.id" class="nc-sub-item" :class="{ off: ncHiddenProjects.includes(p.id) }">
+            <input type="checkbox" :checked="!ncHiddenProjects.includes(p.id)"
+              @change="ncToggleProject(p.id, ($event.target as HTMLInputElement).checked)" />
+            <span class="lbl" :title="p.id">{{ p.name }}</span>
+          </label>
+        </div>
+        <div v-else class="nc-sub-empty">还没有可订阅的项目</div>
         <div class="nc-sub-foot">
-          <span v-if="ncHidden.length">已关 {{ ncHidden.length }} 类 · {{ ncCounts.hidden }} 条不计数</span>
-          <span v-else>全部类型都接收</span>
+          <span v-if="ncHidden.length || ncHiddenProjects.length">
+            已关 {{ ncHidden.length }} 类<template v-if="ncHiddenProjects.length"> · {{ ncHiddenProjects.length }} 个项目</template>
+            · {{ ncCounts.hidden }} 条不计数
+          </span>
+          <span v-else>全部类型与项目都接收</span>
           <Button variant="ghost" size="sm" @click="ncResetSubs">全部恢复</Button>
         </div>
       </div>
@@ -141,6 +153,8 @@ const ncFilter = toRef(ctl, 'ncFilter')
 const ncType = toRef(ctl, 'ncType')
 const ncTypes = toRef(ctl, 'ncTypes')
 const ncHidden = toRef(ctl, 'ncHidden')
+const ncHiddenProjects = toRef(ctl, 'ncHiddenProjects')
+const ncProjects = toRef(ctl, 'ncProjects')
 const ncSubOpen = toRef(ctl, 'ncSubOpen')
 const ncAllTypes = toRef(ctl, 'ncAllTypes')
 const ncCounts = toRef(ctl, 'ncCounts')
@@ -151,7 +165,7 @@ const ncStatusText = toRef(ctl, 'ncStatusText')
 
 // ── 动作 ────────────────────────────────────────────────────────────────
 const {
-  ncRefresh, ncMarkAllRead, closePanel, ncSetFilter, ncSetType, ncToggleType, ncResetSubs, ncTargetOf, ncClickItem,
+  ncRefresh, ncMarkAllRead, closePanel, ncSetFilter, ncSetType, ncToggleType, ncToggleProject, ncResetSubs, ncTargetOf, ncClickItem,
   ncRelTime, ncToggleRead, ncDelete, ncUnmuteAll, ncClearAll,
 } = ctl
 </script>

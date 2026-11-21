@@ -486,12 +486,15 @@ function main() {
   // 而“任务没动静”（用户什么也做不了）反倒有两份。
   let ncChanges = 0
   notif.setNotificationChangeHook(() => { ncChanges++ })
-  const rvTask = tasks.createTask({ title: '等我拍板的卡' })
+  const rvTask = tasks.createTask({ title: '等我拍板的卡', project: 'demo' })
   tasks.moveStatus(rvTask.id, '待验收')
   notifier.scanOnce()
   const rvNotifs = notif.listNotifications().filter(n => n.type === 'task-review' && n.sourceId === rvTask.id)
   check('★★ 状态“待验收” → 产生 task-review（此前这类卡一条通知都没有）',
     rvNotifs.length === 1, String(rvNotifs.length))
+  check('★★ task-review 带所属项目（按项目订阅的数据源，不是只在界面猜）',
+    rvNotifs.length === 1 && rvNotifs[0].project === 'demo',
+    JSON.stringify(rvNotifs[0] && { project: rvNotifs[0].project, type: rvNotifs[0].type }))
   check('★ 产生通知时广播了变更（渲染层不用等 30s 轮询）', ncChanges >= 1, 'changes=' + ncChanges)
   check('★ 标题点出“等你拍板”（不是又一句“任务状态变更”）',
     rvNotifs.length === 1 && /等你拍板/.test(String(rvNotifs[0].title)),
