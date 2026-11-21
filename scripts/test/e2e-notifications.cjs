@@ -331,6 +331,19 @@ function main() {
     !!stub.Notification.lastShown && String(stub.Notification.lastShown.title).includes('0.2.6'),
     JSON.stringify(stub.Notification.lastShown))
   check('同版本重复推送被幂等（不刷屏）', notifier.notifyUpdateReady('0.2.6') === false)
+  // 2026-11-21：发现新版本时也要主动通知（此前只有窗口开着的一条 toast）。
+  const avOk = notifier.notifyUpdateAvailable('0.2.7')
+  check('★★ 发现新版本写入通知中心（窗口在托盘也能看见）',
+    avOk === true && notif.listNotifications().some(n => n.type === 'update-available' && n.sourceId === '0.2.7'))
+  check('★ 发现新版本同时有中文标签与系统通知',
+    !!stub.Notification.lastShown && String(stub.Notification.lastShown.title).includes('0.2.7'))
+  const updaterSrc0 = fs.readFileSync(path.join(SRC, 'main', 'updater.ts'), 'utf-8')
+  const avBranch = updaterSrc0.slice(updaterSrc0.indexOf("autoUpdater.on('update-available'"), updaterSrc0.indexOf("autoUpdater.on('update-not-available'"))
+  check('★★ updater 的 update-available 分支调用了 notifyUpdateAvailable（不只发渲染层事件）',
+    /notifyUpdateAvailable\(/.test(avBranch), avBranch.slice(0, 200))
+  notifier.notifyUpdateReady('0.2.7')
+  check('★★ 下载完成后“发现新版本”那条被消解（同版本不挂两条）',
+    !notif.listNotifications().some(n => n.type === 'update-available' && n.sourceId === '0.2.7'))
   const updaterSrc = fs.readFileSync(path.join(SRC, 'main', 'updater.ts'), 'utf-8')
   const dlBranch = updaterSrc.slice(updaterSrc.indexOf("autoUpdater.on('update-downloaded'"), updaterSrc.indexOf("autoUpdater.on('error'"))
   check('updater 的 update-downloaded 分支调用了 notifyUpdateReady（防再次静默丢失）',

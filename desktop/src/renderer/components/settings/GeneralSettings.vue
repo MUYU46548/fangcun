@@ -49,7 +49,47 @@ async function saveMemoryPrefs(): Promise<void> {
   }
 }
 
-onMounted(loadMemoryPrefs)
+// ── 开机自启（2026-11-21）────────────────────────────────────────────
+// 默认关；只有勾选才写当前用户启动项。杀软可能拦截，必须在界面上提前说清楚。
+const autoStart = ref(false)
+const autoStartBusy = ref(false)
+const autoStartSupported = ref(true)
+const autoStartMsg = ref('')
+
+async function loadAutoStart(): Promise<void> {
+  try {
+    const r: any = await (window as any).tegula.getAutoStart()
+    autoStartSupported.value = r?.supported !== false
+    autoStart.value = !!r?.enabled
+    autoStartMsg.value = r?.reason || ''
+  } catch (e: any) {
+    autoStartSupported.value = false
+    autoStartMsg.value = '读不到开机启动状态：' + (e?.message || e)
+  }
+}
+
+async function onAutoStartChange(e: Event): Promise<void> {
+  const want = !!(e.target as HTMLInputElement | null)?.checked
+  autoStartBusy.value = true
+  autoStartMsg.value = want ? '正在写入启动项…' : '正在移除启动项…'
+  try {
+    const r: any = await (window as any).tegula.setAutoStart(want)
+    autoStart.value = !!r?.enabled
+    autoStartSupported.value = r?.supported !== false
+    if (r?.ok) {
+      autoStartMsg.value = autoStart.value ? '已开启：下次登录会自动启动方寸' : '已关闭：不再随登录启动'
+    } else {
+      autoStartMsg.value = String(r?.reason || '系统没有接受这次修改（可能被杀毒软件/组策略拦截）')
+    }
+  } catch (e: any) {
+    autoStart.value = !want
+    autoStartMsg.value = '设置失败：' + (e?.message || e)
+  } finally {
+    autoStartBusy.value = false
+  }
+}
+
+onMounted(() => { void loadMemoryPrefs(); void loadAutoStart() })
 </script>
 
 <template>
@@ -71,13 +111,23 @@ onMounted(loadMemoryPrefs)
               </button>
             </div>
             <div class="hint">更新包托管在 GitHub Releases，检查与下载需联网。</div>
-            <!-- 2026-09-25（用户第 1/3/9 条）：界面卡顿/点不动的人工验证杠杆。
-                 去完全部实时模糊层后若仍复发，那就是合成器/核显驱动层的问题
-                 —— 关掉硬件加速重启即可验证（必须重启才生效）。 -->
+            <!-- 2026-09-25（用户第 1/3/9 条）：界面卡顿/点不动的人工验证杠杆。 -->
             <label class="chk gpu-chk" title="关掉 Chromium 的 GPU 合成。若“点输入框要切窗口才恢复”仍复发，勾上它重启再试。">
               <input type="checkbox" v-model="disableGpu" @change="onDisableGpuChange" />
               禁用硬件加速（界面若出现卡顿/点不动的兜底，需重启生效）
             </label>
+          </div>
+          <!-- 开机自启（2026-11-21）：默认关；只有勾选才写当前用户启动项。 -->
+          <div class="sect" v-show="active">
+            <h4>启动</h4>
+            <label class="chk" title="会写入当前用户的 Windows 启动项；不需要管理员权限">
+              <input type="checkbox" :checked="autoStart" :disabled="!autoStartSupported || autoStartBusy" @change="onAutoStartChange" />
+              开机自动启动方寸（可选，默认关闭）
+            </label>
+            <div class="hint">
+              勾选后会写入当前用户的 Windows 启动项（不要求管理员），登录后<b>只在托盘里运行、不弹主窗口</b>。<b>部分杀毒软件会拦截或提示“程序试图添加开机启动”，届时需要在杀毒软件里允许本程序</b>；不勾选则完全不会写。
+            </div>
+            <div v-if="autoStartMsg" class="hint">{{ autoStartMsg }}</div>
           </div>
           <!-- 花钱动作确认（2026-11-20 · 暮雨）：默认开；关掉后按钮仍带金色 ¥ 角标，
                但不再弹窗。弹窗里勾「以后不再提示」也会把这里关掉。 -->

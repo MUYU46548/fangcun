@@ -17,6 +17,9 @@ export function initUpdater(window: BrowserWindow): void {
   autoUpdater.on('update-available', (info) => {
     log.info(`发现新版本: ${info.version}`)
     isChecking = false
+    // 2026-11-21：不只发渲染层事件 —— 窗口在托盘/用户没看设置页时，那条事件等于没提示。
+    // 进通知中心 + 系统通知；下载完成后会自动消解这一条。
+    notifier.notifyUpdateAvailable(info.version)
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('update:available', {
         version: info.version,

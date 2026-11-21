@@ -40,6 +40,8 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     'parse-error':   { icon: 'security', label: '解析失败', glyph: '⚠' },
     'backup-failed': { icon: 'storage', label: '备份失败', glyph: '💾' },
     'update-downloaded': { icon: 'storage', label: '更新已就绪', glyph: '⬆' },
+    // 2026-11-21：发现新版本也进通知中心（此前只有窗口开着时一条 toast）
+    'update-available': { icon: 'storage', label: '发现新版本', glyph: '⬆' },
     // 2026-10-01 用户定稿新增的两类（只在面板里看，不弹系统通知）。
     // icon 复用现有 security/approve —— 新 icon 得配 nc-t-*/nc-av-* 两套主题色，没必要为两个标签开新面。
     'blocker-broken': { icon: 'security', label: '阻塞链断裂', glyph: '⛓' },
@@ -170,7 +172,7 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     }
     if (t === 'todo-due') return '跳到待办'
     if (t === 'parse-error') return '查看解析错误'
-    if (t === 'backup-failed' || t === 'update-downloaded') return '打开设置'
+    if (t === 'backup-failed' || t === 'update-downloaded' || t === 'update-available') return '打开设置'
     if (t === 'questionnaire-pending') return n.sourceId ? '去答这一卷' : '打开问卷'
     // 草案：点了直接去作战计划（那里才有「提成阶段卡」）；结构地图：打开地图弹窗自己核一遍
     if (t === 'plan-draft') return '去作战计划提成'
@@ -219,7 +221,7 @@ export function useNotifications(ctx: UseNotificationsOptions) {
       return
     }
     if (t === 'parse-error') { ctx.showParseErrors(); return }
-    if (t === 'backup-failed' || t === 'update-downloaded') { ctx.openSettings(); return }
+    if (t === 'backup-failed' || t === 'update-downloaded' || t === 'update-available') { ctx.openSettings(); return }
     // 2026-11-11：草案 → 作战计划（sourceId 是草案文件名，项目名就是它的前缀）
     if (t === 'plan-draft') {
       if (ctx.openPlanDrafts) ctx.openPlanDrafts(String(n.sourceId || '').split('-')[0])

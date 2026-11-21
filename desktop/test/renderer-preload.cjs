@@ -542,6 +542,9 @@ contextBridge.exposeInMainWorld('tegula', {
   // 2026-11-08：使用手册页头要显示版本号（暮雨第 1 条）。以前这条通道没桩 → 页面拍到 'v…'，
   // 看起来像坏了。版本同样**不写死**，取 e2e 从 package.json 注入的 __FC_VER。
   getAppVersion: async () => (window.__FC_VER || '0.0.0'),
+  // 2026-11-21 开机自启：默认关，写当前用户启动项；夹具按“正式版可用”返回
+  getAutoStart: () => ({ ok: true, enabled: !!store.autoStart, supported: true }),
+  setAutoStart: (enabled) => { rec('setAutoStart', [enabled]); store.autoStart = !!enabled; return { ok: true, enabled: !!enabled, supported: true } },
   // 阻塞源夹具（2026-10-09 监控台断言）：demo 项目压着 1 条阻塞 → 详情页
   // “⚠ 1 个阻塞源 · 看卡在谁”入口必须出现（pvBlocked 按被阻塞任务所属项目计）。
   findBlockers: () => [

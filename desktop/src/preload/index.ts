@@ -445,6 +445,9 @@ contextBridge.exposeInMainWorld('tegula', {
   updateDownload: () => ipcRenderer.invoke('update:download'),
   updateQuitAndInstall: () => ipcRenderer.invoke('update:quitAndInstall'),
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
+  /** 开机自启（默认关；开发态 supported=false） */
+  getAutoStart: () => ipcRenderer.invoke('app:getAutoStart'),
+  setAutoStart: (enabled: boolean) => ipcRenderer.invoke('app:setAutoStart', enabled),
   onUpdateAvailable: (callback: any) => ipcRenderer.on('update:available', (_e, data) => callback(data)),
   /**
    * 点系统通知 → 渲染层回到具体对象（2026-10-29 dsh-notify 借鉴 #2）。

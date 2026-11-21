@@ -28,6 +28,7 @@ import { runBackup } from './backup'
 import * as launchpad from './launchpad'
 import * as policies from './services/policies'
 import { applySmapFromTask } from './services/smapApply'
+import { getAutoStartStatus, setAutoStart } from './services/autoStart'
 import * as tripBoard from './services/tripBoard'
 import * as ask from './services/ask'
 import * as correct from './services/correct'
@@ -1429,6 +1430,10 @@ export function registerIpcHandlers(): void {
   // ⚠ 这条通道注册在 `main/ipc.ts` 而不是 `src/index.ts`：`check-ipc-parity` 的主进程
   //   注册扫描只认 `src/main/`。第一版写在 index.ts 里，守卫当场报「僵尸通道」——
   //   那不是误报，它抓的正是"preload 暴露了但某条路径没注册"。
+  // 开机自启（2026-11-21）：默认关；只写当前用户启动项。开发态不写，如实说明。
+  guardedHandle('app:getAutoStart', () => getAutoStartStatus())
+  guardedHandle('app:setAutoStart', (_event, enabled: boolean) => setAutoStart(!!enabled))
+
   guardedHandle('app:quitForReal', async () => {
     try {
       markQuitting()

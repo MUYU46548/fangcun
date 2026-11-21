@@ -145,6 +145,8 @@ export function notifyMemoryPending(count: number, latestClaim: string, latestFi
 }
 
 export function notifyUpdateReady(version: string): boolean {
+  // 已经“下载完成”说明“发现新版本”那条过时了，先消解，避免同一个版本两条挂着。
+  try { notifications.resolveNotifications('update-available') } catch { /* ignore */ }
   return push({
     type: 'update-downloaded',
     level: 'info',
@@ -152,6 +154,23 @@ export function notifyUpdateReady(version: string): boolean {
     body: '点“立即重启安装”升级；也可稍后在 设置 → 关于 里安装',
     sourceId: version,
     key: 'update-downloaded:' + version,
+  })
+}
+
+/**
+ * 发现新版本（2026-11-21 暮雨：检查更新检测到新版本时是否会主动通知）。
+ *
+ * 此前只在窗口开着时给一条 toast；窗口缩在托盘/用户没看设置页就等于没提示。
+ * 这里进通知中心（带未读角标），并在系统托盘层弹一条系统通知 —— 与“下载完成”同一条口径。
+ */
+export function notifyUpdateAvailable(version: string): boolean {
+  return push({
+    type: 'update-available',
+    level: 'info',
+    title: `发现新版本 ${version}`,
+    body: '到 设置 → 通用 → 版本与更新 点“下载”；不装也不影响当前使用',
+    sourceId: version,
+    key: 'update-available:' + version,
   })
 }
 

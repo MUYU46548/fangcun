@@ -145,7 +145,7 @@ if (!gotLock) {
 }
 
 /** 渲染层 e2e 用：隐藏窗口跑，避免测试时窗口在屏幕上闪 */
-const hidden = process.env.FC_E2E_RENDERER === '1'
+const hidden = process.env.FC_E2E_RENDERER === '1' || process.argv.includes('--autostart')
 
 /**
  * 这个 URL 是不是方寸自己那份页面（dev 走 vite，打包走 renderer/index.html）。

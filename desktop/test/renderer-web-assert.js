@@ -6991,7 +6991,7 @@
     //   而不是等别人替它把状态摆好（依赖副作用 = 别人一改就假红）。
     clickNav('通用')
     await sleep(300)
-    const GENERAL_SECTS = ['版本与更新', '花钱动作前确认', '外观主题', '外观形态', '念头长度上限', '顶栏页签', '记忆']
+    const GENERAL_SECTS = ['版本与更新', '启动', '花钱动作前确认', '外观主题', '外观形态', '念头长度上限', '顶栏页签', '记忆']
     check('★ 默认停在第 1 类“通用”：右侧只渲染该分类的小节（不再全挤在一起）',
       sectTitles().length === GENERAL_SECTS.length
       && GENERAL_SECTS.every((t, i) => sectTitles()[i] === t),
@@ -7011,6 +7011,29 @@
         inp.checked = false
         inp.dispatchEvent(new Event('change', { bubbles: true }))
       }
+    }
+    // 开机自启（2026-11-21）：默认关 + 明说杀软可能拦截；勾选真走 IPC
+    {
+      const lbl = $$('label.chk').find((l) => (l.textContent || '').indexOf('开机自动启动方寸') >= 0)
+      const inp = lbl ? lbl.querySelector('input[type="checkbox"]') : null
+      check('★★ 通用里有「开机自动启动」开关（默认关闭）', !!inp && inp.checked === false,
+        lbl ? (lbl.textContent || '').trim() : '(没有开关)')
+      check('★★ 开关旁写明杀毒软件可能拦截、需要在杀软里允许',
+        !!lbl && /杀毒软件/.test((lbl.closest('.sect') || {}).textContent || '')
+          && /允许/.test((lbl.closest('.sect') || {}).textContent || ''),
+        lbl ? (lbl.closest('.sect') || {}).textContent : '')
+      if (inp) {
+        inp.checked = true
+        inp.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      check('★★ 勾选真调 setAutoStart(true)，不是只改界面',
+        await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'setAutoStart' && c.args[0] === true), 3000, 'autoStart on'))
+      if (inp) {
+        inp.checked = false
+        inp.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      check('★ 取消勾选真调 setAutoStart(false)',
+        await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'setAutoStart' && c.args[0] === false), 3000, 'autoStart off'))
     }
     // “梯度榜”是**项目页的一种摆法**，不是独立顶级页签（2026-10-25 暮雨：
     // “放进项目页签里面就好。这玩意纯属小玩具，没必要提到那么高级”）

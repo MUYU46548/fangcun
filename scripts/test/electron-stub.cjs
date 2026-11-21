@@ -38,6 +38,9 @@ module.exports = {
     },
     getAppPath: () => path.resolve(__dirname, '../../desktop'),
     isPackaged: false,
+    // 2026-11-21 开机自启：桩只记账/回默认值（isPackaged=false 时业务层直接说“开发态不可用”）
+    getLoginItemSettings: () => ({ openAtLogin: false }),
+    setLoginItemSettings: () => {},
     // 2026-11-07 由 check-electron-stub 对账补：`appLog.ts` 启动时会 `app.setPath('userData', …)`
     // 把日志目录钉到数据根。桩没有 → 应用日志那条链在测试里第一步就断。
     // 只记账，不改真实路径（测试的 userData 由 FC_TEST_USERDATA 决定）。
