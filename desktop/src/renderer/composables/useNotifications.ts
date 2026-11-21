@@ -44,7 +44,7 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     'update-available': { icon: 'storage', label: '发现新版本', glyph: '⬆' },
     // 2026-10-01 用户定稿新增的两类（只在面板里看，不弹系统通知）。
     // icon 复用现有 security/approve —— 新 icon 得配 nc-t-*/nc-av-* 两套主题色，没必要为两个标签开新面。
-    'blocker-broken': { icon: 'security', label: '阻塞链断裂', glyph: '⛓' },
+    'blocker-broken': { icon: 'security', label: '依赖缺失', glyph: '⛓' },
     'task-stalled':   { icon: 'approve',  label: '没人接手', glyph: '💤' },
     // 2026-11-05：全站唯一“既有动作又有时间性”的一条 —— agent 交了活等你拍板，不点就停在那儿。
     'task-review':    { icon: 'approve',  label: '等你拍板', glyph: '✅' },

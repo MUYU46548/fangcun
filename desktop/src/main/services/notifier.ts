@@ -321,8 +321,9 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
   for (const b of broken) {
     if (push({
       type: 'blocker-broken', level: 'warning', osNotify: false,
-      title: `阻塞链断裂：${b.taskTitle}`,
-      body: `它依赖的 ${b.blockerId} 已不存在（可能被删除或进了回收站）`,
+      title: `依赖的卡不见了：${b.taskTitle}`,
+      body: `“${b.taskTitle}”依赖的 ${b.blockerId} 已经不在活跃区/归档区（可能被删除或进了回收站）。`
+        + '这不是任务本身的状态，是依赖关系断了：把缺失的卡找回，或删掉这条依赖即可。',
       sourceId: b.taskId, key: b.blockerId,   // 每对“任务×缺失阻塞源”一条，避免互相挤掉
       project: b.project || '',
     })) created++
@@ -354,10 +355,15 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
     for (const d of decks) {
       if (d.approved || d.voided || d.replacedBy || d.archived) continue
       pendingDecks.add(d.deck)
+      const allAnswered = Number(d.answered || 0) >= Number(d.total || 0)
       if (push({
-        type: 'questionnaire-pending', level: 'warning',
-        title: `问卷待你答：${d.title || d.deck}`,
-        body: `${d.total} 题${d.project ? ' · ' + d.project : ''} —— 答完并批准之前，依赖它的规划/派工单出不来`,
+        type: 'questionnaire-pending', level: allAnswered ? 'info' : 'warning',
+        title: allAnswered
+          ? `问卷答完了，等你批准：${d.title || d.deck}`
+          : `问卷待你答：${d.title || d.deck}`,
+        body: allAnswered
+          ? `${d.total} 题答案已齐${d.project ? ' · ' + d.project : ''} —— 点开核对后批准；批准前依赖它的规划/派工单仍出不来`
+          : `${d.total} 题${d.project ? ' · ' + d.project : ''} —— 答完并批准之前，依赖它的规划/派工单出不来`,
         sourceId: d.deck,
         key: `v1:${d.total}`,
         project: String((d as any).project || ''),

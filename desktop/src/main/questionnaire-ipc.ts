@@ -26,6 +26,7 @@ import { splitClarify } from '../shared/clarify'
 import { clarifyOf } from '../shared/clarify'
 import { loadBank, bankOf, bankRelations, type DeckProbe } from './data/questionBank'
 import { loadTasks } from './data'
+import * as notifier from './services/notifier'
 
 /**
  * 把「每一卷里的每一题」压成探针（P11 题库↔卷关系视图的数据源）。
@@ -61,16 +62,40 @@ function collectDeckProbes(): DeckProbe[] {
 
 
 export function registerQuestionnaireIpcHandlers(): void {
+  /**
+   * 答完最后一题 / 批准 / 作废后，立刻让通知收敛（2026-11-21 暮雨：
+   * “问卷答完了通知里还写着待答，又多点一次”）。
+   *
+   * 此前只能等 60s 扫描；而扫描里 `questionnaire-pending` 的口径是“未批准就算待答”，
+   * 所以答完但没批准时标题也一直写“待你答”。现在：
+   *   · 扫描口径已改成“答完 = 答完了，等你批准”；
+   *   · 这里在答完/批准/作废当下主动扫一次，不用用户等下一轮。
+   * 只扫“答完或终态”的场景 —— 每勾一题都全量扫一次太浪费。
+   */
+  function refreshDeckNotice(deck: string, always = false): void {
+    try {
+      const d = listDecks().decks.find((x) => x.deck === deck)
+      if (!d) return
+      if (always || Number(d.answered || 0) >= Number(d.total || 0)) notifier.scanOnce()
+    } catch { /* 通知收敛失败不该让答卷/批准失败 */ }
+  }
+
   guardedHandle('questionnaire:list', () => listDecks())
 
   guardedHandle('questionnaire:get', (_e, deck: string) => getDeck(String(deck || '')))
 
   guardedHandle('questionnaire:saveAnswers', (_e, deck: string, answers: Record<string, QAnswer>, approvedAt?: string) => {
-    return writeAnswers(String(deck || ''), { answers: answers || {}, approvedAt })
+    const name = String(deck || '')
+    const r = writeAnswers(name, { answers: answers || {}, approvedAt })
+    if (r.ok) refreshDeckNotice(name)
+    return r
   })
 
   guardedHandle('questionnaire:approve', (_e, deck: string) => {
-    return approveDeck(String(deck || ''))
+    const name = String(deck || '')
+    const r = approveDeck(name)
+    if (r.ok) refreshDeckNotice(name, true)
+    return r
   })
 
   // 出口提示词（2026-11-05）：反问 → 重出题；答卷 → 出施工单。
@@ -83,11 +108,17 @@ export function registerQuestionnaireIpcHandlers(): void {
   // 两件事都是"决策库活不活"的关键：不作废 = agent 拿过期答案干活；
   // 不校验 = 决策卡永远"有效"，等于一张写着结论的废纸。
   guardedHandle('questionnaire:voidDeck', (_e, deck: string, reason: string) => {
-    return voidDeck(String(deck || ''), String(reason || ''))
+    const name = String(deck || '')
+    const r = voidDeck(name, String(reason || ''))
+    if (r.ok) refreshDeckNotice(name, true)
+    return r
   })
 
   guardedHandle('questionnaire:reopenDeck', (_e, deck: string) => {
-    return reopenDeck(String(deck || ''))
+    const name = String(deck || '')
+    const r = reopenDeck(name)
+    if (r.ok) refreshDeckNotice(name, true)
+    return r
   })
 
   guardedHandle('questionnaire:voidAnswer', (_e, deck: string, qid: string, reason: string) => {

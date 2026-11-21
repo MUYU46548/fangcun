@@ -431,6 +431,10 @@ function main() {
   notifier.scanOnce()
   const bks = notif.listNotifications().filter(n => n.type === 'blocker-broken' && n.sourceId === needA.id)
   check('★★ 依赖进回收站 → 阻塞链断裂通知（本例的真实场景）', bks.length === 1, String(bks.length))
+  check('★★ 文案不再写“阻塞链断裂”黑话（暮雨 2026-11-21：“我到现在都不懂阻塞链断裂是什么”）',
+    bks.length === 1 && !/阻塞链断裂/.test(String(bks[0].title) + String(bks[0].body))
+      && /依赖/.test(String(bks[0].title)),
+    bks[0] && (bks[0].title + ' / ' + bks[0].body))
   check('★ 文案点明缺的是哪个 id（否则没法顺着去修）',
     bks.length === 1 && String(bks[0].body).includes(depA.id), bks[0] && bks[0].body)
   check('★ 只报真断的那条（健在的 needB 不报）',

@@ -63,8 +63,17 @@ scan()
 const afterSame = rows().filter((n) => beforeIds.has(n.id)).length
 check('★★ 重复扫描不许轰炸（同一条，不新建）', rows().length === 1 && afterSame === 1, String(rows().length))
 
-// 批准后 → 自动消解
+// 答完但还没批准 → 标题必须改成“答完了，等你批准”，不能再写“待你答”
 store.writeAnswers('待答卷', { answers: { A1: { kind: 'pick', k: 'A' } } })
+scan()
+const answeredRow = rows().find((n) => n.sourceId === '待答卷')
+check('★★ 答完未批准 → 标题改成“答完了，等你批准”（不再写“待你答”）',
+  !!answeredRow && /答完了，等你批准/.test(String(answeredRow.title)) && !/待你答/.test(String(answeredRow.title)),
+  answeredRow && answeredRow.title)
+check('★ 答完未批准正文说明“批准前仍出不来”（不是已经生效）',
+  !!answeredRow && /批准前/.test(String(answeredRow.body)), answeredRow && answeredRow.body)
+
+// 批准后 → 自动消解
 store.approveDeck('待答卷')
 scan()
 check('★★ 批准后通知自动消解（不留僵尸条目）', rows().length === 0, JSON.stringify(rows().map((n) => n.sourceId)))
