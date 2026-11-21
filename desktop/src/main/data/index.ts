@@ -722,23 +722,39 @@ export function addProjectToRegistry(fields: NewProjectFields): { ok: boolean; e
   if (fields.description && String(fields.description).trim()) {
     lines.push(`    说明: ${yamlScalar(fields.description)}`)
   }
-  const block = lines.join('\n') + '\n'
+  const eol = content.includes('\r\n') ? '\r\n' : '\n'
+  const block = lines.join(eol) + eol
 
   // 插到 released: 之前（若存在），否则追加到末尾。
   // ⚠ 2026-10-05 修：不能直接把插入点定在 `released:` 那一行 —— 它**上面紧邻的注释是在描述
   //   已发布段**（“# 已发布 / 历史项目…”），新项目插到注释下面会看起来像"已发布项目"
   //   （实际发生过：TEST/TEST2 落到那两条注释之后，Python 侧解析器又因此漏读）。
   //   所以从 released: 往上跳过紧邻的空行与注释，插在它们**之前**。
+  // ⚠ 2026-11-21 真 bug（暮雨「无法新建项目」）：此前用 `split(/\r?\n/).join('\n')` 的长度
+  //   反推插入偏移。Windows 上 registry.yaml 是 **CRLF**，join 成 LF 后每行少 1 个字符，
+  //   偏移越往前越短 → 切片落在一行中间，写前自校验直接报
+  //   `bad indentation of a mapping entry`，新项目写不进去。现在直接在**原串**上回退整行，
+  //   不再重拼字符串，CRLF/LF 都不会偏。
   let next: string
   const releasedIdx = content.search(/^released:\s*$/m)
   if (releasedIdx < 0) {
-    next = content.replace(/\s*$/, '\n') + block
+    next = content.replace(/\s*$/, eol) + block
   } else {
-    const headLines = content.slice(0, releasedIdx).split(/\r?\n/)
-    let k = headLines.length - 1
-    while (k >= 0 && (!headLines[k].trim() || headLines[k].trim().startsWith('#'))) k--
-    const insertAt = headLines.slice(0, k + 1).join('\n').length + 1
-    next = content.slice(0, insertAt) + block + '\n' + content.slice(insertAt)
+    let insertAt = releasedIdx
+    // 从 released: 行首往上退：紧邻的空行/注释不属于 projects 段，插在它们之前。
+    // ⚠ 从 insertAt - 2 找上一行的换行：insertAt 本身就在行首，-1 会找到“紧贴它前面”
+    //   那个换行，算出的 lineStart 还是 insertAt，循环原地打转（2026-11-21 首版就踩了）。
+    while (insertAt > 0) {
+      const prevNl = insertAt >= 2 ? content.lastIndexOf('\n', insertAt - 2) : -1
+      const lineStart = prevNl + 1
+      const line = content.slice(lineStart, insertAt).replace(/\r?\n$/, '')
+      if (!line.trim() || line.trim().startsWith('#')) {
+        insertAt = lineStart
+        continue
+      }
+      break
+    }
+    next = content.slice(0, insertAt) + block + eol + content.slice(insertAt)
   }
 
   // 写前自校验 —— 宁可不写，也不破坏 registry.yaml

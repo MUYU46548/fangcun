@@ -165,6 +165,22 @@ data.removeProjectFromRegistry('new-one')   // 第 2 节加进来的那个
 check('projects 空 / released 空，注释还在，仍可解析',
   ids().length === 0 && raw().includes('# ⚠ 这段注释必须活下来'), ids().join(','))
 
+console.log('\n---- 7. CRLF（Windows 真身）插入点不许落在一行中间 ----')
+// 2026-11-21 真 bug：registry.yaml 是 CRLF，旧实现 split/join('\n') 算偏移，
+// 每行少 1 字符 → 新项目块插进 `- id: re...` 中间，报 bad indentation，用户无法新建项目。
+fs.writeFileSync(REG, ORIGINAL.replace(/\n/g, '\r\n'), 'utf-8')
+const crlfAdd = data.addProjectToRegistry({ id: 'crlf-one', name: 'CRLF 新项目', repo: 'E:/x/crlf' })
+check('★★ CRLF 注册表上新增项目成功（Windows 真身不再报 bad indentation）',
+  crlfAdd.ok, crlfAdd.error)
+check('★★ 新块完整落在 released 之前（不是插进上一行中间）',
+  ids().includes('crlf-one') && raw().indexOf('id: crlf-one') < raw().indexOf('# 已发布 / 历史项目'),
+  ids().join(','))
+check('★ 插入后仍是全 CRLF（没有把整份文件改成混合换行）',
+  raw().includes('\r\n') && !/[^\r]\n/.test(raw()),
+  JSON.stringify(raw().slice(Math.max(0, raw().indexOf('id: crlf-one') - 40), raw().indexOf('id: crlf-one') + 80)))
+check('★ 顶部注释与既有项目逐字节仍在',
+  raw().includes('# ⚠ 这段注释必须活下来') && raw().includes('    状态: 活跃开发中'))
+
 console.log(`\n通过 ${PASS} / 失败 ${FAILS.length}`)
 if (FAILS.length) {
   console.log('失败项：' + FAILS.join('、'))
