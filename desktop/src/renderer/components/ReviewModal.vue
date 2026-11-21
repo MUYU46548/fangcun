@@ -27,18 +27,18 @@
           : '驳回：哪里不行、要改什么；通过：验收依据 / 遗留事项'"></textarea>
       <label class="review-where-label">驳回之后 <span class="rw-scope">（只在点“驳回”时生效 —— 点“通过”不受这一项影响）</span></label>
       <div class="review-where" :class="{ 'is-secondary': ctl.reviewModal.intent === 'accept' }">
-        <label class="rw-opt" :class="{ on: ctl.reviewRework }">
-          <input type="radio" :checked="ctl.reviewRework" @change="ctl.reviewRework = true" />
-          <span><b>退回待办，让 AI 返工</b>（默认）—— 理由留在卡上，agent 取活会先读它</span>
-        </label>
         <label class="rw-opt" :class="{ on: !ctl.reviewRework }">
           <input type="radio" :checked="!ctl.reviewRework" @change="ctl.reviewRework = false" />
-          <span><b>先停在“驳回”</b> —— 不派活，晚点在看板的返工台里再决定</span>
+          <span><b>停在“驳回”，AI 直接读这张卡返工</b>（默认）—— 不用先退回待办；理由留在卡上，取活时会读到</span>
+        </label>
+        <label class="rw-opt" :class="{ on: ctl.reviewRework }">
+          <input type="radio" :checked="ctl.reviewRework" @change="ctl.reviewRework = true" />
+          <span><b>退回待办（旧流程）</b> —— 多一次搬运；只有你想让它按普通待办排队时才用</span>
         </label>
       </div>
       <div class="acts">
         <Button variant="ghost" size="tool" @click="ctl.reviewModal = null">取消</Button>
-        <button class="danger" @click="ctl.rejectTask">{{ ctl.reviewRework ? '↩ 驳回并退回待办' : '↩ 驳回' }}</button>
+        <button class="danger" @click="ctl.rejectTask">{{ ctl.reviewRework ? '↩ 驳回并退回待办' : '↩ 驳回，AI 返工' }}</button>
         <button v-if="ctl.reviewModal.kind !== 'direct'" class="ok" @click="ctl.acceptTask">{{ ctl.reviewModal.kind === 'approval' ? '✅ 批准转正（→待办）' : '✅ 通过' }}</button>
       </div>
     </div>

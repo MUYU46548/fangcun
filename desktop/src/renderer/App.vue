@@ -6473,8 +6473,14 @@ async function executeLogCleanup() {
 // ── Review ─────────────────────────────────────────────────────────
 
 const reviewReason = ref('')
-/** 驳回后是否立刻退回待办（2026-10-31）。默认是 —— 驳回即返工单，不让人再手动搬一次。 */
-const reviewRework = ref(true)
+/**
+ * 驳回后是否退回待办（2026-11-21 改默认）。
+ *
+ * 暮雨：「为什么不是 AI 直接读驳回卡，连进待办都不需要？」
+ * —— 对。`next` / `list_tasks` 现在会把 `状态=驳回` 的卡直接列为可执行，
+ * 并带 `reject_reason`。所以默认**停在驳回**，AI 自己来读；退回待办只是旧流程的兼容选项。
+ */
+const reviewRework = ref(false)
 /** 常用驳回理由（2026-10-30 暮雨第 2 条）：不是替他下判断，只是省掉"写作文"这一步 */
 const reviewPresets = [
   '看不懂这张卡在说什么',
@@ -6494,7 +6500,7 @@ function openReview(t: Task, intent: 'accept' | 'reject' = 'accept') {
     intent,
   }
   reviewReason.value = ''
-  reviewRework.value = true
+  reviewRework.value = false
   previewTask.value = null
   nextTick(() => {
     const box = document.getElementById('review-modal')
@@ -6516,7 +6522,7 @@ function openReview(t: Task, intent: 'accept' | 'reject' = 'accept') {
 function openDirectReject(t: Task): void {
   reviewModal.value = { id: t.id, title: t.title || t.id, kind: 'direct', intent: 'reject' }
   reviewReason.value = ''
-  reviewRework.value = true
+  reviewRework.value = false
   previewTask.value = null
   nextTick(() => {
     const ta = document.querySelector('#review-modal textarea') as HTMLTextAreaElement | null
@@ -6592,8 +6598,8 @@ async function rejectTask() {
   const kind = reviewModal.value.kind
   const id = reviewModal.value.id
   const title = reviewModal.value.title
-  // 2026-10-31：驳回落点先定死（默认退回待办），再发驳回请求 —— 两件事的顺序不能反：
-  // 必须先有“驳回”这个状态与理由，退回待办才不会把理由一起丢了（unarchiveTask 只改状态）。
+  // 2026-11-21：默认停在“驳回”，AI 直接读这张卡返工（next/list_tasks 已把驳回列入可执行）；
+  // 只有显式勾了“退回待办”才走旧的 unarchiveTask。顺序仍是先落驳回+理由，再搬状态。
   const alsoRework = reviewRework.value
   const snap = snapOfTask(id)
   const result: any = kind === 'direct'
@@ -6609,7 +6615,9 @@ async function rejectTask() {
     showToast(
       alsoRework && moved
         ? '已驳回并退回待办 —— agent 下次取活会先读到理由'
-        : '已驳回' + (alsoRework ? '（退回待办没成功，去返工台里点一次“退回返工”）' : ''),
+        : alsoRework
+          ? '已驳回（退回待办没成功）—— 去返工台点一次“退回返工”'
+          : '已驳回 —— AI 下次取活会直接读到理由并返工，不用先退回待办',
       alsoRework && !moved ? 'error' : 'success')
     reviewModal.value = null
     loadAll()

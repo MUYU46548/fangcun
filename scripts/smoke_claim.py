@@ -138,6 +138,19 @@ check("_pick_next(include_claimed=True) 才把它们列出来（给排查用）"
       "t-001" in [t.get("id") for t in CLI._pick_next(C.load_tasks(None, "active"), include_claimed=True)],
       ids)
 
+# 2026-11-21 暮雨：驳回卡不需要先退回待办 —— AI 直接读驳回卡开工。
+# 这条钉住 _pick_next 的候选状态里必须有“驳回”，且返工卡排最前。
+p_rej = mkcard("t-rej", "被驳回的卡", status="驳回")
+_txt = open(p_rej, encoding="utf-8").read().replace(
+    "验收: human\n---", "验收: human\n驳回理由: 按钮点不动\n---")
+open(p_rej, "w", encoding="utf-8").write(_txt)
+_pick = CLI._pick_next(C.load_tasks(None, "active"))
+check("★★ _pick_next 直接收“驳回”卡（不再要求先退回待办）",
+      any(t.get("id") == "t-rej" for t in _pick), [t.get("id") for t in _pick])
+check("★★ 驳回返工卡排最前（有驳回理由就不该和普通待办一起排）",
+      bool(_pick) and _pick[0].get("id") == "t-rej", [t.get("id") for t in _pick])
+os.remove(p_rej)
+
 out = run(CLI.cmd_next, claim="cursor")
 check("活都被别人领走时明说没领到活，不能说成没活",
       "没领到活" in out and "没有可执行任务" not in out, out[:150])

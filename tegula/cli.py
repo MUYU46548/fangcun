@@ -713,7 +713,9 @@ def _pick_next(active, project=None, include_claimed=False):
     cands = []
     now = time.time()
     for t in active:
-        if str(t.get("状态") or "").strip() not in ("待办", "进行中"):
+        # 2026-11-21 暮雨：驳回卡不需要先退回待办 —— AI 直接读驳回卡开工，
+        # 少一次搬运、也少一次“退回后没人看”。返工判定与理由在下面照常输出。
+        if str(t.get("状态") or "").strip() not in ("待办", "进行中", "驳回"):
             continue
         if project and project not in _task_projects(t):
             continue
@@ -726,7 +728,7 @@ def _pick_next(active, project=None, include_claimed=False):
         # 返工卡排最前：驳回理由还没被处理，就不该和普通待办一起排优先级。
         return (
             0 if _task_is_rework(t) else 1,
-            0 if st == "待办" else 1,
+            0 if st in ("驳回", "待办") else 1,
             _NEXT_PRIO_RANK.get(str(t.get("优先级") or "").strip(), 3),
             0 if str(t.get("截止") or "").strip() else 1,
             str(t.get("截止") or ""),
@@ -860,7 +862,7 @@ def cmd_next(args):
                     print(f"  {h.get('id')}  {h.get('标题') or ''}"
                           f"  ← {h.get('认领人')}（还剩 {_claim_left(h) // 60} 分钟）")
             return
-        print(f"没有可执行任务（{scope}）：没有处于“待办 / 进行中”的任务。")
+        print(f"没有可执行任务（{scope}）：没有处于“待办 / 进行中 / 驳回”的任务。")
         return
 
     t = picked[0]

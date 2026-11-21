@@ -168,9 +168,9 @@ check('★ 横幅真渲染 .review-bar / .review-row（单独类名，不蹭 .re
   !/class="rework-row"[^>]*review/.test(BANNERS))
 check('★ 两个出口都发事件（通过 / 驳回）',
   /emit\('accept-card'/.test(BANNERS) && /emit\('reject-card'/.test(BANNERS))
-check('★ 驳回弹窗默认“退回待办”（驳回即返工单，不用再手动搬）',
-  /const reviewRework = ref\(true\)/.test(APP_VUE) && /驳回并退回待办/.test(APP_VUE))
-check('★ 驳回后真调 unarchiveTask（不是只改个提示）',
+check('★ 驳回弹窗默认“停在驳回”，AI 直接读卡返工（2026-11-21 暮雨：连进待办都不需要）',
+  /const reviewRework = ref\(false\)/.test(APP_VUE) && /AI 下次取活会直接读到理由并返工/.test(APP_VUE))
+check('★ 旧的“退回待办”仍可用（不是删掉，只是不再是默认）',
   /alsoRework[\s\S]{0,400}unarchiveTask\(id\)/.test(APP_VUE))
 
 console.log(`\nRESULT ${pass} / ${fail}`)

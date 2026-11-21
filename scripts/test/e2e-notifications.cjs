@@ -506,21 +506,6 @@ function main() {
   check('★★ 正文写明**你能做的两件事**（通过 / 打回），不是只描述现状',
     rvNotifs.length === 1 && /通过/.test(String(rvNotifs[0].body)) && /打回/.test(String(rvNotifs[0].body)),
     rvNotifs[0] && rvNotifs[0].body)
-  // 2026-11-21：停在“驳回”的卡没人处理，也要自己冒出来（不是只躺在折叠列里）
-  const rwTask = tasks.createTask({ title: '驳回后没人管的卡', project: 'demo' })
-  tasks.moveStatus(rwTask.id, '驳回')
-  tasks.updateTask(rwTask.id, { reject_reason: '按钮点不动' })
-  notifier.scanOnce()
-  const rwNotifs = notif.listNotifications().filter(n => n.type === 'task-rework' && n.sourceId === rwTask.id)
-  check('★★ 停在“驳回”的卡产生 task-rework 通知（不靠用户主动翻折叠列）',
-    rwNotifs.length === 1 && /驳回还没处理/.test(String(rwNotifs[0].title)), JSON.stringify(rwNotifs.map(n => n.title)))
-  check('★ 通知带驳回理由与两个出口（退回返工 / 归档）',
-    rwNotifs.length === 1 && /按钮点不动/.test(String(rwNotifs[0].body)) && /退回返工/.test(String(rwNotifs[0].body)),
-    rwNotifs[0] && rwNotifs[0].body)
-  tasks.moveStatus(rwTask.id, '待办')
-  notifier.scanOnce()
-  check('★★ 退回待办后自动消解（不再重复催）',
-    !notif.listNotifications().some(n => n.type === 'task-rework' && n.sourceId === rwTask.id))
   notifier.scanOnce()
   check('★ 指纹固定为 review（重复扫描不增殖）',
     notif.listNotifications().filter(n => n.type === 'task-review' && n.sourceId === rvTask.id).length === 1)

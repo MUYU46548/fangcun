@@ -46,8 +46,6 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     // icon 复用现有 security/approve —— 新 icon 得配 nc-t-*/nc-av-* 两套主题色，没必要为两个标签开新面。
     'blocker-broken': { icon: 'security', label: '依赖缺失', glyph: '⛓' },
     'task-stalled':   { icon: 'approve',  label: '没人接手', glyph: '💤' },
-    // 2026-11-21：驳回停在“驳回”没人处理 —— 不是终态，欠一个返工/归档决定
-    'task-rework':    { icon: 'approve',  label: '驳回待处理', glyph: '↩' },
     // 2026-11-05：全站唯一“既有动作又有时间性”的一条 —— agent 交了活等你拍板，不点就停在那儿。
     'task-review':    { icon: 'approve',  label: '等你拍板', glyph: '✅' },
     // 2026-11-11（暮雨：「新问卷完全无提示」）：卷是 agent 那边落盘的，不提示就等于没有
@@ -259,7 +257,7 @@ export function useNotifications(ctx: UseNotificationsOptions) {
    */
   function ncTargetOf(n: any): string | null {
     const t = String(n.type || '')
-    if (['task-deadline', 'task-timeout', 'task-stalled', 'task-review', 'task-rework', 'blocker-broken'].includes(t)) {
+    if (['task-deadline', 'task-timeout', 'task-stalled', 'task-review', 'blocker-broken'].includes(t)) {
       return n.sourceId ? '跳到这个任务' : null
     }
     if (t === 'todo-due') return '跳到待办'
@@ -288,7 +286,7 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     if (!ncTargetOf(n)) return
     const t = String(n.type || '')
     closePanel()
-    if (['task-deadline', 'task-timeout', 'task-stalled', 'task-review', 'task-rework', 'blocker-broken'].includes(t)) {
+    if (['task-deadline', 'task-timeout', 'task-stalled', 'task-review', 'blocker-broken'].includes(t)) {
       let task: any = null
       try { task = await (window as any).tegula.getTask(n.sourceId) } catch { /* 旧版本没有该通道时静默 */ }
       if (task) {
