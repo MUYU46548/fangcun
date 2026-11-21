@@ -6211,6 +6211,29 @@
       allBtn.click()
       return waitFor(() => $$('.nc-item').length === 2, 3000, '全部两条')
     })(), 'items=' + $$('.nc-item').length)
+    // 2026-11-21：按类型筛 + warning 级别可见（“没用的通知一堆”的最小出口）
+    {
+      const sel = $('.nc-type-sel')
+      check('★★ 通知中心有“按类型筛”下拉（全部类型 + 每种真出现的类型）',
+        !!sel && sel.options.length === 3 && /全部类型/.test((sel.options[0] || {}).textContent || ''),
+        sel ? [...sel.options].map((o) => o.textContent).join(' | ') : '(没有下拉)')
+      check('★ warning 级别有“注意”标 + 行级色条（不是只有 error 才有标记）',
+        $$('.nc-prio.warn').length === 2 && $$('.nc-item.nc-lv-warning').length === 2,
+        'warn=' + $$('.nc-prio.warn').length + ' lv=' + $$('.nc-item.nc-lv-warning').length)
+      if (sel) {
+        sel.value = 'task-stalled'
+        sel.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      check('★★ 选「任务没动静」后只剩这一类（不是只改下拉、列表不动）',
+        await waitFor(() => $$('.nc-item').length === 1
+          && ((($$('.nc-item')[0] || {}).textContent) || '').indexOf('任务没动静') >= 0, 3000, 'type filter'),
+        'items=' + $$('.nc-item').length)
+      if (sel) {
+        sel.value = ''
+        sel.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      check('  切回“全部类型”两条都回来', await waitFor(() => $$('.nc-item').length === 2, 3000, 'type reset'))
+    }
     check('★ 能跳的行带 title 提示 + 行尾箭头（不再是死按钮）',
       $$('.nc-item.go').length === 2 && $$('.nc-go').length === 2 &&
       (($$('.nc-item')[0] || {}).getAttribute?.('title') === '跳到这个任务'),

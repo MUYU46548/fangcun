@@ -69,6 +69,8 @@ export function useNotifications(ctx: UseNotificationsOptions) {
   const ncUnread = ref(0)
   const ncItems = ref<any[]>([])
   const ncFilter = ref<'all' | 'unread' | 'read'>('unread')
+  // 2026-11-21：按类型筛（“没用的通知一堆”的最小出口）。空串 = 全部类型。
+  const ncType = ref('')
   let ncTimer: number | null = null
   let ncChangeOff: (() => void) | null = null
 
@@ -76,10 +78,19 @@ export function useNotifications(ctx: UseNotificationsOptions) {
     const unread = ncItems.value.filter(n => !n.read).length
     return { all: ncItems.value.length, unread, read: ncItems.value.length - unread }
   })
+  /** 类型筛选项：只列当前通知里真出现过的类型，带条数（不造空选项） */
+  const ncTypes = computed(() => {
+    const m = new Map<string, number>()
+    for (const n of ncItems.value) m.set(n.type, (m.get(n.type) || 0) + 1)
+    return [...m.entries()]
+      .map(([id, n]) => ({ id, n, label: NC_TYPE_META[id]?.label || id }))
+      .sort((a, b) => b.n - a.n || a.label.localeCompare(b.label))
+  })
   const ncVisible = computed(() => {
     return ncItems.value.filter(n => {
       if (ncFilter.value === 'unread' && n.read) return false
       if (ncFilter.value === 'read' && !n.read) return false
+      if (ncType.value && n.type !== ncType.value) return false
       return true
     })
   })
@@ -158,6 +169,9 @@ export function useNotifications(ctx: UseNotificationsOptions) {
 
   function ncSetFilter(f: 'all' | 'unread' | 'read'): void {
     ncFilter.value = f
+  }
+  function ncSetType(t: string): void {
+    ncType.value = String(t || '')
   }
 
   /**
@@ -366,6 +380,6 @@ export function useNotifications(ctx: UseNotificationsOptions) {
   })
 
   return {
-    NC_TYPE_META, ncOpen, ncReady, ncLoading, ncUnread, ncItems, ncFilter, ncCounts, ncVisible, ncHeadSub, ncRelTime, ncStatus, ncMuted, ncStatusText, ncLoad, ncUnmuteAll, ncRefresh, ncToggle, closePanel, ncSetFilter, ncTargetOf, ncJump, ncClickItem, ncToggleRead, ncMarkAllRead, ncDelete, ncClearAll, ncInit
+    NC_TYPE_META, ncOpen, ncReady, ncLoading, ncUnread, ncItems, ncFilter, ncType, ncTypes, ncCounts, ncVisible, ncHeadSub, ncRelTime, ncStatus, ncMuted, ncStatusText, ncLoad, ncUnmuteAll, ncRefresh, ncToggle, closePanel, ncSetFilter, ncSetType, ncTargetOf, ncJump, ncClickItem, ncToggleRead, ncMarkAllRead, ncDelete, ncClearAll, ncInit
   }
 }

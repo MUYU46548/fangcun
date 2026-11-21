@@ -35,11 +35,16 @@
           <button class="font-[inherit]" :class="{ on: ncFilter === 'unread' }" @click="ncSetFilter('unread')">未读<span class="n">{{ ncCounts.unread }}</span></button>
           <button class="font-[inherit]" :class="{ on: ncFilter === 'read' }" @click="ncSetFilter('read')">已读<span class="n">{{ ncCounts.read }}</span></button>
         </div>
+        <!-- 2026-11-21：按类型筛 —— “没用的通知一堆”时至少能只看一类；不持久化，重开面板回全部。 -->
+        <select class="nc-type-sel" :value="ncType" title="只看某一类通知" @change="ncSetType(($event.target as HTMLSelectElement).value)">
+          <option value="">全部类型</option>
+          <option v-for="t in ncTypes" :key="t.id" :value="t.id">{{ t.label }}（{{ t.n }}）</option>
+        </select>
       </div>
 
       <div class="nc-list">
         <div v-for="n in ncVisible" :key="n.id" class="nc-item"
-          :class="[n.read ? 'read' : 'unread', { go: !!ncTargetOf(n) }]"
+          :class="[n.read ? 'read' : 'unread', 'nc-lv-' + (n.level || 'info'), { go: !!ncTargetOf(n) }]"
           :title="ncTargetOf(n) || '标为已读'"
           @click="ncClickItem(n)">
           <div class="nc-av" :class="'nc-av-' + (NC_TYPE_META[n.type]?.icon || 'system')">
@@ -49,6 +54,7 @@
             <div class="nc-meta">
               <span class="nc-tag" :class="'nc-t-' + (NC_TYPE_META[n.type]?.icon || 'system')">{{ NC_TYPE_META[n.type]?.label || n.type }}</span>
               <span v-if="n.level === 'error'" class="nc-prio">紧急</span>
+              <span v-else-if="n.level === 'warning'" class="nc-prio warn">注意</span>
             </div>
             <div class="nc-row1">
               <div class="nc-title">{{ n.title }}</div>
@@ -104,6 +110,8 @@ const ncUnread = toRef(ctl, 'ncUnread')
 const ncHeadSub = toRef(ctl, 'ncHeadSub')
 const ncLoading = toRef(ctl, 'ncLoading')
 const ncFilter = toRef(ctl, 'ncFilter')
+const ncType = toRef(ctl, 'ncType')
+const ncTypes = toRef(ctl, 'ncTypes')
 const ncCounts = toRef(ctl, 'ncCounts')
 const ncVisible = toRef(ctl, 'ncVisible')
 const ncMuted = toRef(ctl, 'ncMuted')
@@ -112,7 +120,7 @@ const ncStatusText = toRef(ctl, 'ncStatusText')
 
 // ── 动作 ────────────────────────────────────────────────────────────────
 const {
-  ncRefresh, ncMarkAllRead, closePanel, ncSetFilter, ncTargetOf, ncClickItem,
+  ncRefresh, ncMarkAllRead, closePanel, ncSetFilter, ncSetType, ncTargetOf, ncClickItem,
   ncRelTime, ncToggleRead, ncDelete, ncUnmuteAll, ncClearAll,
 } = ctl
 </script>
