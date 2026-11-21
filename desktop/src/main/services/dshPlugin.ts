@@ -467,13 +467,16 @@ export function detectDshPlugin(appVersion = ''): DshPluginStatus {
   const secretOk = dispatch.secret.present && dispatch.secret.same
   checks.push({
     key: 'secret', label: '派单签名密钥',
-    status: secretOk ? 'ok' : 'bad',
+    // 第一次用之前“不存在”是正常态（点派单时才生成）；但两边指向不同文件 = 必炸。
+    status: secretOk ? 'ok' : (dispatch.secret.present ? 'bad' : 'warn'),
     detail: secretOk
       ? `两边读同一份：${dispatch.secret.path}（只读存在性，不显示内容）`
       : (dispatch.secret.present
         ? `两边读的**不是同一份**：方寸写 ${dispatch.secret.path}，插件会挑 ${dispatch.secret.pluginPath || '(没找到任何一份)'} —— 验签会稳定失败`
-        : `不存在：${dispatch.secret.path} —— GUI 派单会被插件以 no-secret 拒掉`),
-    action: secretOk ? '' : '在方寸里点一次「发送给 DSH」会生成密钥；若两边目录不同，把旧的那份删掉或统一 userData 后再点一次',
+        : `还没有（${dispatch.secret.path}）—— 第一次点「发送给 DSH」时会自动生成，不是故障`),
+    action: secretOk ? '' : (dispatch.secret.present
+      ? '把旧的那份删掉或统一 userData，再点一次「发送给 DSH」'
+      : '点一次「发送给 DSH」生成密钥；若点过仍没有，检查两侧 userData 是否同一个'),
   })
   const badReason = reasonOf(last)
   checks.push({

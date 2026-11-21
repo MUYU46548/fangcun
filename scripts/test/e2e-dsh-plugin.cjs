@@ -132,6 +132,14 @@ function main() {
     check('★★ 没有明确不通时，verdict 不许吓人（不许出现「明确不通」）',
       s.verdict.indexOf('明确不通') < 0, s.verdict)
 
+    // 首次使用：密钥还不存在是**正常态**（点派单时才生成），不能报 red 吓人
+    process.env.FC_DISPATCH_SECRET_PATH = path.join(root, 'not-yet-created-secret')
+    s = mod.detectDshPlugin('0.7.0')
+    const secFirst = s.checks.find(c => c.key === 'secret')
+    check('★★ 首次使用（密钥尚未生成）→ warn 而不是 bad，并说明点一次派单就会生成',
+      secFirst.status === 'warn' && /第一次点|不是故障/.test(secFirst.detail), JSON.stringify(secFirst))
+    process.env.FC_DISPATCH_SECRET_PATH = secretPath
+
     // ── ② 插件没进 bundles → bad，并指出去加 bundles ──
     const h2 = setupHome(mkTmp('fc-dshplug-nb-'), { bundled: false })
     process.env.FC_DSH_HOME = h2.home
