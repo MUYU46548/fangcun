@@ -21,7 +21,7 @@ import { checkIntake } from '../services/intake'
 import { archForProject } from '../services/projectArch'
 // 记忆层（2026-11-17）：暮雨「方寸要管记忆，当 DSH 的记忆层」。
 // 读口直接读源文件；写口只写 memory/，**永远不碰 task-data/**（塞进去会被 parseTask 当任务卡扫）。
-import { searchMemory, readMemory, memoryOverview, memoryBriefing, memoryCore, createMemory, MEMORY_TYPES, MEMORY_CORE_BUDGET } from '../services/memory'
+import { searchMemory, readMemory, memoryOverview, memoryBriefing, memoryCore, createMemory, MEMORY_TYPES, MEMORY_CORE_BUDGET, searchLedgers } from '../services/memory'
 import { getPref } from '../services/prefs'
 import { generatePlanDraft } from '../llm/planDraft'
 import { buildPlanDraftInputFromDisk, buildPlanDraftInputFromDiskWithRepo } from '../llm/planDraftInput'
@@ -431,6 +431,13 @@ export const MCP_TOOLS: MCPTool[] = [
         project: { type: 'string', description: 'Project id, e.g. dsh-fangcun' },
         includeRevoked: { type: 'boolean', description: 'Include 已撤销 entries (default false)' },
         includePending: { type: 'boolean', description: 'Include 待审批 agent proposals (default false)' },
+        includeLedgers: {
+          type: 'boolean',
+          description: 'Also search the four LEDGERS (155 决策 / 365 日志 / 384 任务卡 / 17 方针) — '
+            + 'returns POINTERS (srcPath + title + summary), never the source text. '
+            + 'Use it for "did we ever decide / write / do X" — the claim store only holds hand-written lessons.',
+        },
+        ledgerKind: { type: 'string', description: 'With includeLedgers: decision / log / card / charter' },
         limit: { type: 'integer', description: 'Max rows (default 10, max 50) — each row is a one-line claim + metadata, never the full evidence' },
       },
     },
@@ -1632,6 +1639,34 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
         limit: Number(args.limit) || undefined,
       })
       const ov = memoryOverview()
+
+      // ── 台账检索（2026-11-23）───────────────────────────────────────
+      // 实测缺口：四份台账 921 条，原先一条都没进记忆（覆盖率 0.0%）。
+      // 这里让同一次检索能同时命中"人写的 claim"与"台账里的原始记录"，
+      // 后者**只给指针**（srcPath），原文永远留在源文件里。
+      let ledgers: any = null
+      if (args.includeLedgers === true) {
+        const lr = searchLedgers({
+          q: String(args.q || '').trim() || undefined,
+          kind: String(args.ledgerKind || '').trim() || undefined,
+          project: String(args.project || '').trim() || undefined,
+          limit: Number(args.limit) || undefined,
+        })
+        ledgers = {
+          ok: lr.ok,
+          // 索引没生成时明说"还没抽"，不许让它看起来像"台账里没有" —— 本仓老病
+          reason: lr.reason || '',
+          total: lr.total,
+          returned: lr.rows.length,
+          items: lr.rows.map((r) => ({
+            id: r.id, kind: r.src_kind, title: r.title, summary: r.summary,
+            project: r.project, status: r.status, time: r.time,
+            // 指针：调用方拿它去 read 原文
+            srcPath: r.srcPath, anchor: r.anchor, matched: r.matched || '',
+          })),
+        }
+      }
+
       return { content: [{ type: 'text', text: JSON.stringify({
         ok: true,
         total: r.total,
@@ -1657,7 +1692,10 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
           evidencePath: x.evidencePath, legacy: x.legacy,
           file: x.file, tags: x.tags,
         })),
-        next: '要原文/证据用 memory_read({file})；长证据带 anchor（如 D5）只取那一节。检索只给 claim，不塞正文。',
+        next: '要原文/证据用 memory_read({file})；长证据带 anchor（如 D5）只取那一节。检索只给 claim，不塞正文。'
+          + (ledgers ? ' 台账命中项用 srcPath 直接读源文件（那是一份指针，不是副本）。' : ''),
+        // 只有显式要了才出现，避免每次检索都多一块
+        ...(ledgers ? { ledgers } : {}),
       }, null, 2) }] }
     }
 

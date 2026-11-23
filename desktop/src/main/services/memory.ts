@@ -37,6 +37,38 @@ export function indexPath(): string {
   return path.join(memoryDir(), 'index.jsonl')
 }
 
+/**
+ * 台账索引（2026-11-23）。
+ *
+ * 由来：实测四份台账共 921 条（决策 155 / 日志 365 / 任务卡 384 / 方针 17），
+ * 而记忆索引里指向台账的条数是 **0** —— 方寸的全部历史都在记忆外面。
+ * 这不是格式问题，是**没接线**：`scripts/memory.py` 只扫 `memory/` 自己。
+ *
+ * 为什么单独一个文件、不并进 `index.jsonl`：
+ *   前者是"人/agent 写的一两句 claim"，后者是"机器抽的台账指针"。
+ *   混在一起会让「记忆有 N 条」这个数字同时代表两种东西 —— 本仓吃过这个亏。
+ *
+ * 内容由 `scripts/memory_ledgers.py --rebuild` 生成，**只存指针 + 摘要，不存正文**。
+ */
+export function ledgersIndexPath(): string {
+  return path.join(memoryDir(), 'index-ledgers.jsonl')
+}
+
+export interface LedgerRow {
+  src_kind: 'decision' | 'log' | 'card' | 'charter'
+  id: string
+  title: string
+  summary: string
+  project: string
+  status: string
+  time: string
+  /** 相对数据根的源文件路径 —— 指针，不是副本 */
+  srcPath: string
+  anchor: string
+  /** 摘要里命中的关键词（给调用方做"为什么这条被搜到"用） */
+  matched?: string
+}
+
 /** v2 原子记忆目录（一条一个文件） */
 export function claimsDir(): string {
   return path.join(memoryDir(), 'claims')
@@ -119,10 +151,31 @@ export function parseFrontmatter(text: string): { fm: Record<string, any>; body:
 
 /** 不参与检索/索引的文件：README 是规范，core 是生成的核心块，manual 是人工补充 */
 const NON_ENTRY_FILES = new Set(['README.md', 'core.md', 'core.manual.md'])
-/** 扫描时跳过的目录：备份/回收站/以后可能出现的 evidence 层 */
+/**
+ * 扫描时跳过的目录：备份/回收站/证据层/**v1 原始素材**。
+ *
+ * ⚠ 2026-11-23 补：`YYYY-MM` 形式的目录是 **v1 原始素材库**（完整事故报告 / 决策原文），
+ * 而 `claims/` 是从中提炼的 v2 原子记忆。两者**同编号但内容不同层级** ——
+ * 原文长（2000+ 字），claim 短（一两句）。把它们都当"归档条目"扫会产生两个后果：
+ *   ① id 撞车，`memoryCheck()` 报"id 重复"（实际是"原文 + 摘要"，不是重复）；
+ *   ② 计数翻倍，「记忆有 N 条」这个数字同时代表两层，本仓吃过这个亏。
+ * v1 素材的职责是**当证据被引用**（`证据: memory/2026-11/mem-xxx.md`），
+ * 不是当独立条目参与检索。所以：扫描跳过，但证据路径照常可解析。
+ */
 const SKIP_DIRS = new Set(['.backup', '.git', 'node_modules', 'evidence'])
+/** v1 原始素材目录名（`2026-11` 这类） */
+const V1_RAW_DIR = /^\d{4}-\d{2}$/
 
-function walkMd(dir: string, out: string[]): void {
+/**
+ * 递归收集 `memory/` 下的 md。
+ *
+ * ⚠ `skipV1Raw` 是给"扫条目"用的，不是全局规则：
+ *   `memory/2026-11/` 里既有 v1 原始素材（不该当条目），**也可能有 v2 证据文件**
+ *   （`格式: 证据`，`countEvidence()` 要数它）。
+ *   所以证据计数必须用 `skipV1Raw=false` 再走一遍 —— 否则会凭空少算几条，
+ *   而 `e2e-memory` 里那条"证据 14 篇"会红，且红得毫无线索（2026-11-23 实际踩到）。
+ */
+function walkMd(dir: string, out: string[], skipV1Raw = true): void {
   let names: fs.Dirent[] = []
   try {
     names = fs.readdirSync(dir, { withFileTypes: true })
@@ -133,7 +186,8 @@ function walkMd(dir: string, out: string[]): void {
     const p = path.join(dir, d.name)
     if (d.isDirectory()) {
       if (SKIP_DIRS.has(d.name) || d.name.startsWith('.')) continue
-      walkMd(p, out)
+      if (skipV1Raw && V1_RAW_DIR.test(d.name)) continue
+      walkMd(p, out, skipV1Raw)
     } else if (d.name.endsWith('.md') && !NON_ENTRY_FILES.has(d.name)) {
       out.push(p)
     }
@@ -309,7 +363,9 @@ function blankEntry(file: string, claim: string): MemoryEntry {
 /** 证据篇数（`格式: 证据` 的 md） */
 function countEvidence(): number {
   const files: string[] = []
-  walkMd(memoryDir(), files)
+  // ⚠ skipV1Raw=false：证据文件可能住在 `2026-11/` 里（v1 素材恰好吃 `格式: 证据` 格式）。
+  // 跳掉它会让证据数凭空少几条 —— 见 walkMd 的注释。
+  walkMd(memoryDir(), files, false)
   let n = 0
   for (const p of files) {
     try {
@@ -418,6 +474,85 @@ export function searchMemory(q: MemoryQuery = {}): {
 
 /** 固定核心块的硬上限（抄 Letta core memory 的 character-limited 思路） */
 export const MEMORY_CORE_BUDGET = MEMORY_BUDGETS.core
+
+/**
+ * 读台账索引（2026-11-23）。
+ *
+ * 只读一个派生文件，不扫四份台账 —— 否则每次 memory_search 都要读 900+ 个 md，
+ * 那是秒级延迟，agent 会以为记忆坏了。
+ *
+ * ⚠ 文件不存在时返回 `{ ok: false, reason }` 而不是空数组：
+ *   空数组会让调用方说"台账里没有这条"，而真相是"还没抽过"。
+ *   本仓的老病之一就是这两种情况混着说。
+ */
+export function loadLedgerIndex(): { ok: boolean; rows: LedgerRow[]; reason?: string } {
+  const p = ledgersIndexPath()
+  if (!fs.existsSync(p)) {
+    return { ok: false, rows: [], reason: '台账索引还没生成：跑 `python scripts/memory_ledgers.py --rebuild`' }
+  }
+  let text = ''
+  try {
+    text = fs.readFileSync(p, 'utf-8')
+  } catch (e: any) {
+    return { ok: false, rows: [], reason: '台账索引读不出来：' + String(e?.message || e) }
+  }
+  const rows: LedgerRow[] = []
+  for (const line of text.split('\n')) {
+    const t = line.trim()
+    if (!t) continue
+    try {
+      const r = JSON.parse(t)
+      rows.push({
+        src_kind: r['src_kind'],
+        id: String(r['id'] || ''),
+        title: String(r['标题'] || ''),
+        summary: String(r['摘要'] || ''),
+        project: String(r['项目'] || ''),
+        status: String(r['状态'] || ''),
+        time: String(r['时间'] || ''),
+        srcPath: String(r['src_path'] || ''),
+        anchor: String(r['src_anchor'] || ''),
+      })
+    } catch { /* 坏行跳过：一行坏了不该让整次检索失败 */ }
+  }
+  return { ok: true, rows }
+}
+
+/**
+ * 在台账索引里搜（关键词 / 类型 / 项目），返回**指针**。
+ *
+ * 为什么单独一个函数、不并进 searchMemory：
+ *   两者排序规则不同 —— claim 按"相关度×可信度×重要度×新鲜度"，台账只有"命不命中"。
+ *   硬塞进同一套评分会让台账条目凭"可信度 1.0"把真 claim 挤下去。
+ */
+export function searchLedgers(q: {
+  q?: string
+  kind?: string
+  project?: string
+  limit?: number
+} = {}): { ok: boolean; rows: LedgerRow[]; total: number; reason?: string } {
+  const idx = loadLedgerIndex()
+  if (!idx.ok) return { ok: false, rows: [], total: 0, reason: idx.reason }
+  const kw = String(q.q || '').trim().toLowerCase()
+  const kind = String(q.kind || '').trim()
+  const proj = String(q.project || '').trim()
+  let hit = idx.rows
+  if (kind) hit = hit.filter((r) => r.src_kind === kind)
+  if (proj) hit = hit.filter((r) => r.project === proj)
+  if (kw) {
+    hit = hit.filter((r) =>
+      `${r.title} ${r.summary} ${r.id} ${r.project}`.toLowerCase().includes(kw))
+    // 把命中的片段标出来，调用方才知道"为什么这条被搜到"
+    hit = hit.map((r) => {
+      const hay = `${r.title} ${r.summary}`.toLowerCase()
+      const at = hay.indexOf(kw)
+      return { ...r, matched: at >= 0 ? hay.slice(Math.max(0, at - 10), at + kw.length + 20).trim() : '' }
+    })
+  }
+  const total = hit.length
+  const limit = Math.max(1, Math.min(50, Number(q.limit) || 10))
+  return { ok: true, rows: hit.slice(0, limit), total }
+}
 
 /**
  * 固定核心块 `memory/core.md`：**每个会话只注入这一小块**，不是动态 top-5。

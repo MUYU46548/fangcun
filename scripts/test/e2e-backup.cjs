@@ -119,6 +119,10 @@ function seedData() {
   writeFile(path.join(TEST_ROOT, 'docs', '执行日志', 'log-001.md'), '# 执行日志\n内容\n')
   // 2026-10-11 用户第 2 条：备份范围补漏 —— policies/（项目方针卡）此前**根本不在包里**
   writeFile(path.join(TEST_ROOT, 'policies', 'demo.md'), '# 项目方针：demo\n\n## 使命\n演示用\n')
+  // 2026-11-23 补第四份：memory/（记忆层）此前同样不在备份范围里。
+  // 记忆存的是"花真实代价买来的教训"，丢了没法从别处重建 —— 台账能，记忆不能。
+  writeFile(path.join(TEST_ROOT, 'memory', 'claims', 'mem-demo-01.md'), '---\nid: mem-demo-01\n---\n\n## 记忆\n演示用\n')
+  writeFile(path.join(TEST_ROOT, 'memory', 'index-ledgers.jsonl'), '{"src_kind":"log","id":"x"}\n')
   // 瘦身素材：附件目录里一个小文件 + 一个大文件（大文件按 maxFileMB 被跳过）
   writeFile(path.join(TEST_ROOT, 'docs', '执行日志', '_attachments', 'log-001', 'shot.png'), 'PNG-PLACEHOLDER')
   writeFile(path.join(TEST_ROOT, 'docs', '执行日志', '_attachments', 'log-001', 'bundle.bin'), 'X'.repeat(1500 * 1024))
@@ -241,6 +245,11 @@ async function main() {
   // ── 备份范围补漏 + 瘦身（2026-10-11 用户第 2 条）────────────────────────
   check('★ 备份含 policies/（项目方针卡）—— 此前它**根本不在备份范围里**，丢了无从找回',
     names.includes('policies/demo.md'), names.join(','))
+  // 2026-11-23（用户 2026-11-21「前提是方寸再也不会丢东西」的正面回答）
+  check('★★ 备份含 memory/claims（记忆条目）—— 记忆里是花代价买来的教训，丢了没法重建',
+    names.some((n) => n.startsWith('memory/claims/')), names.filter((n) => n.startsWith('memory/')).join(',') || '(memory/ 一个文件都没进包)')
+  check('★ 备份含 memory/index-ledgers.jsonl（台账索引，换机后能立刻搜）',
+    names.includes('memory/index-ledgers.jsonl'), names.filter((n) => n.startsWith('memory/')).join(','))
   check('★ 瘦身：排除执行日志附件目录 → _attachments 里一个文件都不进包',
     !names.some(n => n.includes('_attachments')), names.join(','))
   check('  但同目录下的正文日志仍在（排除的是"附件"不是"执行日志"）',

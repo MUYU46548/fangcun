@@ -26,8 +26,16 @@ export function backupRootDir(): string {
  * ⚠ 2026-10-11 用户第 2 条补漏：`policies/`（**项目方针卡**）此前**根本不在备份范围里**。
  *   方寸的真源是三份：`task-data/`（任务）+ `registry.yaml`（项目登记）+ `policies/`（方针卡）。
  *   丢了方针卡 = 每次派活都失去项目背景，且无从找回 —— 这是静默的数据丢失面。
+ *
+ * ⚠⚠ 2026-11-23 补第四份：`memory/`（**记忆层**）此前同样不在备份范围里。
+ *   这是用户 2026-11-21 那句「前提是方寸再也不会丢东西」的正面回答 ——
+ *   记忆里存的是"花了真实代价买来的教训"，丢了没法从别处重建（台账能，记忆不能）。
+ *   连带 `memory/index-ledgers.jsonl`（台账索引）也在里面：它是派生物，
+ *   但重建要跑脚本，备份里有一份能让"换机后立刻能搜"。
+ *   ⚠ 已在 `.gitignore` 里排除（`memory/*` + `!memory/README.md`），
+ *     那是"不进 git"，不是"不进备份"—— 两件事，别混。
  */
-export const BACKUP_INCLUDES = ['task-data', 'registry.yaml', 'policies', 'docs']
+export const BACKUP_INCLUDES = ['task-data', 'registry.yaml', 'policies', 'docs', 'memory']
 
 /** 把配置里的瘦身旋钮翻译成 packer 的入参（zip 通道与 Git 通道共用） */
 export function scopeSources(): SnapshotSources {

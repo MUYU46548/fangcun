@@ -15,6 +15,8 @@
   python scripts/memory.py --json
   python scripts/memory.py --rebuild            # 重建 memory/index.jsonl
   python scripts/memory.py --check              # 校验索引 + v2 格式（非零退出=不一致）
+  python scripts/memory.py --ledgers --q "黑窗口"   # 同时搜四份台账（指针，不抄正文）
+  python scripts/memory.py --ledgers --kind log    # 只看执行日志
 """
 import argparse
 import json
@@ -25,6 +27,10 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MEM_DIR = os.path.join(ROOT, 'memory')
 INDEX = os.path.join(MEM_DIR, 'index.jsonl')
+# 台账索引（2026-11-23）：由 scripts/memory_ledgers.py 生成，只存指针 + 摘要。
+# ⚠ 与 index.jsonl 分开两个文件：一个是"人写的一两句 claim"，一个是"机器抽的台账指针"，
+#   混在一起会让"记忆条数"这个数字同时代表两种东西（本仓吃过的亏）。
+LEDGER_INDEX = os.path.join(MEM_DIR, 'index-ledgers.jsonl')
 
 FM_RE = re.compile(r'^---\s*$', re.M)
 CORE_BUDGET = 800
@@ -143,6 +149,10 @@ def title_summary(body):
 
 
 def skip_dir(name):
+    # `YYYY-MM` 是 v1 原始素材库（完整报告），claims/ 是提炼后的 v2 条目。
+    # 两者同编号不同层级，都扫会 id 撞车 + 计数翻倍。v1 素材的职责是被引用当证据。
+    if re.match(r'^\d{4}-\d{2}$', name):
+        return True
     return name.startswith('.') or name in ('node_modules', 'evidence')
 
 
@@ -325,6 +335,43 @@ def check(rows):
     return issues
 
 
+def load_ledgers(a):
+    """读台账索引，按 --q / --kind / --project 过滤。
+
+    ⚠ 台账索引文件不存在时**明说"还没抽"**，不要静默返回空 ——
+    那会让人以为"台账里没有这件事"，而实际是"还没接线"（本仓老病）。
+    """
+    if not os.path.exists(LEDGER_INDEX):
+        print('（台账索引还没生成：先跑 `python scripts/memory_ledgers.py --rebuild`）\n')
+        return []
+    q = (a.q or '').lower()
+    kind = (a.kind or '').strip()
+    proj = (a.project or '').strip()
+    out = []
+    try:
+        with open(LEDGER_INDEX, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if kind and r.get('src_kind') != kind:
+                    continue
+                if proj and str(r.get('项目', '')) != proj:
+                    continue
+                if q:
+                    hay = ' '.join(str(r.get(k, '')) for k in ('标题', '摘要', 'id', '出处', '项目')).lower()
+                    if q not in hay:
+                        continue
+                out.append(r)
+    except OSError:
+        return []
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description='方寸记忆检索 v2（只读）')
     ap.add_argument('--type', help='事故 / 教训 / 纪律 / 决定 / 偏好')
@@ -336,6 +383,9 @@ def main():
     ap.add_argument('--json', action='store_true')
     ap.add_argument('--rebuild', action='store_true', help='重建 memory/index.jsonl')
     ap.add_argument('--check', action='store_true', help='校验索引 + v2 格式（非零退出=不一致）')
+    ap.add_argument('--ledgers', action='store_true',
+                    help='同时搜四份台账（决策/日志/任务卡/方针）—— 返回指针，不抄正文')
+    ap.add_argument('--kind', help='配合 --ledgers：decision / log / card / charter')
     a = ap.parse_args()
 
     rows = scan_files()
@@ -358,10 +408,41 @@ def main():
 
     picked = [r for r in rows if match(r, a)]
 
+    # ── 台账检索（2026-11-23）────────────────────────────────────────
+    # 为什么要有：四份台账共 921 条，原先**一条都没进记忆**（实测覆盖率 0.0%）。
+    # `--ledgers` 让同一次检索能命中"人写的 claim"与"台账里的原始记录"两类，
+    # 台账那类**只返回指针**（src_path + 标题 + 摘要），原文永远留在源文件里。
+    ledger_rows = []
+    if a.ledgers:
+        ledger_rows = load_ledgers(a)
+
     if a.json:
-        print(json.dumps([{k: v for k, v in r.items() if k not in ('evidence', '_raw')}
-                          for r in picked], ensure_ascii=False, indent=2))
+        out = [{k: v for k, v in r.items() if k not in ('evidence', '_raw')} for r in picked]
+        if a.ledgers:
+            out = out + ledger_rows
+        print(json.dumps(out, ensure_ascii=False, indent=2))
         return 0
+
+    if a.ledgers and ledger_rows:
+        print('=== 台账命中 %d 条（指针）===' % len(ledger_rows))
+        for r in ledger_rows:
+            print('[%s] %s' % (r.get('src_kind'), r.get('id')))
+            if r.get('标题'):
+                print('  标题: ' + str(r['标题']))
+            if r.get('摘要'):
+                print('  摘要: ' + str(r['摘要']))
+            meta = []
+            for k in ('项目', '状态', '时间'):
+                if r.get(k):
+                    meta.append('%s:%s' % (k, str(r[k])[:16].replace('T', ' ')))
+            if meta:
+                print('  ' + ' · '.join(meta))
+            print('  原文: %s%s' % (r.get('src_path', ''),
+                                    ('#' + str(r['src_anchor'])) if r.get('src_anchor') else ''))
+            print()
+        if not picked:
+            return 0
+        print('=== 记忆 claim 命中 %d 条 ===' % len(picked))
 
     if not picked:
         if not rows:
