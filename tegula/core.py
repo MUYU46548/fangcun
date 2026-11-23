@@ -237,6 +237,120 @@ def load_all_projects():
     return parse_registry(REGISTRY_PATH, include_released=True)
 
 
+# ---------- 决策卡「归属」口径（2026-11-23）----------
+# ⚠ 与 desktop/src/shared/decisionScope.ts **逐字同口径**
+#   （判据 scripts/test/check-decisions.py 钉住两侧一致）。
+#
+# 为什么要有它：决策卡的 `项目` 字段在真数据里同时有 id（`fangcun-base`）、
+# 中文名（`方寸` / `司天`）与 `全局` 三种写法，而每个消费点都各写了一遍
+# "字符串相等才算"。实测（2026-11-23，145 条有效决策）：
+#
+#     fangcun-base 按老口径（项目==pid 或空）→ 60 条
+#     加中文名「方寸」                        → 63 条
+#     再加「全局」                            → 71 条   ← 老口径漏 11 条
+#
+# 漏掉的是 D-033（模型/成本架构）、D-031（数据零外部依赖）、D-032（交付三铁律）
+# 这类**全局规矩** —— 写「全局」的决策，任何项目都查不到（「全局」既不等于空串，
+# 也不等于任何 pid，被当成"某个叫全局的项目"）。
+#
+# 三条口径：全局 → 恒算数；命中登记表 id/名称 → 归一成 id；认不出 → 原样不猜。
+
+DECISION_SCOPE_GLOBAL = "全局"
+_DECISION_GLOBAL_ALIASES = {"全局", "all", "*", "global"}
+
+#: 别名表缓存：键是 (注册表路径, mtime_ns, size)。
+#: 为什么带 mtime/size 而不是只缓存一次：`verify.py` 与各 e2e 会反复换 REGISTRY_PATH，
+#: 只按"缓存过就不再算"会让测试拿到上一个注册表的别名 —— 那就是本仓记过的老病
+#: "读成旧值还在退出码 0"。mtime_ns + size 一变就重算。
+_DECISION_ALIAS_CACHE = {}
+
+
+def _clear_decision_alias_cache():
+    """测试用：强制丢掉别名缓存。"""
+    _DECISION_ALIAS_CACHE.clear()
+
+
+def decision_project_alias():
+    """{id 或 名称 → id}。**id 优先**：名称与某个 id 同名时不许覆盖那个 id。"""
+    try:
+        st = os.stat(REGISTRY_PATH)
+        key = (REGISTRY_PATH, st.st_mtime_ns, st.st_size)
+    except OSError:
+        key = (REGISTRY_PATH, 0, 0)
+    cached = _DECISION_ALIAS_CACHE.get(key)
+    if cached is not None:
+        return cached
+    alias = {}
+    projects = load_all_projects()
+    for p in projects:
+        pid = str(p.get("id") or "").strip()
+        if pid:
+            alias[pid] = pid
+    for p in projects:
+        pid = str(p.get("id") or "").strip()
+        pname = str(p.get("name") or "").strip()
+        if pid and pname and pname not in alias:
+            alias[pname] = pid
+    _DECISION_ALIAS_CACHE.clear()      # 只留当前这份，防路径轮换把缓存堆大
+    _DECISION_ALIAS_CACHE[key] = alias
+    return alias
+
+
+def resolve_decision_scope(raw, alias=None):
+    """一条决策的 `项目` 字段 → (kind, id, raw)。kind ∈ global/project/unknown。
+
+    ⚠ `alias=None` 与 `alias={}` 语义不同：
+       None → 不查别名表：非空非全局的值**原样当项目**（不猜，也不贬成 unknown）；
+       {}   → 有别名表但为空：查不到就是 unknown（没了登记的项目）。
+       区别在于"注册表读不到"时不能把已有决策全部判死 —— 那条路走过（会静默丢决策）。
+    """
+    s = str(raw or "").strip()
+    if not s:
+        return ("global", DECISION_SCOPE_GLOBAL, s)
+    if s.lower() in _DECISION_GLOBAL_ALIASES:
+        return ("global", DECISION_SCOPE_GLOBAL, s)
+    if alias is None:
+        return ("project", s, s)
+    hit = alias.get(s)
+    if hit:
+        return ("project", hit, s)
+    return ("unknown", s, s)
+
+
+def decision_matches_project(decision_project, project_id, alias=None):
+    """这条决策对 project_id 算不算数。全局恒算数；其余比 id（unknown 保留原样字符串）。"""
+    pid = str(project_id or "").strip()
+    if not pid:
+        return False
+    kind, did, _raw = resolve_decision_scope(decision_project, alias)
+    if kind == "global":
+        return True
+    return did == pid
+
+
+def normalize_decision_project_for_write(raw, alias=None):
+    """把归属归一成 id 或「全局」（**可选**，当前写入路径不调用它）。
+
+    ⚠ 为什么写入路径**不**用它（2026-11-23 决定）：
+      归一读侧就够了，写侧改用户原文属于"替他改口径"。实测：
+      `check-decisions.py` 有两条既有断言正是盯这个 ——
+      「项目已落盘」（写 `绒花墨坊` 就得读到 `绒花墨坊`）与「旧条目无项目可兼容」。
+      把 `绒花墨坊` 悄悄写成 `project-2` 会让这两条变红，而**读侧解析已经让
+      `绒花墨坊` 能被 `project-2` 查到了** —— 归一写在读侧，收益全在，代价为零。
+
+      这个函数留着，是给"明确要规范化存量数据"的一次性迁移脚本用的：
+      它得显式调用，不能藏在每次 add/update 里。
+
+    ⚠ 空串**保持空串**，不许归一成「全局」：
+      空 = "没说这条归谁"（老卡就是这样），「全局」= "这条对所有项目都算数"。
+      读取时两者结果一样（都算全局），但写盘语义不同。
+    """
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    return resolve_decision_scope(s, alias)[1]
+
+
 # ---------- 工作台：统一管理所有项目的本地服务端口 ----------
 
 def scan_services():
@@ -1722,9 +1836,17 @@ def _decision_id(items):
 
 
 def load_decisions():
-    """解析 decisions.md → list[dict]（id/内容/日期/状态/出处/备注/更新）。
+    """解析 decisions.md → list[dict]（id/内容/日期/状态/项目/出处/备注/更新/生效范围/落地）。
     文件不存在返回 []（首次记录时创建）；坏行宽容跳过，不让一张坏卡拖死整个视图。
-    状态列过 _normalize_decision_status：老值（作数/已作废/已并入）当场翻成新值。"""
+    状态列过 _normalize_decision_status：老值（作数/已作废/已并入）当场翻成新值。
+
+    2026-11-23 两处「读时归一」（都只读兼容，下一次写盘即自愈）：
+      ① **生效范围**：问卷落卡一直把 ` 生效范围：本卷` 拼在**内容标题**里（102/155 条），
+         于是"这条决策管到哪儿"变成正文的一部分 —— 比对、去重、喂给 agent 时都得各自再剥一遍
+         （`shared/convergence.ts` 就写着一条专门剥它的正则）。现在读时摘成独立字段。
+      ② **落地**：对账做不下去的根因是决策卡不记"落到了哪"（145 条里 142 条不点名任何实体）。
+         新字段 `落地:` 只读不强制 —— 老卡没有它就是空串，`待补` 不会被伪造成"已落地"。
+    """
     if not os.path.exists(DECISIONS_PATH):
         return []
     items = []
@@ -1740,12 +1862,14 @@ def load_decisions():
         if m:
             if cur is not None:
                 items.append(cur)
-            cur = {"id": m.group(1), "内容": m.group(2).strip(), "日期": "", "状态": "有效", "项目": "", "出处": "", "备注": "", "更新": ""}
+            title, scope = _split_scope_from_title(m.group(2).strip())
+            cur = {"id": m.group(1), "内容": title, "日期": "", "状态": "有效", "项目": "",
+                   "出处": "", "备注": "", "更新": "", "生效范围": scope, "落地": ""}
             last_kv = None
             continue
         if cur is None:
             continue
-        kv = re.match(r"^-\s+(日期|状态|项目|出处|备注|更新)\s*[:：]\s*(.*)$", line.strip())
+        kv = re.match(r"^-\s+(日期|状态|项目|出处|备注|更新|生效范围|落地)\s*[:：]\s*(.*)$", line.strip())
         if kv:
             cur[kv.group(1)] = _normalize_decision_status(kv.group(2)) if kv.group(1) == "状态" else kv.group(2).strip()
             last_kv = kv.group(1)
@@ -1759,6 +1883,28 @@ def load_decisions():
     return items
 
 
+#: 内容标题末尾的 `生效范围：X`（问卷落卡把范围拼进了标题，102/155 条是这么写的）
+_RE_SCOPE_TAIL = re.compile(r"\s*生效范围\s*[:：]\s*(.+?)\s*$")
+
+
+def _split_scope_from_title(title):
+    """`Q1：A. … 生效范围：本卷` → (`Q1：A. …`, `本卷`)。
+
+    只在**末尾**认。正文中间出现"生效范围"是句子的一部分，不能摘
+    （摘错了决策内容就残缺，那比多一个字段坏得多）。
+    与 TS 侧 `splitScopeFromTitle`（desktop/src/main/data/decisions.ts）逐字同口径。
+    """
+    t = str(title or "").strip()
+    m = _RE_SCOPE_TAIL.search(t)
+    if not m:
+        return (t, "")
+    head = t[:m.start()].strip()
+    # 摘完空了就整句留原样（宁可范围漏摘，不许内容变空）
+    if not head:
+        return (t, "")
+    return (head, m.group(1).strip())
+
+
 def _render_decisions(items):
     lines = [_DEF_DEC_HEADER]
     for it in items:
@@ -1767,6 +1913,12 @@ def _render_decisions(items):
         lines.append(f"- 状态: {it.get('状态', '有效')}")
         if it.get("项目"):
             lines.append(f"- 项目: {it['项目']}")
+        # 生效范围：老卡没有就不写行（不凭空造 `本卷` —— 那是替用户改口径）
+        if it.get("生效范围"):
+            lines.append(f"- 生效范围: {it['生效范围']}")
+        # 落地：`task-xxx` / `commit:xxx` / `不做(理由)`。空 = 还没人对过账，不是"已落地"。
+        if it.get("落地"):
+            lines.append(f"- 落地: {it['落地']}")
         lines.append(f"- 出处: {it.get('出处', '')}")
         if it.get("备注"):
             lines.append(f"- 备注: {it['备注']}")
@@ -1791,12 +1943,21 @@ def save_decisions(items):
     return True
 
 
-def decision_add(内容, 日期=None, 状态="有效", 项目="", 出处="", 备注=""):
+def decision_add(内容, 日期=None, 状态="有效", 项目="", 出处="", 备注="", 生效范围="", 落地=""):
     """记一条决策。状态白名单校验（老值先归一）；同内容+同日期幂等（返回已有 id，不重复记）。
-    返回 (ok, id_or_error)。"""
+    返回 (ok, id_or_error)。
+
+    2026-11-23 补两个入参：
+      `生效范围` —— 问卷落卡一直把它拼在内容末尾（`… 生效范围：本卷`），现在先拆出来存独立字段。
+      `落地`     —— `task-xxx` / `commit:xxx` / `不做(理由)`。**不传就是空串**（= 还没对过账），
+                    绝不给默认值：默认值会让"没核过"看起来像"核过了"。
+    """
     内容 = (内容 or "").strip()
     if not 内容:
         return False, "决策内容为空"
+    # 兼容：调用方（老脚本 / 人手里的命令）仍可能把范围拼在内容里
+    if not 生效范围:
+        内容, 生效范围 = _split_scope_from_title(内容)
     状态 = _normalize_decision_status(状态)
     if 状态 not in DECISION_STATUSES:
         return False, f"状态必须是 {'/'.join(DECISION_STATUSES)}，收到：{状态}"
@@ -1807,7 +1968,14 @@ def decision_add(内容, 日期=None, 状态="有效", 项目="", 出处="", 备
             return True, f"{it['id']}（已存在，未重复记）"
     did = _decision_id(items)
     items.append({
-        "id": did, "内容": 内容, "日期": 日期, "状态": 状态, "项目": (项目 or "").strip(),
+        "id": did, "内容": 内容, "日期": 日期, "状态": 状态,
+        # ⚠ 项目**原样存用户写的**，不做 id 归一（2026-11-23 定）。
+        #   归一读侧做就够了：`项目: 绒花墨坊` 现在能被 `project-2` 查到，
+        #   而把它悄悄改写成 `project-2` 是替用户改数据 —— 且既有断言
+        #   「项目已落盘」「旧条目无项目可兼容」正是盯这个，改了就是真回归。
+        "项目": (项目 or "").strip(),
+        "生效范围": (生效范围 or "").strip(),
+        "落地": (落地 or "").strip(),
         "出处": (出处 or "").strip(), "备注": (备注 or "").strip(), "更新": _now_ts(),
     })
     items.sort(key=lambda x: (x.get("日期", ""), x.get("id", "")))
@@ -3299,9 +3467,14 @@ def build_project_brief(project_id):
         lines.append("")
         lines.append("（活跃区无任务——项目停摆或已全清）")
 
-    # ── 最近决策卡（该项目有效卡，取最近 10）──
+    # ── 最近决策卡（该项目有效卡 + 全局卡，取最近 10）──
+    # 2026-11-23：口径换成 decision_matches_project —— 老写法是 `(d.get("项目") or "") == pid`，
+    # 于是写「全局」的（D-033/031/032/019 这类全局规矩）与写中文名的（`方寸` vs `fangcun-base`）
+    # **一条都进不来**。实测该项目漏 11 条。
+    _alias = decision_project_alias()
     decs = [d for d in load_decisions()
-            if (d.get("项目") or "") == pid and (d.get("状态") or "") == "有效"]
+            if decision_matches_project(d.get("项目"), pid, _alias)
+            and (d.get("状态") or "") == "有效"]
     lines.append("")
     lines.append(f"## 最近决策卡（有效 {len(decs)} 条，取最近 10）")
     if decs:
@@ -6390,24 +6563,38 @@ def read_stage_plan(fname):
 
 
 def mcp_decision_list(params):
-    """只读：已经定过什么。与桌面 decision_list 同语义。"""
+    """只读：已经定过什么。与桌面 decision_list 同语义。
+
+    ⚠ 2026-11-23：`project` 过滤改用 decision_matches_project。
+      老写法是 `str(d.get("项目") or "") != proj` 严格相等 ——
+      于是 `--project fangcun-base` 查不到写 `项目: 方寸` 的，也查不到写 `项目: 全局` 的，
+      而"查不到"与"没定过"在 agent 眼里是同一件事（它就会重新问一遍已经定过的事）。
+      `includeGlobal` 缺省 true：全局决策本来就是"对谁都算数"，过滤项目时不该把它们藏掉。
+    """
     p = params or {}
     rows = load_decisions() or []
     want = str(p.get("status") or "").strip()
     if want:
         want = _normalize_decision_status(want)
     proj = str(p.get("project") or "").strip()
+    include_global = p.get("includeGlobal")
+    include_global = True if include_global is None else bool(include_global)
     q = str(p.get("query") or "").strip().lower()
     try:
         limit = max(1, min(200, int(p.get("limit") or 30)))
     except (TypeError, ValueError):
         limit = 30
+    alias = decision_project_alias() if proj else None
     hits = []
     for d in rows:
         if want and d.get("状态") != want:
             continue
-        if proj and str(d.get("项目") or "") != proj:
-            continue
+        if proj:
+            scope_kind = resolve_decision_scope(d.get("项目"), alias)[0]
+            if scope_kind == "global" and not include_global:
+                continue
+            if scope_kind != "global" and not decision_matches_project(d.get("项目"), proj, alias):
+                continue
         if q:
             hay = (str(d.get("内容", "")) + " " + str(d.get("备注", "")) + " "
                    + str(d.get("出处", ""))).lower()
@@ -6417,6 +6604,8 @@ def mcp_decision_list(params):
     hits.reverse()      # 文件按时间追加，倒过来 = 最新的在前
     return {"ok": True, "total": len(rows), "returned": len(hits[:limit]),
             "readOnly": "决策只由用户在界面拍板；本工具只读。",
+            "projectFilter": {"project": proj, "includeGlobal": include_global,
+                              "note": "项目过滤已按归属归一：中文名/id/全局三种写法统一解析。"},
             "decisions": hits[:limit]}
 
 

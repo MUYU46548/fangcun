@@ -23,6 +23,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { parseRegistry, loadAllTasksRaw } from '../data'
 import { loadDecisions } from '../data/decisions'
+import { buildProjectAlias, decisionMatchesProject } from '../../shared/decisionScope'
 import { getPolicy } from './policies'
 import { readContractFile, repoOfProject } from './tripBoard'
 import * as logs from './logs'
@@ -157,9 +158,15 @@ export function buildContextPack(projectId: string, opts: { maxTasks?: number; m
   out.push('## 4. 已经拍板的事（决策卡 · 只列“有效”）')
   let decs: any[] = []
   try {
+    const alias = buildProjectAlias(parseRegistry(true) as { id: string; name?: string }[])
+    // ⚠ 2026-11-23：归属判定换成 decisionMatchesProject。
+    //   老写法是 `!项目 || 项目 === pid` —— 于是
+    //     · 写 `项目: 全局` 的（D-033 模型成本架构 / D-031 数据零外部依赖 / D-032 交付三铁律）
+    //       **任何项目都拿不到**（「全局」既不是空串也不等于任何 pid）；
+    //     · 写中文名的（`方寸` / `司天`）用 id 查不到。
+    //   实测 fangcun-base：老口径 60 条 → 正确口径 71 条，漏 11 条**全是全局规矩**。
     decs = loadDecisions().filter((d) => String(d.状态 || '') === '有效'
-      // 归属本项目 或 全局（项目为空）
-      && (!String(d.项目 || '').trim() || String(d.项目) === pid))
+      && decisionMatchesProject((d as any).项目, pid, alias))
   } catch {
     decs = []
   }
@@ -167,7 +174,10 @@ export function buildContextPack(projectId: string, opts: { maxTasks?: number; m
   if (decs.length) {
     for (const d of decs.slice(0, 12)) {
       const src = String(d.出处 || '').trim()
-      out.push(`- ${fmtDay(d.日期)} · ${String(d.内容 || '').trim()}${src ? `（出处：${src}）` : ''}`)
+      // 生效范围只在这条**不是**"本卷"时标出来：满屏都是「本卷」等于没有信息。
+      const scope = String((d as any).生效范围 || '').trim()
+      const scopeTag = scope && scope !== '本卷' ? `〔${scope}〕` : ''
+      out.push(`- ${fmtDay(d.日期)} · ${scopeTag}${String(d.内容 || '').trim()}${src ? `（出处：${src}）` : ''}`)
     }
     if (decs.length > 12) out.push(`- …… 另有 ${decs.length - 12} 条，去“决策”页看`)
   } else {

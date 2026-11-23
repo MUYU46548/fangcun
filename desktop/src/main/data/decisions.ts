@@ -41,9 +41,35 @@ export interface Decision {
   出处: string
   备注: string
   更新: string
+  /** 这条决策管到哪儿（`本卷` / `全局` / 空）。**老卡没有就是空串**，不补默认值。 */
+  生效范围: string
+  /** 落到哪了：`task-xxx` / `commit:xxx` / `不做(理由)`。空 = 还没对过账，不是"已落地"。 */
+  落地: string
 }
 
 const DEF_HEADER = '# 决策记录（决策卡）\n\n> 定下来的事都在这——谁定的、哪天定的、还作不作数。状态：有效 / 已撤销 / 已合并。\n'
+
+/**
+ * 内容标题末尾的 `生效范围：X`（2026-11-23）。
+ *
+ * 问卷落卡一直把范围拼进**内容标题**（真实台账 155 条里 102 条是这么写的：
+ * `## D-164 Q1：B. 照旧做… 生效范围：本卷`），于是"这条决策管到哪儿"长在正文里 ——
+ * 比对、去重、喂 agent 都得各自再剥一遍（`shared/convergence.ts` 里就有一条专门剥它的正则）。
+ *
+ * ⚠ 与 Python `_split_scope_from_title`（tegula/core.py）**逐字同口径**。
+ * ⚠ 只在**末尾**认：正文中间出现"生效范围"是句子的一部分，摘错了决策内容就残缺。
+ */
+const RE_SCOPE_TAIL = /\s*生效范围\s*[:：]\s*(.+?)\s*$/
+
+export function splitScopeFromTitle(title: string): { 内容: string; 生效范围: string } {
+  const t = String(title || '').trim()
+  const m = RE_SCOPE_TAIL.exec(t)
+  if (!m) return { 内容: t, 生效范围: '' }
+  const head = t.slice(0, m.index).trim()
+  // 摘完空了就整句留原样（宁可范围漏摘，不许内容变空）
+  if (!head) return { 内容: t, 生效范围: '' }
+  return { 内容: head, 生效范围: m[1].trim() }
+}
 
 function decisionsPath(): string {
   return path.join(getTaskDir(), 'decisions.md')
@@ -67,15 +93,19 @@ export function loadDecisions(): Decision[] {
     const m = /^##\s+(D-\d+)\s+(.*)$/.exec(line)
     if (m) {
       if (cur) items.push(cur)
+      const split = splitScopeFromTitle(m[2].trim())
       cur = {
-        id: m[1], 内容: m[2].trim(), 日期: '',
+        id: m[1], 内容: split.内容, 日期: '',
         状态: '有效', 项目: '', 出处: '', 备注: '', 更新: '',
+        生效范围: split.生效范围, 落地: '',
       }
       lastKv = null
       continue
     }
     if (!cur) continue
-    const kv = /^-\s+(日期|状态|项目|出处|备注|更新)\s*[:：]\s*(.*)$/.exec(line)
+    // ⚠ 认的键必须与 Python 侧逐字一致（含 生效范围 / 落地）。
+    //   少认一个 → 那一行会被当成"续行"拼回上一字段，下次写盘就把数据写坏。
+    const kv = /^-\s+(日期|状态|项目|出处|备注|更新|生效范围|落地)\s*[:：]\s*(.*)$/.exec(line)
     if (kv) {
       // 状态列过一层归一：老值（作数/已作废/已并入）当场翻成新值，坏值原样留给上层
       ;(cur as any)[kv[1]] = kv[1] === '状态' ? normalizeDecisionStatus(kv[2]) : kv[2].trim()
@@ -97,6 +127,10 @@ function renderDecisions(items: Decision[]): string {
     lines.push(`- 日期: ${it.日期 || ''}`)
     lines.push(`- 状态: ${it.状态 || '有效'}`)
     if (it.项目) lines.push(`- 项目: ${it.项目}`)
+    // 生效范围：老卡没有就不写行（不凭空造 `本卷` —— 那是替用户改口径）
+    if (it.生效范围) lines.push(`- 生效范围: ${it.生效范围}`)
+    // 落地：空 = 还没对过账，不写行（写了空行会被读成"核过了，没落地"）
+    if (it.落地) lines.push(`- 落地: ${it.落地}`)
     lines.push(`- 出处: ${it.出处 || ''}`)
     if (it.备注) lines.push(`- 备注: ${it.备注}`)
     if (it.更新) lines.push(`- 更新: ${it.更新}`)
@@ -126,12 +160,23 @@ export interface DecisionInput {
   项目?: string
   出处?: string
   备注?: string
+  /** 这条管到哪儿（`本卷` / `全局`）。不传 = 空串（老卡没有这一行） */
+  生效范围?: string
+  /** 落到哪了：`task-xxx` / `commit:xxx` / `不做(理由)`。**不传 = 空 = 还没对过账** */
+  落地?: string
 }
 
 /** 记一条决策。同内容+同日期幂等（返回已有 id 标记 exists）。 */
 export function addDecision(input: DecisionInput): { ok: true; id: string; exists?: boolean } | { ok: false; error: string } {
-  const content = (input.内容 || '').trim()
+  let content = (input.内容 || '').trim()
   if (!content) return { ok: false, error: '决策内容为空' }
+  // 兼容：调用方仍可能把 `生效范围：本卷` 拼在内容末尾（问卷落卡的老写法）
+  let scope = (input.生效范围 || '').trim()
+  if (!scope) {
+    const split = splitScopeFromTitle(content)
+    content = split.内容
+    scope = split.生效范围
+  }
   // 入参状态过归一：老值/空值都能进（外部灌料常带老写法），非法值再拦
   const status = normalizeDecisionStatus(input.状态)
   if (!DECISION_STATUSES.includes(status)) {
@@ -146,7 +191,12 @@ export function addDecision(input: DecisionInput): { ok: true; id: string; exist
   }
   const id = nextId(items)
   items.push({
-    id, 内容: content, 日期: date, 状态: status, 项目: (input.项目 || '').trim(),
+    id, 内容: content, 日期: date, 状态: status,
+    // ⚠ 项目**原样存用户写的**，不做 id 归一（2026-11-23 定，与 Python 侧同一条）。
+    //   归一读侧做就够了：`项目: 绒花墨坊` 现在能被 `project-2` 查到；
+    //   而把它悄悄改写成 `project-2` 是替用户改数据（既有测试「项目已落盘」正是盯这个）。
+    项目: (input.项目 || '').trim(),
+    生效范围: scope, 落地: (input.落地 || '').trim(),
     出处: (input.出处 || '').trim(), 备注: (input.备注 || '').trim(),
     更新: String(Math.floor(Date.now() / 1000)),
   })
@@ -188,6 +238,8 @@ export interface DecisionPatch {
   项目?: string
   出处?: string
   备注?: string
+  生效范围?: string
+  落地?: string
 }
 
 /**
@@ -213,9 +265,12 @@ export function updateDecision(
     next.内容 = c
   }
   if (patch.日期 !== undefined) next.日期 = String(patch.日期).trim()
+  // ⚠ 项目原样存，不归一成 id（与 addDecision 同一条理由）
   if (patch.项目 !== undefined) next.项目 = String(patch.项目).trim()
   if (patch.出处 !== undefined) next.出处 = String(patch.出处).trim()
   if (patch.备注 !== undefined) next.备注 = String(patch.备注).trim()
+  if (patch.生效范围 !== undefined) next.生效范围 = String(patch.生效范围).trim()
+  if (patch.落地 !== undefined) next.落地 = String(patch.落地).trim()
   next.更新 = String(Math.floor(Date.now() / 1000))
 
   // 内容与日期都变了要重新排序（列表按 日期 → id 升序，与 addDecision 同口径）
@@ -253,6 +308,9 @@ export function deleteDecision(id: string): { ok: true; message: string } | { ok
       `- 日期: ${hit.日期}`,
       `- 状态: ${hit.状态}`,
       hit.项目 ? `- 项目: ${hit.项目}` : '',
+      // 新字段也要进留底 —— 留底是"删了还能捞回来"的唯一凭据，漏字段就是捞回来缺一块
+      hit.生效范围 ? `- 生效范围: ${hit.生效范围}` : '',
+      hit.落地 ? `- 落地: ${hit.落地}` : '',
       `- 出处: ${hit.出处}`,
       hit.备注 ? `- 备注: ${hit.备注}` : '',
       '',

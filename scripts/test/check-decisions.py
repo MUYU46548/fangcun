@@ -121,6 +121,62 @@ def main():
         text = f.read()
     check("文件含项目行", "- 项目: 司天" in text)
 
+    print("== 决策归属三种写法（2026-11-23）==")
+    # 真数据里 `项目` 同时存在 id / 中文名 / `全局` 三种写法，而每个消费点
+    # 原先都各写了一遍"字符串相等才算" → 写「全局」的决策对任何项目都不算数。
+    import tegula.core as _c
+    _alias = {"fangcun-base": "fangcun-base", "方寸": "fangcun-base",
+              "sitian": "sitian", "司天": "sitian"}
+    check("★★ 空归属算全局（老卡没写 项目 的那批）",
+          _c.decision_matches_project("", "fangcun-base", _alias) is True)
+    check("★★ 写「全局」的算全局（老口径把它当成某个叫全局的项目 → 谁都查不到）",
+          _c.decision_matches_project("全局", "fangcun-base", _alias) is True,
+          "这是 D-033/D-031/D-032 那批全局规矩进不了上下文包的真因")
+    check("★★ 写中文名的能按 id 查到（`方寸` → fangcun-base）",
+          _c.decision_matches_project("方寸", "fangcun-base", _alias) is True)
+    check("★ 写 id 的照旧能查到", _c.decision_matches_project("fangcun-base", "fangcun-base", _alias) is True)
+    check("★★ 别的项目的决策不许串味（sitian 的不能算给 fangcun-base）",
+          _c.decision_matches_project("sitian", "fangcun-base", _alias) is False)
+    check("★★ 认不出的归属对谁都不算数（不猜）",
+          _c.decision_matches_project("龙猫", "fangcun-base", _alias) is False)
+    check("★ alias 为 None 时按原样比 id（注册表读不到时不许把决策全部判死）",
+          _c.decision_matches_project("fangcun-base", "fangcun-base", None) is True)
+    check("★ 空 project_id 一律 False（哪条都不属于「没有项目」）",
+          _c.decision_matches_project("全局", "", _alias) is False)
+    check("★ 写入归一**不把空串改成「全局」**（空=没说，全局=对所有项目算数）",
+          _c.normalize_decision_project_for_write("", _alias) == "")
+    check("★ 写入归一能认中文名（给迁移脚本用）",
+          _c.normalize_decision_project_for_write("方寸", _alias) == "fangcun-base")
+
+    print("== 生效范围 / 落地 两个字段（2026-11-23）==")
+    # 问卷落卡一直把 ` 生效范围：本卷` 拼在**内容标题**里（真台账 102/155 条），
+    # 于是"这条管到哪儿"长在正文里，比对/去重/喂料都得各自再剥一遍。
+    ok, d7 = core.decision_add("范围在内容里的老写法 生效范围：本卷", 日期="2026-11-23",
+                               项目="fangcun-base", 出处="测试")
+    check("add 收下了范围拼在内容里的写法", ok, str(d7))
+    _it = [i for i in core.load_decisions() if i["id"] == d7][0]
+    check("★★ 范围被摘成独立字段", _it.get("生效范围") == "本卷", repr(_it.get("生效范围")))
+    check("★★ 内容里不再残留范围尾巴", "生效范围" not in _it.get("内容", ""), repr(_it.get("内容")))
+    check("★ 内容本体没被摘坏", _it.get("内容") == "范围在内容里的老写法", repr(_it.get("内容")))
+    ok, d8 = core.decision_add("带落地字段的一条", 日期="2026-11-23",
+                               项目="fangcun-base", 落地="task-20261123-001")
+    _it8 = [i for i in core.load_decisions() if i["id"] == d8][0]
+    check("★ 落地字段能落盘", _it8.get("落地") == "task-20261123-001", repr(_it8.get("落地")))
+    ok, d9 = core.decision_add("没给落地字段的一条", 日期="2026-11-23", 项目="fangcun-base")
+    _it9 = [i for i in core.load_decisions() if i["id"] == d9][0]
+    check("★★ 没给落地就是空串，**不许**补默认值（补了就等于谎称核过账）",
+          _it9.get("落地") == "", repr(_it9.get("落地")))
+    # round-trip：写盘后新字段还在（读回来不能丢）
+    _rt = {i["id"]: i for i in core.load_decisions()}
+    check("★★ 写盘 round-trip 后 生效范围 不丢", _rt[d7].get("生效范围") == "本卷")
+    check("★★ 写盘 round-trip 后 落地 不丢", _rt[d8].get("落地") == "task-20261123-001")
+    with open(core.DECISIONS_PATH, encoding="utf-8") as f:
+        _txt2 = f.read()
+    check("★ 文件里确实写了 `- 生效范围:` 行", "- 生效范围: 本卷" in _txt2)
+    check("★ 文件里确实写了 `- 落地:` 行", "- 落地: task-20261123-001" in _txt2)
+    check("★ 没落地的那条**不**在文件里造空落地行",
+          _txt2.count("- 落地:") == sum(1 for i in _rt.values() if i.get("落地")))
+
     print("== 两侧一致：TS 与 Python 的枚举/别名表逐字相同 ==")
     ts_path = os.path.join(HERE, "desktop", "src", "main", "data", "decisions.ts")
     try:
@@ -142,6 +198,33 @@ def main():
         check("  别名表恰好把三个老值映射到三个新值",
               set(ts_alias.values()) == set(core.DECISION_STATUSES) and len(ts_alias) == 3,
               str(ts_alias))
+        # ⚠ 这一条比状态枚举更要紧：一侧写出 `- 生效范围:` 行而另一侧不认这个键，
+        #   那行就会被当成"续行"拼回上一字段，**下次写盘就把数据写坏**（静默、无报错）。
+        # 取法：逐行找 `const kv = /^-\s+(键|键|…)\s*…` 那一行，再抠出括号里的键表。
+        # （不写成一个大正则 —— 转义层数一多就会静默匹配空，那是"断言恒绿"的经典死法）
+        ts_keys = []
+        for _ln in ts_src.splitlines():
+            if "const kv =" in _ln and "日期|状态" in _ln:
+                _m = re.search(r"\(([^)]+)\)", _ln)
+                if _m:
+                    ts_keys = [k.strip() for k in _m.group(1).split("|")]
+                break
+        py_keys = ["日期", "状态", "项目", "出处", "备注", "更新", "生效范围", "落地"]
+        check("★★ TS 解析认的键 与 Python 解析认的键 逐字一致（少一个就会把字段写成续行）",
+              ts_keys == py_keys,
+              f"ts={ts_keys} py={py_keys}")
+        check("★ 两个新字段（生效范围 / 落地）两侧都在",
+              "生效范围" in ts_keys and "落地" in ts_keys)
+
+        # 范围摘取函数两侧同名同义
+        m4 = re.search(r"const RE_SCOPE_TAIL = /([^/]+)/", ts_src)
+        check("★★ TS 侧有范围摘取正则（与 Python _RE_SCOPE_TAIL 同口径）",
+              bool(m4), "找不到 RE_SCOPE_TAIL")
+        check("★ Python 侧有同名正则", hasattr(core, "_RE_SCOPE_TAIL"))
+        # 两侧正则源码必须一致（否则"某一边能摘、另一边摘不掉"）
+        check("★★ 范围正则两侧源码逐字一致",
+              bool(m4) and m4.group(1) == core._RE_SCOPE_TAIL.pattern,
+              f"ts={m4.group(1) if m4 else ''} py={core._RE_SCOPE_TAIL.pattern}")
 
     print(f"\n通过 {PASS} / 失败 {FAIL}")
     return 1 if FAIL else 0

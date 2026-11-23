@@ -90,11 +90,12 @@ def parse_decisions(text):
             if cur:
                 rows.append(cur)
             cur = {'id': h.group(1), 'title': h.group(2).strip(),
-                   'date': '', 'status': '', 'project': '', 'source': '', 'note': ''}
+                   'date': '', 'status': '', 'project': '', 'source': '', 'note': '',
+                   'scope': '', 'landed': ''}
             continue
         if cur is None:
             continue
-        kv = re.match(r'^-\s*(日期|状态|项目|出处|备注)\s*[:：]\s*(.*)$', line)
+        kv = re.match(r'^-\s*(日期|状态|项目|出处|备注|生效范围|落地)\s*[:：]\s*(.*)$', line)
         if kv:
             k, v = kv.group(1), unquote(kv.group(2))
             if k == '日期':
@@ -107,6 +108,10 @@ def parse_decisions(text):
                 cur['source'] = v
             elif k == '备注':
                 cur['note'] = v
+            elif k == '生效范围':
+                cur['scope'] = v
+            elif k == '落地':
+                cur['landed'] = v
     if cur:
         rows.append(cur)
     return rows
@@ -178,10 +183,44 @@ def git_commits():
 
 
 def judge(dec, cards, commits):
-    """一条决策 → landed / orphan / no_ref
+    """一条决策 → landed / orphan / no_ref / declared
 
-    只看它**点名**的实体，不做模糊匹配。
+    两个判据并存（2026-11-23 起）：
+      ① **结构化判据**：决策卡有 `落地:` 字段（`task-xxx` / `commit:xxx` / `不做(理由)`）。
+         有它就按它判 —— 这是唯一能"一秒算完"的口径。
+      ② **文本判据（老口径，保留）**：正文里写了卡号/提交号就核对它存不存在。
+
+    ⚠ 为什么留两套：`落地` 字段是 2026-11-23 才加的，存量 145 条一条都没有。
+       只按 ① 判的话，存量全部落进"没声明"，那份报告毫无信息量。
+       两套并列才能既说清存量现状，又让新写的决策可核。
+
+    ⚠ `落地: 不做(理由)` 是**合法结局**，不是 orphan。
+       "定过但不做"与"说做了却找不到"是两件事，混在一起会把诚实记录判成撒谎。
     """
+    declared = dec.get('landed') or ''
+    if declared:
+        kind, payload = split_declared(declared)
+        if kind == 'skip':
+            return {'verdict': 'declared_skip', 'cards': [], 'cards_found': [],
+                    'commits': [], 'commits_found': [], 'declared': declared,
+                    'why': '声明为「不做」：%s' % (payload or '未写理由')}
+        if kind == 'card':
+            ids = RE_CARD.findall(payload)
+            found = [c for c in ids if c in cards]
+            if ids and len(found) == len(ids):
+                return {'verdict': 'landed', 'cards': ids, 'cards_found': found,
+                        'commits': [], 'commits_found': [], 'declared': declared,
+                        'why': '落地字段点名的卡都存在'}
+            return {'verdict': 'orphan', 'cards': ids, 'cards_found': found,
+                    'commits': [], 'commits_found': [], 'declared': declared,
+                    'why': '落地字段点名的卡找不到'}
+        if kind == 'commit':
+            return judge_commits(payload, commits, declared)
+        # 认不出格式 → 如实说"声明了但没法核"，不许算 landed
+        return {'verdict': 'orphan', 'cards': [], 'cards_found': [],
+                'commits': [], 'commits_found': [], 'declared': declared,
+                'why': '落地字段写法认不出（只认 task-xxx / commit:xxx / 不做(理由)）'}
+
     blob = ' '.join([dec.get('title', ''), dec.get('note', ''), dec.get('source', '')])
     card_ids = sorted(set(RE_CARD.findall(blob)))
     # 提交号：排除掉卡 id 里那串数字（task-20261015-001 → 不会误判成 hex）
@@ -190,25 +229,102 @@ def judge(dec, cards, commits):
 
     if not card_ids and not commit_ids:
         return {'verdict': 'no_ref', 'cards': [], 'cards_found': [],
-                'commits': [], 'commits_found': [], 'why': '正文里没有可核对的编号'}
+                'commits': [], 'commits_found': [], 'declared': '',
+                'why': '正文里没有可核对的编号，也没有 `落地:` 字段'}
 
     cards_found = [c for c in card_ids if c in cards]
     commits_found = [c for c in commit_ids if any(c.startswith(h) or h.startswith(c) for h in commits)]
 
     if cards_found or commits_found:
         return {'verdict': 'landed', 'cards': card_ids, 'cards_found': cards_found,
-                'commits': commit_ids, 'commits_found': commits_found,
+                'commits': commit_ids, 'commits_found': commits_found, 'declared': '',
                 'why': '点名的东西真实存在'}
     return {'verdict': 'orphan', 'cards': card_ids, 'cards_found': [],
-            'commits': commit_ids, 'commits_found': [],
+            'commits': commit_ids, 'commits_found': [], 'declared': '',
             'why': '点名了 %d 个实体，一个都找不到' % (len(card_ids) + len(commit_ids))}
+
+
+def split_declared(raw):
+    """`落地:` 的写法 → (kind, payload)。kind ∈ card / commit / skip / unknown"""
+    s = str(raw or '').strip()
+    if not s:
+        return ('unknown', '')
+    low = s.lower()
+    if low.startswith('commit:'):
+        return ('commit', s[len('commit:'):].strip())
+    if low.startswith('task-'):
+        return ('card', s)
+    if s.startswith('不做'):
+        # `不做(理由)` / `不做：理由` / 光一个 `不做`
+        m = re.match(r'^不做\s*[（(](.*)[）)]\s*$', s) or re.match(r'^不做\s*[:：]\s*(.*)$', s)
+        return ('skip', m.group(1).strip() if m else '')
+    return ('unknown', s)
+
+
+def judge_commits(payload, commits, declared):
+    ids = RE_COMMIT.findall(payload)
+    found = [c for c in ids if any(c.startswith(h) or h.startswith(c) for h in commits)]
+    if ids and len(found) == len(ids):
+        return {'verdict': 'landed', 'cards': [], 'cards_found': [],
+                'commits': ids, 'commits_found': found, 'declared': declared,
+                'why': '落地字段点名的提交都存在'}
+    return {'verdict': 'orphan', 'cards': [], 'cards_found': [],
+            'commits': ids, 'commits_found': found, 'declared': declared,
+            'why': '落地字段点名的提交找不到（或那个值不是提交号）'}
+
+
+def unquote_decision_field(dec, key):
+    """从一条决策里取原始字段值（parse_decisions 没存的键，回原文再抠一次）。"""
+    return str(dec.get(key) or '').strip()
+
+
+def self_test():
+    """判据自证：`落地:` 七种写法的判定（2026-11-23 新增，跑 `--self-test`）。
+
+    为什么脚本自带自证：这套判定是本仓最容易"看起来在工作"的地方 ——
+    存量 145 条决策**一条都没有** `落地` 字段，主流程走到那个分支是 0 次。
+    没有自证的话，`declared` 那段代码可以整段写错而报告照样好看。
+    """
+    cards = {'task-20261123-001'}
+    commits = {'abc1234'}
+    cases = [
+        ('task-20261123-001', 'landed', '点名的卡真存在'),
+        ('task-20261123-999', 'orphan', '点名的卡不存在 → 必须红'),
+        ('commit:abc1234', 'landed', '点名的提交真存在'),
+        ('commit:deadbee', 'orphan', '点名的提交不存在 → 必须红'),
+        ('不做(已并入 D-165)', 'declared_skip', '「不做+理由」是合法结局，不是 orphan'),
+        ('不做', 'declared_skip', '光写「不做」也算声明（理由可以空）'),
+        ('随便写的', 'orphan', '写法认不出 → 不许当 landed'),
+        ('', 'no_ref', '空 = 没声明，落回文本判据'),
+    ]
+    bad = 0
+    for val, want, why in cases:
+        d = {'id': 'D-SELFTEST', 'title': '自证用', 'note': '', 'source': '', 'landed': val}
+        got = judge(d, cards, commits)['verdict']
+        ok = got == want
+        print(('  ok  ' if ok else '  FAIL') + f' {val!r} → {got}（期望 {want}）　{why}')
+        if not ok:
+            bad += 1
+    # 反例：把 `不做` 判成 orphan，就是"诚实记录被判成撒谎"
+    d = {'id': 'D-SELFTEST', 'title': 't', 'note': '', 'source': '', 'landed': '不做(原因)'}
+    r = judge(d, cards, commits)
+    if r['verdict'] != 'declared_skip':
+        bad += 1
+        print('  FAIL 「不做」被误判成', r['verdict'])
+    return bad
 
 
 def main():
     ap = argparse.ArgumentParser(description='对账 (a)：决策 ↔ 它引用的卡/提交（只读，不调模型）')
     ap.add_argument('--json', action='store_true')
     ap.add_argument('--check', action='store_true', help='只打印计数（供守卫断言）')
+    ap.add_argument('--self-test', action='store_true', help='只跑判据自证（不读真数据）')
     a = ap.parse_args()
+
+    if a.self_test:
+        bad = self_test()
+        print(f'\n自证：{8 + 1 - bad} / 9 通过')
+        return 1 if bad else 0
 
     rows = parse_decisions(read(DECISIONS))
     cards = build_card_index()

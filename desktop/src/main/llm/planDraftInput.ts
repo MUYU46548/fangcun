@@ -20,6 +20,7 @@ import { getPolicy } from '../services/policies'
 import { readProjectDocs } from '../services/repoDocs'
 import { extractMirror } from '../../shared/planMirror'
 import { isUnjudged } from '../../shared/coreVerdict'
+import { buildProjectAlias, decisionMatchesProject } from '../../shared/decisionScope'
 import type { PlanDraftInput, DraftTaskRef, DraftDecisionRef, PlanDraftRepoDocs } from './planDraft'
 
 export interface BuildInputOptions {
@@ -167,9 +168,19 @@ function decisionRecencyKey(d: { id?: string; 日期?: string }): string {
 
 function allEffectiveDecisions(project: string): { id: string; 内容: string; 日期: string; 出处: string; 备注: string }[] {
   try {
+    // ⚠ 2026-11-23：归属判定换成 decisionMatchesProject（与 contextPack 同一份实现）。
+    //   老写法 `!项目 || 项目 === project` 会让写「全局」的与写中文名的决策一条都进不来 ——
+    //   对一个**规划器**来说这更致命：它会照着"没有全局约束"去做计划，
+    //   而 D-031（数据零外部依赖）/ D-032（交付三铁律）恰好都是全局卡。
+    let alias: Map<string, string> | undefined
+    try {
+      alias = buildProjectAlias(parseRegistry(true) as { id: string; name?: string }[])
+    } catch {
+      alias = undefined
+    }
     return loadDecisions()
       .filter((d) => String(d.状态 || '') === '有效'
-        && (!String(d.项目 || '').trim() || String(d.项目) === project))
+        && decisionMatchesProject((d as any).项目, project, alias))
       .sort((a, b) => decisionRecencyKey(b).localeCompare(decisionRecencyKey(a)))
       .map((d) => ({
         id: d.id, 内容: d.内容, 日期: d.日期, 出处: d.出处, 备注: d.备注,
