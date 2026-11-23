@@ -22,6 +22,8 @@ registry.yaml.bak
 registry.yaml
 task-data/
 backups/
+# 派单队列 / 审计（2026-11-21）：方寸写、插件消费的本机使用数据，与 task-data/ 同类，不入库
+.dispatch-dsh/
 # 改前快照目录（registry 滚动备份 + 单卡快照）：与 backups/ 同类，属本机数据不入库。
 # 2026-10-06 补：此前没写，`git status` 里一直挂着 `?? .backup/`。
 .backup/
@@ -113,3 +115,10 @@ scripts/clean-release-dirs.ps1
 # 许可协议同意记录（2026-11-18）：每个数据根一份，不随仓库走
 license_ack.json
 config/license_ack.json
+
+# 测试临时目录（2026-11-22 · 卡 task-20261106-002）：从 %TEMP% 挪到仓库同盘，
+# 避免 Windows 句柄延迟删不掉时持续撑 C 盘。只含测试产物，不入库。
+.test-tmp/
+
+# 架构图生成的上次结果（运行期产物，2026-11-23）：每次生成都会写，不入库。
+arch-last.json
