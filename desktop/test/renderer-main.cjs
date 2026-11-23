@@ -267,8 +267,79 @@ async function dispatchClickOnlySection(shot) {
     secondClick && after === 1, 'calls=' + after)
 }
 
-async function main() {
-  console.log('== 渲染层真实点击 e2e ==')
+/**
+ * 派单总闸「默认关」的**真点击**验收（2026-11-21 · 卡 `…闸要下在-e4264e6c`）。
+ *
+ * 为什么必须单独一段：主进程模块测试能证明"写不出文件"，但用户看到的判据是
+ * **按钮有没有置灰、有没有写明为什么**。这一段的假 preload 用
+ * `FC_E2E_DISPATCH_OFF=1` 返回 `enabled:false`，与全新安装同形。
+ */
+async function dispatchOffSection() {
+  // ① 项目页：两个派单按钮都得置灰 + 写明"未启用"，且点了也不发
+  await js(`(() => { const b = [...document.querySelectorAll('nav#views .vbtn')].find(x => x.textContent.trim() === '项目'); if (b) b.click(); return !!b })()`)
+  await sleep(800)
+  await js(`(() => { const b = [...document.querySelectorAll('.vsb')].find(x => (x.textContent || '').indexOf('项目墙') >= 0); if (b) b.click(); return !!b })()`)
+  await sleep(400)
+  const opened = await js(`(() => { const t = document.querySelector('.pvgrid .tile'); if (!t) return false; t.click(); return true })()`)
+  check('★ 默认关 · 能打开项目详情（否则下面两条是空转）', opened)
+  await waitFor(`[...document.querySelectorAll('.oacts button')].some(b => (b.textContent || '').indexOf('未启用 DSH 派单') >= 0)`,
+    5000, '未启用 DSH 派单 按钮')
+  const btns = await js(`JSON.stringify([...document.querySelectorAll('.oacts button')]
+    .filter(b => /未启用 DSH 派单/.test(b.textContent || ''))
+    .map(b => ({ text: (b.textContent || '').trim(), disabled: !!b.disabled, title: b.getAttribute('title') || '' })))`)
+  const list = JSON.parse(String(btns))
+  check('★★ 默认关 · 项目页两个派单按钮都写明「未启用 DSH 派单」（不是点了没反应）',
+    list.length >= 2, String(btns))
+  check('★★ 默认关 · 两个按钮真的 disabled', list.length >= 2 && list.every((x) => x.disabled === true), String(btns))
+  check('★ 默认关 · title 指向「设置 → Agent → DSH 派单」',
+    list.length >= 2 && list.every((x) => /设置 → Agent → DSH 派单/.test(x.title)), String(btns))
+  const calls0 = await js(`window.__fcTest.callCount('dispatchDsh')`)
+  check('★★ 默认关 · 点按钮也发不出派单（通道调用数 0）', calls0 === 0, 'calls=' + calls0)
+
+  // ② 日志页：同一个总闸，不许留第二条路
+  await js(`(() => { const b = [...document.querySelectorAll('nav#views .vbtn')].find(x => x.textContent.trim() === '日志'); if (b) b.click(); return !!b })()`)
+  await sleep(700)
+  const logBtn = await js(`JSON.stringify((() => {
+    const b = document.querySelector('.log-dsh-btn')
+    return b ? { text: (b.textContent || '').trim(), disabled: !!b.disabled, title: b.getAttribute('title') || '' } : null
+  })())`)
+  const lb = JSON.parse(String(logBtn))
+  check('★★ 默认关 · 日志页「发送给 DSH」同样禁用并写明原因',
+    !!lb && lb.disabled === true && /未启用 DSH 派单/.test(lb.text) && /设置 → Agent → DSH 派单/.test(lb.title),
+    String(logBtn))
+
+  // ③ 设置页：四项可见，默认不勾；保存真走通道
+  await js(`(() => { const b = [...document.querySelectorAll('button')].find(x => (x.textContent || '').trim() === '⚙'); if (b) b.click(); return !!b })()`)
+  const modal = await waitFor(`!!document.querySelector('#smodal')`, 4000, '设置弹窗')
+  check('★ 默认关 · 设置弹窗能打开', modal)
+  await js(`(() => { const b = [...document.querySelectorAll('.settings-nav-btn')].find(x => (x.textContent || '').indexOf('通用') >= 0); if (b) b.click(); return !!b })()`)
+  await sleep(400)
+  const info = await js(`JSON.stringify((() => {
+    const sect = [...document.querySelectorAll('.sect')].find(s => ((s.querySelector('h4') || {}).textContent || '').trim() === 'DSH 派单（花费会话）')
+    if (!sect) return null
+    const chk = sect.querySelector('label.chk input[type="checkbox"]')
+    const nums = sect.querySelectorAll('input[type="number"]')
+    return { chk: chk ? chk.checked : null, nums: [...nums].map(n => n.value) }
+  })())`)
+  const ii = JSON.parse(String(info))
+  check('★★ 默认关 · 设置页四项在（启用未勾 / 冷却 30 / 日上限 3 / 在途 1）',
+    !!ii && ii.chk === false && ii.nums.length === 3
+    && ii.nums[0] === '30' && ii.nums[1] === '3' && ii.nums[2] === '1', String(info))
+  const clickedSave = await js(`(() => {
+    const sect = [...document.querySelectorAll('.sect')].find(s => ((s.querySelector('h4') || {}).textContent || '').trim() === 'DSH 派单（花费会话）')
+    if (!sect) return false
+    const b = [...sect.querySelectorAll('button')].find(x => /保存派单设置/.test(x.textContent || ''))
+    if (!b) return false
+    b.click(); return true
+  })()`)
+  const wrote = await waitFor(`window.__fcTest.callCount('dispatchSettingsSet') === 1`, 4000, '保存派单设置')
+  check('★★ 默认关 · 设置页「保存派单设置」真走 dispatchSettingsSet', clickedSave && wrote)
+  // 关掉设置，别影响后面的段
+  await js(`(() => { const b = [...document.querySelectorAll('#smodal button')].find(x => (x.textContent || '').trim() === '关闭'); if (b) b.click(); return !!b })()`)
+  await sleep(200)
+}
+
+async function main() {  console.log('== 渲染层真实点击 e2e ==')
   console.log('index:', INDEX)
 
   // 反例自证桩（2026-11-19）：这一层最危险的退化不是"红"，是**跳过后还退出 0**。
@@ -340,6 +411,22 @@ async function main() {
     if (fail) {
       console.log('\n失败项：')
       for (const f of failures) console.log(' -', f)
+    }
+    const n = await js(`window.__fcClickCount || 0`)
+    console.log(`CLICKS ${n}`)
+    console.log(`RESULT ${pass} / ${fail}`)
+    app.exit(fail ? 1 : 0)
+    return
+  }
+
+  // `FC_E2E_ONLY=dispatch-off`：派单总闸「默认关」的真点击验收
+  // （给 scripts/test/e2e-dispatch-off-ui.cjs 用；假 preload 用 FC_E2E_DISPATCH_OFF=1）
+  if (process.env.FC_E2E_ONLY === 'dispatch-off') {
+    await dispatchOffSection()
+    console.log(`\n通过 ${pass} / 失败 ${fail}`)
+    if (fail) {
+      console.log('\n失败项：')
+      for (const f of failures) console.log(' - ' + f)
     }
     const n = await js(`window.__fcClickCount || 0`)
     console.log(`CLICKS ${n}`)

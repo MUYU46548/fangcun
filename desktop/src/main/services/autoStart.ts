@@ -13,6 +13,10 @@
  *   部分杀软会拦截/提示“程序试图添加开机启动”，需要用户在杀软里允许 —— UI 必须提前说。
  */
 import { app } from 'electron'
+import { AUTOSTART_ARG } from '../../shared/windowBoot'
+
+/** 自启时带这个参数：只进托盘，不弹主窗口（shared/windowBoot 是唯一真源） */
+export { AUTOSTART_ARG }
 
 export interface AutoStartStatus {
   ok: boolean
@@ -25,9 +29,6 @@ export interface AutoStartStatus {
 function isSupported(): boolean {
   return !!app.isPackaged
 }
-
-/** 自启时带这个参数：只进托盘，不弹主窗口（index.ts 用它决定 show） */
-export const AUTOSTART_ARG = '--autostart'
 
 export function getAutoStartStatus(): AutoStartStatus {
   if (!isSupported()) {

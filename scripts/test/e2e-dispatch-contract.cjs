@@ -32,12 +32,13 @@
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+const { mkTmp } = require('./_tmp.cjs')
 
 const REPO = path.resolve(__dirname, '..', '..')
 const DIST = path.join(REPO, 'desktop', 'dist', 'main')
 const PLUGIN = path.join(REPO, '..', 'dsh-fangcun', 'lib', 'dispatch.js')
 // 签名密钥落到临时文件，别碰真 userData（2026-11-20）
-const SECRET_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-dispatch-secret-'))
+const SECRET_DIR = mkTmp('fc-dispatch-secret-')
 process.env.FC_DISPATCH_SECRET_PATH = path.join(SECRET_DIR, 'dispatch-secret')
 
 let pass = 0, fail = 0
@@ -73,6 +74,42 @@ try {
 check('★ 方寸导出 DISPATCH_KINDS', Array.isArray(cp.DISPATCH_KINDS), JSON.stringify(cp.DISPATCH_KINDS))
 check('★ 方寸导出 normalizeDispatchKind', typeof cp.normalizeDispatchKind === 'function')
 
+// ── 2026-11-21：派单总闸的共享设置（跨语言真源）──────────────────────────
+// 两端读同一个 JSON 文件；默认值 / 文件名 / 四项键名必须逐字一致，
+// 否则"方寸以为关了、插件以为开着"这条病会换个地方复发。
+{
+  const gateMod = require(path.join(REPO, 'desktop', 'dist', 'shared', 'dispatchGate.js'))
+  const pluginText = String(plugin)
+  check('★★ 方寸默认设置：enabled=false（出厂不发车）',
+    gateMod.DISPATCH_SETTINGS_DEFAULTS.enabled === false)
+  const m = /DISPATCH_DEFAULTS\s*=\s*Object\.freeze\(\{([\s\S]*?)\}\)/.exec(pluginText)
+  check('★ 插件也能找到 DISPATCH_DEFAULTS（否则读的一方没有默认值）', !!m)
+  if (m) {
+    const get = (k) => {
+      const mm = new RegExp(k + '\\s*:\\s*([^,\\n]+)').exec(m[1])
+      return mm ? mm[1].trim() : ''
+    }
+    const pluginDefaults = {
+      enabled: get('enabled') === 'true',
+      cooldownSec: Number(get('cooldownSec')),
+      dailyCap: Number(get('dailyCap')),
+      concurrency: Number(get('concurrency')),
+    }
+    check('★★ 两边默认设置逐项一致（关 / 30 秒 / 3 / 1）',
+      JSON.stringify(pluginDefaults) === JSON.stringify(gateMod.DISPATCH_SETTINGS_DEFAULTS),
+      `方寸=${JSON.stringify(gateMod.DISPATCH_SETTINGS_DEFAULTS)} 插件=${JSON.stringify(pluginDefaults)}`)
+  }
+  const pluginFile = /DISPATCH_SETTINGS_FILENAME\s*=\s*['"]([^'"]+)['"]/.exec(pluginText)
+  check('★★ 共享设置文件名两边一致（同一个文件才是同一个开关）',
+    !!pluginFile && pluginFile[1] === gateMod.DISPATCH_SETTINGS_FILENAME,
+    `方寸=${gateMod.DISPATCH_SETTINGS_FILENAME} 插件=${pluginFile ? pluginFile[1] : '(没找到)'}`)
+  check('★★ 插件导出了唯一判据 checkDispatchGate（消费端不许各算各的）',
+    /export function checkDispatchGate/.test(pluginText))
+  const pluginIndex = fs.readFileSync(path.join(REPO, '..', 'dsh-fangcun', 'lib', 'index.js'), 'utf-8')
+  check('★★ 插件消费端默认关时整目录拒收（reason=disabled）',
+    /reject\(row,\s*'disabled'/.test(pluginIndex))
+}
+
 const feKinds = JSON.stringify(cp.DISPATCH_KINDS)
 const pluginKindsMatch = /DISPATCH_KINDS\s*=\s*\[([^\]]*)\]/.exec(String(plugin))
 check('★★ 插件也有 DISPATCH_KINDS（否则读的一方不认识这个字段）',
@@ -87,7 +124,7 @@ if (pluginKindsMatch) {
 // ── ③ 方寸真的把 kind 写进文件头（而不是只在返回值里提一下）──────────────
 {
   const data = require(path.join(DIST, 'data', 'index.js'))
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-dispatch-contract-'))
+  const tmp = mkTmp('fc-dispatch-contract-')
   // ⚠ `setDataDir` 会**校验**目标目录里已经有 registry.yaml 或 task-data —— 先造再设，
   //   反了就直接 throw（第一次就栽在这）。这不是"测试可以绕过"的检查，是数据根的真实前提。
   try {
@@ -116,6 +153,11 @@ if (pluginKindsMatch) {
       '',
     ].join('\n'), 'utf-8')
     data.setDataDir(tmp)
+    // 2026-11-21：派单总闸**默认关**。派单契约测试要先显式打开（否则下面全是"被拒"）。
+    // 这三项是这张测试自己的量程：10 秒冷却、日上限不限、在途 10（不是产品默认值）。
+    require(path.join(DIST, 'services', 'dispatchConfig.js')).writeDispatchSettings({
+      enabled: true, cooldownSec: 10, dailyCap: 0, concurrency: 10,
+    })
   } catch (e) {
     check('★★ 能建出一个可用的临时数据根', false, String(e && e.message || e))
   }
@@ -125,8 +167,8 @@ if (pluginKindsMatch) {
     const r = cp.dispatchToDsh('fc-dispatch-demo-a', 'plan', T0)
     check('★ plan 派单写得出来', !!r && r.ok === true, JSON.stringify(r))
     check('★ 返回值里 kind=plan', r && r.kind === 'plan', String(r && r.kind))
-    check('★ 成功时回传冷却时长（renderer 照它显示，不自己写死）',
-      r && r.cooldownMs === cp.DISPATCH_COOLDOWN_MS, String(r && r.cooldownMs))
+    check('★ 成功时回传冷却时长（= 共享设置里的秒数 × 1000，renderer 照它显示）',
+      r && r.cooldownMs === 10_000, String(r && r.cooldownMs))
 
     if (r && r.ok && r.path && fs.existsSync(r.path)) {
       const txt = fs.readFileSync(r.path, 'utf-8')
@@ -173,14 +215,14 @@ if (pluginKindsMatch) {
     check('★★ 认不出的 kind 回落 work（不许静默变成 plan）',
       r3 && r3.kind === 'work', String(r3 && r3.kind))
 
-    // ── ④ 冷却闸（2026-11-20）──────────────────────────────────────────
-    check('★ 冷却时长是 10 秒（暮雨口径）', cp.DISPATCH_COOLDOWN_MS === 10_000,
-      String(cp.DISPATCH_COOLDOWN_MS))
+    // ── ④ 冷却闸（2026-11-20；2026-11-21 改为共享设置驱动）────────────────
+    check('★ 默认冷却时长是 30 秒（出厂设置；本测试把共享设置改成了 10 秒）',
+      cp.DISPATCH_COOLDOWN_MS === 30_000, String(cp.DISPATCH_COOLDOWN_MS))
     const r4 = cp.dispatchToDsh('fc-dispatch-demo-a', 'plan', T0 + 1_000)
     check('★★ 同一项目 10 秒内再派 → 被拒（不是只靠界面禁用）',
       r4 && r4.ok === false && r4.cooling === true, JSON.stringify(r4))
     check('★ 拒绝时带 leftMs（renderer 拿它起倒计时）',
-      r4 && r4.leftMs > 0 && r4.leftMs <= cp.DISPATCH_COOLDOWN_MS, String(r4 && r4.leftMs))
+      r4 && r4.leftMs > 0 && r4.leftMs <= 10_000, String(r4 && r4.leftMs))
     check('★ 冷却按项目算：另一个项目同一时刻照常能派（上一步 r2 已成功）',
       r2 && r2.ok === true)
     check('★ 纯函数口径：t+10s 之后可派（不用真等 10 秒）',

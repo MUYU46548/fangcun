@@ -25,9 +25,13 @@ const { spawn } = require('child_process')
 
 // 所有临时 profile 都登记在这张表里（2026-11-05）：watchdog 用 process.exit() 直接终止进程时，
 // 下层函数的 finally 根本不会执行 —— 只有 'exit' 钩子能把它们带走，否则又是一份 482MB 漏在 Temp。
+// 2026-11-22：profile 不再放 C 盘（%TEMP%），改放仓库同盘的 `.test-tmp/` ——
+// 浏览器退出后句柄释放有延迟，exit 钩子删不掉时至少不撑 C 盘；下次跑测试由 sweep 清。
+const TMP_BASE = path.join(path.resolve(__dirname, '..', '..'), '.test-tmp')
+fs.mkdirSync(TMP_BASE, { recursive: true })
 const PROFILES = new Set()
 function mkProfile(prefix) {
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+  const d = fs.mkdtempSync(path.join(TMP_BASE, prefix))
   PROFILES.add(d)
   return d
 }

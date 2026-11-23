@@ -19,6 +19,7 @@ import { startIdleReminder, stopIdleReminder } from './main/services/idleReminde
 import { syncSelfRepoOnBoot } from './main/services/selfSync'
 import { autoCheckSkills } from './main/services/skillInstaller'
 import { installLogAutoClose } from './main/services/logAutoClose'
+import { planWindowBoot } from './shared/windowBoot'
 import * as appLog from './main/services/appLog'
 
 // ── 入口分流的说明（2026-10-18）──────────────────────────────────────────
@@ -144,8 +145,10 @@ if (!gotLock) {
   })
 }
 
-/** 渲染层 e2e 用：隐藏窗口跑，避免测试时窗口在屏幕上闪 */
-const hidden = process.env.FC_E2E_RENDERER === '1' || process.argv.includes('--autostart')
+// 启动时窗口怎么显示：开机自启（--autostart）与渲染层 e2e 只进托盘/隐藏跑，
+// 且**启动阶段一次显示动作都不做**（maximize() 会把隐藏窗口显示出来，2026-11-22 事故）。
+const bootPlan = planWindowBoot(process.argv, process.env)
+const hidden = bootPlan.hidden
 
 /**
  * 这个 URL 是不是方寸自己那份页面（dev 走 vite，打包走 renderer/index.html）。
@@ -254,8 +257,18 @@ function createWindow(): void {
     appLog.warn('boot', '主进程自证失败', (e as Error).message)
   }
 
-  // 24 寸显示器默认最大化
-  mainWindow.maximize()
+  // 24 寸显示器默认最大化。
+  // ⚠ 2026-11-22：隐藏启动（--autostart）时**不能**在这里调 maximize() ——
+  // Electron 文档明写它会“show (but not focus) the window if it isn't being displayed”，
+  // 于是“只进托盘”变成“一解锁就弹出整个看板盖住桌面”。
+  // 隐藏启动改成用户第一次真正叫出窗口时再补最大化（托盘点击 / 任务栏激活都走 show）。
+  if (bootPlan.maximizeNow) {
+    mainWindow.maximize()
+  } else if (bootPlan.maximizeOnFirstShow) {
+    mainWindow.once('show', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.maximize()
+    })
+  }
 
   if (isDev) {
     // 显式 IPv4：vite 5 的默认 host 'localhost' 在部分环境只绑 [::1]，

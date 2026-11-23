@@ -452,6 +452,27 @@
         if (navAgent) {
           navAgent.click()
           await sleep(500)
+          // 2026-11-21（卡 2bd6106a · 暮雨：“设置藏太深了，找了超过五分钟……
+          //   既然拍给 DSH 和 Agent 高度相关，居然藏在通用而不是 Agent 里”）：
+          // DSH 派单四项 + 花钱动作前确认必须出现在 Agent 分类，通用里不许再有。
+          const visibleSectHeads = () => $$('#smodal .sect')
+            .filter((x) => x.offsetParent !== null)
+            .map((x) => ((x.querySelector('h4') || {}).textContent || '').trim())
+          const heads = visibleSectHeads()
+          check('★★ Agent 分类里有「DSH 派单（花费会话）」（不再藏在通用）',
+            heads.some((h) => h.indexOf('DSH 派单') >= 0), heads.join(' | '))
+          check('★★ Agent 分类里有「花钱动作前确认」', heads.some((h) => h.indexOf('花钱动作前确认') >= 0), heads.join(' | '))
+          const navGeneral = $$('#smodal .settings-nav-btn').find((b) => (b.textContent || '').indexOf('通用') >= 0)
+          if (navGeneral) {
+            navGeneral.click()
+            await sleep(450)
+            const genHeads = visibleSectHeads()
+            check('★★ 通用分类下不再出现这两块（只搬位置，不做两份开关）',
+              !genHeads.some((h) => h.indexOf('DSH 派单') >= 0 || h.indexOf('花钱动作前确认') >= 0),
+              genHeads.join(' | '))
+            navAgent.click()
+            await sleep(450)
+          }
           const sect = $$('#smodal .sect').find((x) => {
             const h = x.querySelector('h4')
             return x.offsetParent !== null && h && (h.textContent || '').indexOf('模型单价') >= 0
@@ -4071,11 +4092,53 @@
           && /先做 A，再做 B/.test(msg) && /服务起不来/.test(msg) && /把日志发给 DSH 的测试/.test(msg),
         msg.slice(0, 160))
     }
+    // 2026-11-21（卡 b71e7c6b）：日志页此前没有冷却反馈 —— 点完没有倒计时，
+    // 用户以为没生效还会再点。现在与项目页共用同一套「冷却中 Ns」+ disabled。
+    {
+      const cool = await waitFor(() => {
+        const card = $('.log-card[data-log-id="log-dsh-1"]')
+        const b = card && card.querySelector('.log-dsh-btn')
+        return !!b && /冷却中\s*\d+s/.test(b.textContent || '') && b.disabled === true
+      }, 3000, '日志页冷却倒计时')
+      check('★★ 日志页点一次 → 按钮立刻「冷却中 Ns」且禁用（不是点了没反应）', cool,
+        (() => {
+          const card = $('.log-card[data-log-id="log-dsh-1"]')
+          const b = card && card.querySelector('.log-dsh-btn')
+          return b ? (b.textContent || '').trim() + ' / disabled=' + b.disabled : 'no button'
+        })())
+      const n0 = window.__fcTest.callCount('dispatchMessageDsh')
+      const again = $('.log-card[data-log-id="log-dsh-1"] .log-dsh-btn')
+      if (again) again.click()
+      await sleep(350)
+      check('★★ 冷却内再点日志页按钮 → 不发第二单',
+        window.__fcTest.callCount('dispatchMessageDsh') === n0,
+        `before=${n0} after=${window.__fcTest.callCount('dispatchMessageDsh')}`)
+    }
     const logNoprojCard = $('.log-card[data-log-id="log-dsh-noproj"]')
     const logNoprojBtn = logNoprojCard && logNoprojCard.querySelector('.log-dsh-btn')
     check('★★ 没项目的日志：按钮禁用，并说明先选项目（不许瞎猜一个项目发出去）',
       !!logNoprojBtn && logNoprojBtn.disabled === true,
       logNoprojBtn ? 'disabled=' + logNoprojBtn.disabled + ' title=' + logNoprojBtn.title : 'no button')
+    // 2026-11-21（卡 30980018 · 暮雨：「光标放上去是点击，即白色手……明明项目里面是箭头」）：
+    // 日志卡整张 `cursor:pointer`，而 Button 基座曾是 `disabled:pointer-events-none` ——
+    // 指针穿过置灰按钮落到卡上，于是"点不动"却显示白手。判据不是"class 里写了 default"，
+    // 而是**真指针位置**：elementFromPoint 必须命中按钮自己，且它的计算 cursor = default。
+    {
+      const b = logNoprojBtn
+      if (b) { b.scrollIntoView({ block: 'center' }); await sleep(300) }
+      const cs = b ? getComputedStyle(b) : null
+      // 判据用**计算样式**而不是 elementFromPoint：日志页顶部有 sticky 的每日推进面，
+      // 几何取点会被它盖住（实测命中 .db-line），那是另一件事，不该让这条断言假红。
+      // 真正的病根就是这个属性：pointer-events:none 让按钮不参与命中，指针落到
+      // 下面那张 cursor:pointer 的日志卡上 → 白手。
+      check('★★ 置灰按钮参与指针命中（pointer-events 不是 none —— 否则指针穿到卡上）',
+        !!cs && cs.pointerEvents !== 'none', cs ? 'pointer-events=' + cs.pointerEvents : 'no button')
+      check('★★ 不可点按钮的计算 cursor = default（白手会让人以为能点）',
+        !!cs && cs.cursor === 'default', cs ? 'cursor=' + cs.cursor : 'no button')
+      check('  对照：日志卡本身仍可点（cursor = pointer）—— 修的是按钮，不是把卡弄死',
+        !!logNoprojCard && getComputedStyle(logNoprojCard).cursor === 'pointer',
+        logNoprojCard ? getComputedStyle(logNoprojCard).cursor : 'no card')
+    }
 
     // ══ 日志卡面上的关联任务：长的一条日志要能看见**全部**（2026-11-13 卡 2b1e3d59）══
     // 病根：卡面只渲染 `log.taskId`，而它恒等于 `taskIds[0]`（logs.ts:285）→
@@ -7077,16 +7140,95 @@
     //   而不是等别人替它把状态摆好（依赖副作用 = 别人一改就假红）。
     clickNav('通用')
     await sleep(300)
-    const GENERAL_SECTS = ['版本与更新', '启动', '花钱动作前确认', '外观主题', '外观形态', '念头长度上限', '顶栏页签', '记忆']
+    // 2026-11-21（卡 2bd6106a）：DSH 派单 / 花钱确认已搬进 Agent 分类 ——
+    // 它们决定 agent 会不会被开、会不会花钱，不是"通用"。
+    const GENERAL_SECTS = ['版本与更新', '启动', '外观主题', '外观形态', '念头长度上限', '顶栏页签', '记忆']
     check('★ 默认停在第 1 类“通用”：右侧只渲染该分类的小节（不再全挤在一起）',
       sectTitles().length === GENERAL_SECTS.length
       && GENERAL_SECTS.every((t, i) => sectTitles()[i] === t),
       JSON.stringify(sectTitles()))
+
+    // 2026-11-22 · 主题按明暗分两排（用户：「亮暗两排，方寸也可以做」）——
+    // 方寸现在只有浅色主题，暗色排必须**如实写还没做**，不许摆一排空圈冒充"已分组"。
+    {
+      const titles = $$('#smodal .theme-group-title').map((t) => (t.textContent || '').trim())
+      check('★★ 外观主题分「亮色主题 / 暗色主题」两排，各带文字标题（不再只看颜色圆圈）',
+        titles.length === 2 && titles[0] === '亮色主题' && titles[1] === '暗色主题',
+        JSON.stringify(titles))
+      const sw = $$('#smodal .theme-swatch')
+      check('★ 亮色排就是现有 6 套主题（一套不少、没混进暗色）', sw.length === 6, String(sw.length))
+      const empty = $$('#smodal .theme-group-empty')[0]
+      check('★ 暗色排如实标“还没做”（不摆空圈）',
+        !!empty && /还没做/.test(empty.textContent || ''),
+        empty ? (empty.textContent || '').slice(0, 70) : 'none')
+      const pink = sw.find((b) => (b.textContent || '').indexOf('黛粉') >= 0)
+      check('★ 亮色排里能找到“黛粉”', !!pink)
+      if (pink) {
+        pink.click()
+        await sleep(220)
+        check('★★ 点主题真切到 html[data-theme=pink]（不是只亮一下选中态）',
+          document.documentElement.getAttribute('data-theme') === 'pink',
+          String(document.documentElement.getAttribute('data-theme')))
+        check('★ 选中态跟着变（.theme-swatch.on 是黛粉）',
+          $$('#smodal .theme-swatch.on').some((b) => (b.textContent || '').indexOf('黛粉') >= 0),
+          $$('#smodal .theme-swatch.on').map((b) => (b.textContent || '').trim()).join('|'))
+        // 复原默认主题，别把后面的视觉断言留在粉色下
+        const def = sw.find((b) => (b.textContent || '').indexOf('雾灰紫') >= 0)
+        if (def) { def.click(); await sleep(150) }
+      }
+    }
+    // DSH 派单与花钱确认都在 Agent 分类（用户报过：找了五分钟才找到）。
+    clickNav('Agent')
+    await sleep(350)
+    // DSH 派单（2026-11-21 · 卡 `…闸要下在-e4264e6c`）：四项可见可改，保存真走 IPC。
+    // 默认关的产品行为由 `scripts/test/e2e-dispatch-gate.cjs` 钉住；这里钉“界面接线”。
+    {
+      const sect = Array.from(document.querySelectorAll('.sect'))
+        .find((s) => ((s.querySelector('h4') || {}).textContent || '').trim() === 'DSH 派单（花费会话）')
+      check('★★ 设置 → Agent 有「DSH 派单」小节（用户报过：设置页里根本找不到 DSH 调用限制）', !!sect)
+      if (sect) {
+        const chk = sect.querySelector('label.chk input[type="checkbox"]')
+        const nums = sect.querySelectorAll('input[type="number"]')
+        check('★★ 四项都在：启用 + 冷却秒数 + 日上限 + 在途',
+          !!chk && nums.length === 3,
+          'checkbox=' + !!chk + ' numbers=' + nums.length)
+        const saveBtn = Array.from(sect.querySelectorAll('button'))
+          .find((b) => /保存派单设置/.test(b.textContent || ''))
+        check('★ 有「保存派单设置」按钮', !!saveBtn)
+        if (saveBtn && nums.length >= 3) {
+          nums[0].value = '45'
+          nums[0].dispatchEvent(new Event('input', { bubbles: true }))
+          saveBtn.click()
+          await waitFor(() => window.__fcTest.calls().filter((c) => c.name === 'dispatchSettingsSet').length > 0, 3000, 'dispatchSettingsSet')
+          const calls = window.__fcTest.calls().filter((c) => c.name === 'dispatchSettingsSet')
+          const last = calls.length ? calls[calls.length - 1] : null
+          check('★★ 保存真调 dispatchSettingsSet，且冷却秒数带的是 45（不是摆设）',
+            !!last && String(last.args[0] && last.args[0].cooldownSec) === '45',
+            JSON.stringify(last && last.args))
+          // 保存后界面要显示**主进程回读的值**（dispatchSettingsGet 返回 45），
+          // 不是自己拿输入框的数字糊上去 —— 那正是"界面与主进程各算一个数"的病。
+          const dbg = JSON.stringify({
+            store: window.__fcTest.dispatchSettings ? window.__fcTest.dispatchSettings() : null,
+            nums: [...document.querySelectorAll('.sect')]
+              .filter(s => ((s.querySelector('h4') || {}).textContent || '').trim() === 'DSH 派单（花费会话）')
+              .map(s => [...s.querySelectorAll('input[type="number"]')].map(n => n.value)),
+          })
+          const shown = await waitFor(() => {
+            const s = [...document.querySelectorAll('.sect')]
+              .find(x => ((x.querySelector('h4') || {}).textContent || '').trim() === 'DSH 派单（花费会话）')
+            if (!s) return false
+            const n = s.querySelectorAll('input[type="number"]')[0]
+            return !!n && n.value === '45'
+          }, 3000, '回读冷却秒数')
+          check('★★ 保存后界面显示的是主进程回读的 45（不是自己算的数）', shown, dbg)
+        }
+      }
+    }
     // 花钱动作确认（2026-11-20）：开关真身在 prefs.costConfirm，不是只画个勾
     {
       const lbl = $$('label.chk').find((l) => (l.textContent || '').indexOf('调用 DSH / 模型前弹窗确认') >= 0)
       const inp = lbl ? lbl.querySelector('input[type="checkbox"]') : null
-      check('★ 通用里有「花钱动作前确认」开关（默认假 prefs 是关的）', !!inp && inp.checked === false)
+      check('★ Agent 里有「花钱动作前确认」开关（默认假 prefs 是关的）', !!inp && inp.checked === false)
       if (inp) {
         inp.checked = true
         inp.dispatchEvent(new Event('change', { bubbles: true }))
@@ -7098,6 +7240,9 @@
         inp.dispatchEvent(new Event('change', { bubbles: true }))
       }
     }
+    // 回到通用：下面的开机自启等断言仍在通用分类里。
+    clickNav('通用')
+    await sleep(350)
     // 开机自启（2026-11-21）：默认关 + 明说杀软可能拦截；勾选真走 IPC
     {
       const lbl = $$('label.chk').find((l) => (l.textContent || '').indexOf('开机自动启动方寸') >= 0)
@@ -8566,6 +8711,39 @@
       } else {
         check('  ⌂ 首页按钮存在', false, 'no homeBtn')
       }
+
+      // ══ 关于入口（2026-11-22 · P0-1 界面与视觉 #2）════════════════════════
+      // 用户原话（2026-11-08）：“顶栏 ? 根本不是关于，是使用手册”。
+      // 口径：`?` = 手册（上面已验），**关于 = 独立入口**；这一块之前零断言。
+      {
+        const brand = $('#bar .brand')
+        check('★ 顶栏有「寸」LOGO 作为关于入口（不是靠 ? 兼任）', !!brand,
+          (($('#bar .title') || {}).textContent || '').slice(0, 60))
+        if (brand) brand.click()
+        check('★★ 点 LOGO 打开「关于方寸」弹窗', await waitFor(() => !!$('#about-modal'), 3000, 'about modal'),
+          $$('#bar button').map((b) => (b.textContent || '').trim()).join(' | '))
+        const aboutTxt = (($('#about-modal') || {}).textContent || '').replace(/\s+/g, ' ')
+        check('★★ 关于里有简介/作者/许可证/手册入口（不是只有一句话）',
+          /关于方寸/.test(aboutTxt) && /MUYU46548/.test(aboutTxt) && /MIT/.test(aboutTxt) && /使用手册/.test(aboutTxt),
+          aboutTxt.slice(0, 140))
+        // 关于 → 使用手册：真的能跳过去（不是摆一个按钮）
+        const toHelp = $$('#about-modal button').find((b) => (b.textContent || '').indexOf('使用手册') >= 0)
+        if (toHelp) toHelp.click()
+        check('★★ 关于里的「使用手册」真的跳到手册视图', await waitFor(() => !!$('.help-view'), 4000, 'help from about'))
+        // 手册页自己的「关于方寸」入口也能回打开（独立入口双向可达）
+        const helpAbout = $$('.help-view .help-head button').find((b) => (b.textContent || '').indexOf('关于方寸') >= 0)
+        check('★ 手册页右上也有「关于方寸」入口', !!helpAbout,
+          $$('.help-view .help-head button').map((b) => (b.textContent || '').trim()).join(' | '))
+        if (helpAbout) helpAbout.click()
+        check('★★ 手册页的「关于方寸」也能打开关于弹窗（双向可达）',
+          await waitFor(() => !!$('#about-modal'), 3000, 'about from help'))
+        const closeAbout = $$('#about-modal button').find((b) => (b.textContent || '').trim() === '关闭')
+        if (closeAbout) closeAbout.click()
+        check('★ 点「关闭」收起关于弹窗', await waitFor(() => !$('#about-modal'), 3000, 'about closed'))
+        // 回到看板，别把后面按钮类断言留在手册页
+        const home2 = $('#bar .navgroup button[title*="首页"]')
+        if (home2) home2.click()
+      }
       // 同步：暮雨 2026-10-12“只做按钮，状态由它自己报”——
       // 判据两条：① 真调 backupGitPush（不是假按钮）；② 调完按钮**回到可点**（不许卡在"进行中"）。
       const syncBtn = $('#bar .navgroup button[title*="同步"]')
@@ -9516,6 +9694,83 @@
       check('★ 连线按证据类型分组（import / ipc / bridge 三组都在）',
         $$('#arch-modal .archd-edge').length === 3,
         $$('#arch-modal .archd-edge').map((e) => e.getAttribute('class')).join(' | '))
+
+      // ── 抖动（2026-11-21 · 卡 0c2d9d25）：截图看不出来，必须按帧采样 ──────────
+      // 判据：去掉前 5 帧后，SVG 外框 + 所有节点 <g> 的最大位移 ≤ 0.5px；
+      //       running 且 iterations=Infinity 的动画数 == 0。
+      // ⚠ 无头浏览器默认用**覆盖式滚动条**（不占宽度），那样根本复现不了"滚动条 ↔
+      //   等比图高度"互踢 —— 所以先注入 15px 的经典滚动条样式，再量：
+      //    ① 滚动条出现前后画布**内宽**是否不变（scrollbar-gutter: stable 的直接判据）；
+      //    ② 把画布高度卡到"刚刚差 1px 溢出"的位置，按 120 帧采样。
+      // 反例自证过：去掉 scrollbar-gutter 后 ① 会红（2026-11-21）。
+      {
+        const force = document.createElement('style')
+        force.textContent = '#arch-modal .archd-canvas::-webkit-scrollbar{width:15px;height:15px}'
+          + '#arch-modal .archd-canvas::-webkit-scrollbar-thumb{background:#bbb;border-radius:8px}'
+        document.head.appendChild(force)
+        try {
+          const canvas = $('#arch-modal .archd-canvas')
+          const svgEl = canvas && canvas.querySelector('svg')
+          if (!canvas || !svgEl) {
+            check('★★ 架构图抖动采样有画布与 SVG（否则这条是空转）', false, 'no canvas/svg')
+          } else {
+            const oldH = canvas.style.height
+            // ① 滚动条出现 / 不出现，画布内宽必须一致
+            canvas.style.height = '100000px'
+            const wNoScroll = canvas.clientWidth
+            canvas.style.height = '120px'
+            const wScroll = canvas.clientWidth
+            canvas.style.height = oldH
+            check('★★ 滚动条出现时画布内宽不变（scrollbar-gutter: stable，防高度互踢）',
+              wNoScroll === wScroll,
+              `no-scroll=${wNoScroll} with-scroll=${wScroll}`)
+
+            // ② 把高度卡在阈值上，按 120 帧采样
+            const h = svgEl.getBoundingClientRect().height
+            canvas.style.height = Math.max(120, Math.floor(h - 1)) + 'px'
+            const frames = []
+            let n = 0
+            const jitter = await new Promise((resolve) => {
+              const tick = () => {
+                const r = svgEl.getBoundingClientRect()
+                const cr = canvas.getBoundingClientRect()
+                const nodes = Array.from(document.querySelectorAll('#arch-modal [data-node]'))
+                  .map((g) => { const q = g.getBoundingClientRect(); return [q.x, q.y, q.width, q.height] })
+                frames.push({
+                  svg: [r.x, r.y, r.width, r.height],
+                  canvas: [cr.width, cr.height, canvas.clientWidth, canvas.scrollHeight],
+                  nodes,
+                })
+                if (++n < 120) { requestAnimationFrame(tick); return }
+                const tail = frames.slice(5)
+                const base = tail[0]
+                let maxSvg = 0
+                let maxNode = 0
+                let maxCanvas = 0
+                for (const f of tail) {
+                  for (let i = 0; i < 4; i++) maxSvg = Math.max(maxSvg, Math.abs(f.svg[i] - base.svg[i]))
+                  for (let i = 0; i < 4; i++) maxCanvas = Math.max(maxCanvas, Math.abs(f.canvas[i] - base.canvas[i]))
+                  for (let k = 0; k < f.nodes.length; k++) {
+                    const b = base.nodes[k] || []
+                    for (let i = 0; i < 4; i++) maxNode = Math.max(maxNode, Math.abs(f.nodes[k][i] - (b[i] || 0)))
+                  }
+                }
+                const infinite = (document.getAnimations?.() || [])
+                  .filter((a) => a.playState === 'running'
+                    && a.effect?.getComputedTiming?.().iterations === Infinity).length
+                resolve({ maxSvg, maxNode, maxCanvas, infinite, frames: frames.length })
+              }
+              requestAnimationFrame(tick)
+            })
+            canvas.style.height = oldH
+            check(`★★ 架构图 120 帧不抖：SVG 外框最大位移 ${jitter.maxSvg.toFixed(2)}px ≤ 0.5px`, jitter.maxSvg <= 0.5, JSON.stringify(jitter))
+            check(`★★ 架构图 120 帧不抖：所有节点最大位移 ${jitter.maxNode.toFixed(2)}px ≤ 0.5px`, jitter.maxNode <= 0.5, JSON.stringify(jitter))
+            check(`★★ 架构图没有无限循环动画（running + iterations=Infinity == ${jitter.infinite}）`, jitter.infinite === 0, JSON.stringify(jitter))
+          }
+        } finally {
+          force.remove()
+        }
+      }
       check('★★ 分层校验门逐条摆出来（不是一句"生成成功"）',
         $$('#arch-modal .archd-gate').length >= 9, String($$('#arch-modal .archd-gate').length))
       check('★ 校验结论带通过数与分数', /道通过|分/.test(($('.archd-side') || {}).textContent || ''),
@@ -9537,17 +9792,17 @@
         (($('.archd-side') || {}).textContent || '').indexOf('src/main/index.ts') >= 0,
         (($('.archd-side') || {}).textContent || '').slice(0, 100))
 
-      // ── 架构图（2026-11-02 → 2026-11-20 D-152）：只读扫描、零模型，自报"扫描图" ──
-      // 判据：① 按钮在；② 点了真走 arch:generate；③ 结果必须说清是扫描图（不许冒充 AI）。
-      const genBtn = $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('重新扫描') >= 0)
-      check('★ 面板里有“重新扫描”按钮（零模型；打开/点击都不花钱）', !!genBtn,
+      // ── 架构图（2026-11-22 · D4）：点一下 = 派给 DSH（写派单 → 等草稿卡 → 审计），结果自报来源 ──
+      // 判据：① 按钮在；② 点了真走 arch:generate；③ 结果必须说清是 DSH 生成图（不许冒充扫描图）。
+      const genBtn = $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('让 DSH 画图') >= 0)
+      check('★ 面板里有“让 DSH 画图”按钮（点一下才派单，不点不花钱）', !!genBtn,
         $$('#arch-modal button').map((b) => (b.textContent || '').trim()).join(' | '))
       window.__fcTest.reset()
       if (genBtn) { genBtn.click() }
       check('★★ 点了真走 arch:generate IPC', await waitFor(() => window.__fcTest.callCount('archGenerate') > 0, 5000, 'archGenerate'),
         JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'archGenerate').map((c) => c.args)))
-      check('★★ 结果自报“扫描图”（零模型，不再有 AI 生成图）',
-        await waitFor(() => /扫描图/.test((($('.archd-text') || {}).textContent || '')), 5000, 'archd-text'),
+      check('★★ 结果自报“DSH 生成图”（逐条证据审计，不冒充扫描图）',
+        await waitFor(() => /DSH 生成图/.test((($('.archd-text') || {}).textContent || '')), 5000, 'archd-text'),
         (($('.archd-text') || {}).textContent || '').slice(0, 90))
 
       // ── 生成中：耗时要可见 + 关掉要付什么代价（2026-11-05 暮雨第 2 条）────────────
@@ -9557,18 +9812,18 @@
       //      ③ 继续等之后警告收起；④ 生成结束后横幅自己消失。
       {
         window.__fcTest.holdArch(true)
-        const genBtn2 = $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('重新扫描') >= 0)
+        const genBtn2 = $$('#arch-modal button').find((b) => (b.textContent || '').indexOf('让 DSH 画图') >= 0)
         if (genBtn2) genBtn2.click()
         await sleep(400)
         const busyBar = $('.archd-busybar')
-        check('★★ 扫描中有横幅，且写的是**真计时**（“已等 N 秒”，不编百分比）',
+        check('★★ 生成中有横幅，且写的是**真计时**（“已等 N 秒”，不编百分比）',
           !!busyBar && /已等\s*\d+\s*秒/.test(busyBar.textContent || ''),
           busyBar ? (busyBar.textContent || '').replace(/\s+/g, ' ').slice(0, 90) : '没有 .archd-busybar')
-        check('★ 横幅里说清“关掉不会中断扫描，但结果看不到”',
+        check('★ 横幅里说清“关掉不会中断这次生成，但结果看不到”',
           !!busyBar && /不会中断/.test(busyBar.textContent || '') && /看不到/.test(busyBar.textContent || ''),
           busyBar ? (busyBar.textContent || '').replace(/\s+/g, ' ').slice(0, 140) : '')
-        check('★ 扫描按钮上是“扫描中… Ns”（不是只写“扫描中”，用户看不出等了多久）',
-          $$('#arch-modal button').some((b) => /扫描中…\s*\d+s/.test(b.textContent || '')),
+        check('★ 生成按钮上是“生成中… Ns”（不是只写“生成中”，用户看不出等了多久）',
+          $$('#arch-modal button').some((b) => /生成中…\s*\d+s/.test(b.textContent || '')),
           $$('#arch-modal button').map((b) => (b.textContent || '').trim()).join(' | '))
 
         // ── 2026-11-07（修 11-03 驳回）：进度要说清"第几次 / 在干嘛"，且能取消 ──

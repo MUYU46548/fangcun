@@ -19,8 +19,26 @@ const FIX_DEADLINE = (() => {
 })()
 const FIX_MMDD = FIX_DEADLINE.slice(5)
 
+/**
+ * 假 preload 会被两种宿主加载：
+ *   · 真 Electron（`renderer-main.cjs`）—— 有 `process.env`；
+ *   · 无头浏览器（`e2e-renderer-web.cjs`，脚本直接在页面里跑）—— **没有 `process`**。
+ * 所以这里必须软取：直接写 `process.env` 会让整个假后端在浏览器里挂掉，
+ * 症状是 `window.tegula` / `window.__fcTest` 全没了（2026-11-21 实测一次）。
+ */
+const E2E_DISPATCH_OFF = (typeof process !== 'undefined' && !!process.env
+  && process.env.FC_E2E_DISPATCH_OFF === '1')
+
 const store = {
   todos: [],
+  /**
+   * 派单总闸（2026-11-21）：默认按 `FC_E2E_DISPATCH_OFF=1` 造「全新安装（关）」，
+   * 不给这个环境变量时是「已打开」—— 让原来那些"点按钮真的调用了通道"的断言继续有效。
+   * 设置页保存会真的写回这里，断言可以读回"界面显示的是不是主进程给的值"。
+   */
+  dispatchSettings: E2E_DISPATCH_OFF
+    ? { enabled: false, cooldownSec: 30, dailyCap: 3, concurrency: 1 }
+    : { enabled: true, cooldownSec: 0, dailyCap: 0, concurrency: 10 },
   // 2026-11-21：截图/断言要看到“近 14 天有柱”时先 setUsageRecent(true)；
   // 默认 false，旧的“每天 3 根柱”断言不受影响。
   usageRecent: false,
@@ -851,12 +869,51 @@ contextBridge.exposeInMainWorld('tegula', {
    */
   dispatchDsh: (projectId, kind) => {
     rec('dispatchDsh', [projectId, kind])
-    return { ok: true, path: '（夹具）', projectId: String(projectId || ''), chars: 1234, missing: [], at: '2026-11-17T00:00:00.000Z', kind: kind || 'work' }
+    return { ok: true, path: '（夹具）', projectId: String(projectId || ''), chars: 1234, missing: [], at: '2026-11-17T00:00:00.000Z', kind: kind || 'work', cooldownMs: 10000, enabled: true, reason: 'ok' }
   },
   /** 带任务书的派单（2026-11-20 · D-150）：文档拆卡 / 出单改走这里；必须 rec 真任务书。 */
   dispatchMessageDsh: (projectId, kind, message) => {
     rec('dispatchMessageDsh', [projectId, kind, message])
-    return { ok: true, path: '（夹具）', projectId: String(projectId || ''), chars: String(message || '').length + 1234, missing: [], at: '2026-11-20T00:00:00.000Z', kind: kind || 'work' }
+    return { ok: true, path: '（夹具）', projectId: String(projectId || ''), chars: String(message || '').length + 1234, missing: [], at: '2026-11-20T00:00:00.000Z', kind: kind || 'work', cooldownMs: 10000, enabled: true, reason: 'ok' }
+  },
+  /**
+   * 派单总闸（2026-11-21）：假桩必须与真 preload 同名同形状。
+   * 默认给**开启**（否则本文件所有"点按钮真的调用了通道"的断言都会因按钮置灰而失效）；
+   * 默认关的行为由 `FC_E2E_DISPATCH_OFF=1` 的专项 e2e（真 Electron 真 DOM）
+   * 与 `scripts/test/e2e-dispatch-gate.cjs`（主进程真模块）分别钉住。
+   */
+  dispatchSettingsGet: () => {
+    rec('dispatchSettingsGet', [])
+    const s = store.dispatchSettings
+    return {
+      ok: true,
+      file: '（夹具）dispatch-settings.json',
+      source: s.enabled ? 'file' : 'default',
+      settings: { ...s },
+      settingsError: '',
+      gate: s.enabled
+        ? { ok: true, enabled: true, reason: 'ok', leftMs: 0, leftToday: -1, today: 0, dailyCap: 0, cooldownSec: s.cooldownSec, concurrency: s.concurrency, lastAt: '' }
+        : { ok: false, enabled: false, reason: 'disabled', leftMs: 0, leftToday: 3, today: 0, dailyCap: s.dailyCap, cooldownSec: s.cooldownSec, concurrency: s.concurrency, lastAt: '' },
+      today: 0,
+      recent: [],
+      pending: 0,
+      rejected: 0,
+    }
+  },
+  dispatchSettingsSet: (patch) => {
+    rec('dispatchSettingsSet', [patch])
+    const p = patch && typeof patch === 'object' ? patch : {}
+    const num = (v, fallback) => {
+      const n = Number(v)
+      return Number.isFinite(n) ? Math.floor(n) : fallback
+    }
+    store.dispatchSettings = {
+      enabled: typeof p.enabled === 'boolean' ? p.enabled : store.dispatchSettings.enabled,
+      cooldownSec: p.cooldownSec === undefined ? store.dispatchSettings.cooldownSec : num(p.cooldownSec, store.dispatchSettings.cooldownSec),
+      dailyCap: p.dailyCap === undefined ? store.dispatchSettings.dailyCap : num(p.dailyCap, store.dispatchSettings.dailyCap),
+      concurrency: p.concurrency === undefined ? store.dispatchSettings.concurrency : num(p.concurrency, store.dispatchSettings.concurrency),
+    }
+    return { ok: true, changed: true, settings: { ...store.dispatchSettings } }
   },
   /**
    * 同步阶段流（2026-10-25 卡 004）：与真 preload 同名同形状，返回退订函数。
@@ -2880,20 +2937,33 @@ contextBridge.exposeInMainWorld('tegula', {
     store.archGraph = RESULT.graph
     return RESULT
   },
-  // 架构图（2026-11-02 → 2026-11-20 D-152）：只读扫描，零模型；不再有 AI 分支。
+  // 架构图（2026-11-22 · D4「全走 DSH」）：默认走「DSH 生成 + 过审」；setArchScanOnly(true) 换降级扫描图
   archGenerate: (projectId) => {
     cloneGuard('archGenerate', [projectId])
     rec('archGenerate', [projectId])
     const build = () => {
       if (!projectId) return { ok: false, error: '没给项目 id' }
       const g = store.archGraph || { title: '演示项目 · 架构图', subtitle: '', text: '', nodes: [], edges: [], missing: [], evidence: [], scannedFiles: 0, truncated: false }
+      const scanOnly = !!store.archScanOnly
       return {
-        ok: true, source: 'scan', attempts: 0, issues: [], notes: [],
-        reason: '全走 DSH：方寸只出扫描图（AI 解读请在 DSH 里做）',
-        graph: { ...g, subtitle: '静态扫描（零模型）', text: '这是 **扫描图**，不是生成图 · ' + g.text },
+        ok: true,
+        source: scanOnly ? 'scan' : 'ai',
+        attempts: scanOnly ? 0 : 1,
+        issues: [],
+        notes: [],
+        reason: scanOnly ? '全走 DSH：方寸只出扫描图（生成请在项目卡里点「让 DSH 画图」）' : '',
+        sessionId: scanOnly ? '' : 'fangcun-dispatch-mock',
+        nonce: scanOnly ? '' : 'arch-mock',
+        graph: {
+          ...g,
+          subtitle: scanOnly ? '静态扫描（零模型）' : 'DSH 生成 · 逐条证据审计',
+          text: (scanOnly
+            ? '这是 **扫描图**，不是生成图 · '
+            : '这是 **DSH 生成图**（每个节点/连线都过了证据审计） · ') + g.text,
+        },
       }
     }
-    // `__fcTest.holdArch(true)` 时挂 1.4 秒 —— 让"扫描中横幅 / 关闭确认"这两块能测到
+    // `__fcTest.holdArch(true)` 时挂 1.4 秒 —— 让"生成中横幅 / 关闭确认"这两块能测到
     if (store.archHold) return new Promise((res) => setTimeout(() => res(build()), 1400))
     return build()
   },
@@ -3059,6 +3129,8 @@ contextBridge.exposeInMainWorld('__fcTest', {
   calCellCap: () => (typeof globalThis.__fcCalCellCap === 'number' ? globalThis.__fcCalCellCap : 2),
   calls: () => JSON.parse(JSON.stringify(store.calls)),
   callCount: (name) => store.calls.filter(c => c.name === name).length,
+  /** 派单四项的假桩真身（调试"界面显示的是不是回读值"用） */
+  dispatchSettings: () => ({ ...store.dispatchSettings }),
   // 作战计划夹具复位（2026-11-03）：裁决会改 PLAN_DOCS，后面的每日推进面断言要靠它
   // 恢复“P0 已冻结 / P1 待裁决”的原始形态，否则“另有 N 张待裁决”会被前面的点击吃掉。
   // 技能自动同步留痕（2026-11-05）：断言换形态用它 —— 默认"刚跑过、版本一致"，
