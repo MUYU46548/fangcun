@@ -34,6 +34,7 @@ import * as ask from './services/ask'
 import * as correct from './services/correct'
 import * as contextPack from './services/contextPack'
 import { configureDispatchSecretDir, ensureDispatchSecret, resolveDispatchSecretPath } from './services/dispatchSign'
+import { buildDispatchHealth, writeDispatchSettings } from './services/dispatchConfig'
 import * as brief from './services/brief'
 import * as prefs from './services/prefs'
 import * as projectTiers from './services/projectTiers'
@@ -65,10 +66,11 @@ import { resolveLinkPath } from '../shared/linkPath'
 import { pickNeverRead } from '../shared/neverRead'
 import { buildCleanupReport } from './services/cleanup'
 import { checkMismatch } from './services/mismatch'
-import { findArtifactForProject } from './services/projectDiagram'
+import { findArtifactForProject, prepareStableArtifactCopy } from './services/projectDiagram'
 import { archForProject, scanProject } from './services/projectArch'
-// AI 生成图（2026-11-02）：模型画 → 证据审计 → 不过重画 → 仍不过降级扫描图
+// 架构图生成（2026-11-22 · D4「全走 DSH」）：派给 DSH → 等草稿卡 → 证据审计 → 不过重派 → 仍不过降级扫描图
 import { generateArchGraph } from './services/archAi'
+import { dispatchArchToDsh } from './services/archDispatch'
 import { buildArchGraph } from '../shared/archGraph'
 import { renderArchHtml } from '../shared/archSvg'
 import * as rice from './data/rice'
@@ -858,6 +860,26 @@ export function registerIpcHandlers(): void {
   guardedHandle('context:dispatchMessage', (_event, projectId: string, kind: string, message: string) => {
     try {
       return contextPack.dispatchMessageToDsh(String(projectId || ''), kind, String(message || ''))
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  // ── DSH 派单总闸（2026-11-21 · 卡 `…闸要下在-e4264e6c`）──────────────────
+  // 真源 = `<数据根>/.dispatch-dsh/dispatch-settings.json`。设置页四项、写侧闸门、
+  // 插件消费端、health.dispatch 全读这一份 —— 不许任何一处再自己算一个数。
+  // 默认 `enabled:false`：没被用户显式打开之前，三个入口全置灰，任何路径都开不出会话。
+  guardedHandle('dispatch:settings', () => {
+    try {
+      return { ok: true, ...buildDispatchHealth() }
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
+  })
+
+  guardedHandle('dispatch:settingsSet', (_event, patch: Record<string, unknown>) => {
+    try {
+      return writeDispatchSettings(patch)
     } catch (e: any) {
       return { ok: false, error: e?.message || String(e) }
     }
@@ -1736,10 +1758,22 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
     const r = findArtifactForProject(String(projectId || ''))
     if (!r.ok || !r.hit) return r
     // 方寸**不重画**架构图：archify 的产物是它自己的 HTML，这里只负责用系统浏览器打开。
+    // 2026-11-21（卡 ff9476ff）：打开的是**稳定副本**（注入 scrollbar-gutter + 钉死 reader 宽度）。
+    // 仓库原件只读不改；副本生成失败才退回原图，并在返回值里如实标 `stabilized:false`。
+    const stable = prepareStableArtifactCopy(r.hit.path)
+    const target = stable.ok && stable.path ? stable.path : r.hit.path
     try {
-      const err = await shell.openPath(r.hit.path)
+      const err = await shell.openPath(target)
       if (err) return { ok: false, error: '打开失败：' + err }
-      return { ok: true, path: r.hit.path, rel: r.hit.rel, project: r.project }
+      return {
+        ok: true,
+        path: target,
+        source: r.hit.path,
+        rel: r.hit.rel,
+        project: r.project,
+        stabilized: stable.ok === true,
+        ...(stable.ok ? {} : { stableError: stable.error }),
+      }
     } catch (e: any) {
       return { ok: false, error: '打开失败：' + (e?.message || e) }
     }
@@ -1886,6 +1920,13 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
         try { event.sender.send('arch:progress', { projectId: pid, ...p }) } catch { /* 窗口关了就算了 */ }
       }
       const r = await generateArchGraph(v.facts, {
+        projectId: pid,
+        // 生产路径：写签名派单文件 → DSH 会话按任务书建草稿卡 → 轮询收卡。
+        // 方寸进程内**不**发模型请求（D-152）；这条链路就是「全走 DSH」的落地物。
+        dispatch: (req) => dispatchArchToDsh(req, {
+          onProgress: (p) => push(p),
+          shouldAbort: () => archCancelled.has(pid),
+        }),
         onProgress: push,
         shouldAbort: () => archCancelled.has(pid),
       })
@@ -1897,6 +1938,8 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
         reason: r.reason || '',
         attempts: r.attempts,
         model: r.model || '',
+        sessionId: r.sessionId || '',
+        nonce: r.nonce || '',
         ms: Date.now() - started,
       }
       writeArchLast(pid, rec)
@@ -1913,6 +1956,8 @@ export function rejectTaskDirect(id: string, reason?: string): { ok: boolean; er
         failKind: r.failKind || '',
         cancelled: r.cancelled === true,
         repaired: r.repaired === true,
+        sessionId: r.sessionId || '',
+        nonce: r.nonce || '',
       }
     } catch (e: any) {
       writeArchLast(pid, { at: new Date().toISOString(), source: 'scan', failKind: 'call_failed', reason: String(e?.message || e), ms: Date.now() - started })

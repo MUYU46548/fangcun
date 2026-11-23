@@ -741,7 +741,7 @@
     <AiDocModal v-if="aiDocForm" :ctl="aiDocCtl" />
 
     <!-- ══ 花钱动作确认（2026-11-20）：调用 DSH / 模型前先讲清"可能产生真实费用"。
-         可在弹窗里勾"不再提示"，也可在 设置 → 通用 里重新打开。
+         可在弹窗里勾"不再提示"，也可在 设置 → Agent 里重新打开。
          视觉上这类按钮另带 `data-cost`（金色边 + ¥ 角标，见 app.css）。 -->
     <CostConfirmModal v-if="costAskForm" :ctl="costAskCtl" />
 
@@ -1248,6 +1248,23 @@ const THEME_LIST = [
   { id: 'orange',  name: '暖橙',   dot: '#975c21' },
   { id: 'gray',    name: '素灰',   dot: '#65687b' },
 ]
+
+/**
+ * 暗色主题清单（2026-11-22 · 用户：「界面三件主题亮暗两排方寸也可以做啊」）
+ *
+ * ⚠ 现在**一条都没有**：方寸六套全是浅色。这里先把分组结构留好，界面按它分两排；
+ * 暗色排如实写"还没做"，不摆一排空圈。
+ *
+ * 以后再加暗色主题，**四处必须同时改**：
+ *   ① `THEME_LIST` 登记 id/name/dot；② `styles/app.css` 加 `:root[data-theme='x']` 令牌块；
+ *   ③ 把 id 加进这个清单（否则它会落进"亮色"那排）；④ 跑 `check-themes`（它现在只许浅色，
+ *      加暗色时守卫要按 `dark` 分开量）。
+ * ⚠ 加之前先做另一件事：把界面里写死的白底换成 `var(--card)`（`app.css` 里 ~125 处），
+ *   否则暗色主题下是"白底 + 浅色字"，直接看不见 —— 这是墨坊当年踩过的坑。
+ */
+const DARK_THEME_IDS: string[] = []
+const lightThemes = computed(() => THEME_LIST.filter(t => !DARK_THEME_IDS.includes(t.id)))
+const darkThemes = computed(() => THEME_LIST.filter(t => DARK_THEME_IDS.includes(t.id)))
 const theme = ref(readUiPref<string>('fc_theme', 'default'))
 function applyTheme(id: string): void {
   theme.value = THEME_LIST.some(t => t.id === id) ? id : 'default'
@@ -4368,6 +4385,50 @@ const logDispatchSending = reactive<Record<string, boolean>>({})
 const dispatchClock = ref(Date.now())
 let dispatchClockTimer: ReturnType<typeof setInterval> | null = null
 
+/**
+ * 派单总闸（2026-11-21 · 卡 `…闸要下在-e4264e6c`）。
+ *
+ * 真源是主进程 `dispatch:settings`（= `<数据根>/.dispatch-dsh/dispatch-settings.json`）。
+ * 渲染层**只渲染它返回的四项**，不自己维护"开没开"的第二份状态 ——
+ * 否则界面说"开着"、主进程说"关着"，用户点一次才发现。
+ *
+ * 默认 `enabled:false`：没打开之前，三个入口全置灰并写明原因（不是点了没反应）。
+ */
+const dispatchHealth = ref<any>(null)
+const dispatchEnabled = computed(() => dispatchHealth.value?.settings?.enabled === true)
+function dispatchDisabledText(): string {
+  return '未启用 DSH 派单'
+}
+function dispatchDisabledHint(): string {
+  return 'DSH 派单未启用：到 设置 → Agent → DSH 派单 打开后才开得出会话'
+}
+async function refreshDispatchGate(): Promise<void> {
+  const tegula = (window as any).tegula
+  if (typeof tegula?.dispatchSettingsGet !== 'function') {
+    // 老版本 preload：按"关"处理（宁可不发，也不许在没有闸的版本上偷偷开会话）
+    dispatchHealth.value = null
+    return
+  }
+  try {
+    const r: any = await tegula.dispatchSettingsGet()
+    if (r && r.ok !== false) dispatchHealth.value = r
+  } catch { /* 读不到按关处理；设置页会显示读失败原因 */ }
+}
+async function saveDispatchSettings(patch: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
+  const tegula = (window as any).tegula
+  if (typeof tegula?.dispatchSettingsSet !== 'function') {
+    return { ok: false, error: '这个版本还没有派单设置通道 —— 请更新方寸后再试' }
+  }
+  try {
+    const r: any = await tegula.dispatchSettingsSet(patch)
+    await refreshDispatchGate()
+    if (!r || r.ok === false) return { ok: false, error: String(r?.error || '保存失败') }
+    return { ok: true }
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) }
+  }
+}
+
 /** 冷却还剩几秒（0 = 可点）。模板调用它会跟着 dispatchClock 每 500ms 刷新。 */
 function dispatchCoolLeft(p: any): number {
   const pid = String(p?.id || '')
@@ -4381,9 +4442,10 @@ function dispatchSendingNow(p: any): boolean {
   return !!dispatchSending[String(p?.id || '')]
 }
 
-/** 按钮上写什么：发送中… / 冷却中 Ns / 原来的字。 */
+/** 按钮上写什么：发送中… / 未启用 / 冷却中 Ns / 原来的字。 */
 function dispatchButtonText(p: any, idle: string): string {
   if (dispatchSendingNow(p)) return '发送中…'
+  if (!dispatchEnabled.value) return dispatchDisabledText()
   const left = dispatchCoolLeft(p)
   return left > 0 ? `冷却中 ${left}s` : idle
 }
@@ -4439,6 +4501,13 @@ async function dispatchToDsh(p: any, kind: 'work' | 'plan' = 'work'): Promise<vo
     showToast('这个版本还没有「发送给 DSH」通道 —— 请更新方寸后再试', 'error')
     return
   }
+  // ⓪ 总闸（2026-11-21）：默认关。没打开之前**连花钱确认都不弹** ——
+  //    弹了再拒，用户会以为是故障；这里必须说清是"还没启用"。
+  if (!dispatchEnabled.value) {
+    showToast(dispatchDisabledHint(), 'error')
+    void refreshDispatchGate()
+    return
+  }
   // ① 冷却 / 在途：都是"别再发第二单"，说法分开（一个是等，一个是刚发出去还没回）
   const left = dispatchCoolLeft(p)
   if (left > 0) {
@@ -4455,8 +4524,8 @@ async function dispatchToDsh(p: any, kind: 'work' | 'plan' = 'work'): Promise<vo
     const go = await costAsk({
       title: kind === 'plan' ? `让 DSH 做规划：${p.name || pid}` : `发送给 DSH：${p.name || pid}`,
       detail: kind === 'plan'
-        ? '这会写一份规划派单，并在 DSH 里开一个新会话；DSH 会用你配置的模型读仓库、出计划，可能产生真实费用。DSH 插件默认：同一时间最多 10 个、不冷却、每日不限（可在插件设置里调）。'
-        : '这会写一份上下文包派单，并在 DSH 里开一个新会话；DSH 会用你配置的模型开工，可能产生真实费用。DSH 插件默认：同一时间最多 10 个、不冷却、每日不限（可在插件设置里调）。',
+        ? '这会写一份规划派单，并在 DSH 里开一个新会话；DSH 会用你配置的模型读仓库、出计划，可能产生真实费用。派单默认是关的，冷却 / 日上限 / 在途在 设置 → Agent → DSH 派单 里。'
+        : '这会写一份上下文包派单，并在 DSH 里开一个新会话；DSH 会用你配置的模型开工，可能产生真实费用。派单默认是关的，冷却 / 日上限 / 在途在 设置 → Agent → DSH 派单 里。',
       confirmText: kind === 'plan' ? '继续（会开 DSH 规划会话）' : '继续（会开 DSH 会话）',
     })
     if (!go) return
@@ -4468,14 +4537,31 @@ async function dispatchToDsh(p: any, kind: 'work' | 'plan' = 'work'): Promise<vo
         showToast(`还在冷却：${Math.ceil(Number(r.leftMs) / 1000)} 秒后才能再派 —— 防连点开一堆会话`, 'error')
         return
       }
+      // 总闸被关 / 日上限 / 在途满：都带原因码，别只说"发送失败"
+      if (r && r.disabled) {
+        await refreshDispatchGate()
+        showToast(String(r.error || dispatchDisabledHint()), 'error')
+        return
+      }
+      if (r && r.reason === 'daily-cap') {
+        await refreshDispatchGate()
+        showToast(String(r.error || `今天已派出 ${r.today}/${r.dailyCap} 单`), 'error')
+        return
+      }
+      if (r && r.reason === 'concurrency') {
+        showToast(String(r.error || '在途派单会话已满'), 'error')
+        return
+      }
       showToast(`发送失败：${(r && r.error) || '未知原因'}`, 'error')
       return
     }
     const what = kind === 'plan' ? '规划任务' : '上下文包'
-    // 倒计时长度以主进程为准（见函数头注释）
-    const coolSec = Math.max(1, Math.round((Number(r.cooldownMs) || 10_000) / 1000))
-    armDispatchCooldown(pid, Number(r.cooldownMs) || 10_000)
-    showToast(`已发送给 DSH：「${p.name || p.id}」的${what}（${r.chars || 0} 字）—— DSH 那边会冒出一个新会话；${coolSec} 秒内不会重发（若被 DSH 限流，去插件设置看原因）`, 'ok')
+    // 倒计时长度以主进程为准（见函数头注释）；0 = 不冷却，别说"0 秒内不会重发"
+    const coolMs = Math.max(0, Number(r.cooldownMs) || 0)
+    const coolSec = Math.round(coolMs / 1000)
+    armDispatchCooldown(pid, coolMs)
+    showToast(`已发送给 DSH：「${p.name || p.id}」的${what}（${r.chars || 0} 字）—— DSH 那边会冒出一个新会话${coolSec > 0 ? `；${coolSec} 秒内不会重发` : ''}（若被 DSH 限流，去 设置 → Agent → DSH 派单 看原因）`, 'ok')
+    void refreshDispatchGate()
     // 缺项单独一条，不混在"已派出"里（与 copyContextPack 同一口径）
     if (Array.isArray(r.missing) && r.missing.length) {
       showToast(`这包缺：${r.missing.join('、')} —— agent 会以为这项目没这些规矩`, 'error')
@@ -4498,6 +4584,22 @@ async function dispatchToDsh(p: any, kind: 'work' | 'plan' = 'work'): Promise<vo
  * - 花钱确认仍走 `costAsk`（默认开，关掉过就不再问）；
  * - 不写日志、不改日志状态；只读它的字段拼一段任务书。
  */
+/**
+ * 日志页「发送给 DSH」的按钮文字（2026-11-21 · 卡 b71e7c6b）：
+ * 与项目页共用同一套冷却状态（`dispatchCooldownUntil` 按项目算），
+ * 点一次立刻「冷却中 Ns」+ disabled —— 不许"点了没反应"。
+ */
+function logDispatchButtonText(log: any): string {
+  if (logDispatchSending[String(log?.id || '')]) return '发送中…'
+  if (!dispatchEnabled.value) return dispatchDisabledText()
+  const pid = String(log?.project || '')
+  const left = pid ? dispatchCoolLeft({ id: pid }) : 0
+  // 2026-11-23（卡 5c315cb7）：去掉 `🚀`。`ProjectsView.vue:376` 2026-11-17 就定了
+  // 「去掉 emoji：它不解释任何事，只占位」，但那条决定**只在项目页执行过**，
+  // 日志页这里一直带着火箭。同一件事三种写法（26/28px、有/无 ¥、有/无 emoji）就是这么长出来的。
+  return left > 0 ? `冷却中 ${left}s` : '发送给 DSH'
+}
+
 async function dispatchLogToDsh(log: any): Promise<void> {
   const id = String(log?.id || '')
   const pid = String(log?.project || '').trim()
@@ -4509,6 +4611,19 @@ async function dispatchLogToDsh(log: any): Promise<void> {
   const tegula = (window as any).tegula
   if (typeof tegula?.dispatchMessageDsh !== 'function') {
     showToast('这个版本还没有「带任务书的 DSH 派单」通道 —— 请更新方寸后再试', 'error')
+    return
+  }
+  // 总闸（2026-11-21）：默认关 —— 日志页这个入口也必须一起置灰，
+  // 不能出现"项目页发不出去、日志页却能发"的第二条路。
+  if (!dispatchEnabled.value) {
+    showToast(dispatchDisabledHint(), 'error')
+    void refreshDispatchGate()
+    return
+  }
+  // 冷却按项目算，与项目页共用同一个倒计时（卡 b71e7c6b：日志页此前没有这道 UI 反馈）。
+  const left = dispatchCoolLeft({ id: pid })
+  if (left > 0) {
+    showToast(`「${pid}」还在冷却：${left} 秒后才能再派`, 'error')
     return
   }
   if (logDispatchSending[id]) {
@@ -4545,9 +4660,28 @@ async function dispatchLogToDsh(log: any): Promise<void> {
     const msg = parts.join('\n')
     const r: any = await tegula.dispatchMessageDsh(pid, 'work', msg)
     if (!r || r.ok === false) {
+      if (r && r.disabled) {
+        await refreshDispatchGate()
+        showToast(String(r.error || dispatchDisabledHint()), 'error')
+        return
+      }
+      if (r && r.cooling && Number(r.leftMs) > 0) {
+        // 与项目页同一套：主进程说还要等，就把倒计时接到按钮上（不是只弹一句）
+        armDispatchCooldown(pid, Number(r.leftMs))
+        showToast(`还在冷却：${Math.ceil(Number(r.leftMs) / 1000)} 秒后才能再派`, 'error')
+        return
+      }
+      if (r && (r.reason === 'daily-cap' || r.reason === 'concurrency')) {
+        await refreshDispatchGate()
+        showToast(String(r.error || '派单被限流拦下'), 'error')
+        return
+      }
       showToast(`发送失败：${(r && r.error) || '未知原因'}`, 'error')
       return
     }
+    // 成功：按主进程给的冷却时长起倒计时（0 = 不冷却，就不显示）
+    armDispatchCooldown(pid, Math.max(0, Number(r.cooldownMs) || 0))
+    void refreshDispatchGate()
     showToast(`已发送给 DSH：日志「${log.title || id}」的下一步（${r.chars || msg.length} 字）—— DSH 那边会冒出一个新会话`, 'ok')
     if (Array.isArray(r.missing) && r.missing.length) {
       showToast(`这包缺：${r.missing.join('、')} —— agent 会以为这项目没这些规矩`, 'error')
@@ -6184,7 +6318,8 @@ async function openProjectDiagram(p: any): Promise<void> {
       showToast(String(r?.error || '没找到这个项目的架构图'), 'error')
       return
     }
-    showToast('已用浏览器打开架构图：' + String(r.rel || r.path || ''), 'success')
+    const suffix = r.stabilized === false ? '（稳定补丁没打上，打开的是原图）' : '（稳定副本 · 原图未改动）'
+    showToast('已用浏览器打开架构图' + suffix + '：' + String(r.rel || r.path || ''), 'success')
   } catch (e: any) {
     showToast('打开架构图失败：' + (e?.message || e), 'error')
   }
@@ -6294,16 +6429,16 @@ function applyArchFilter(): void {
   archApproved.value = false
 }
 
-/** AI 生成图（2026-11-02）。三条口径与主进程一致：
- *  · 点一下只读扫描（零模型，D-152）；打开面板不花钱，点它也不调模型；
- *  · 回来必须自报来源：scan = 扫描图；
- *  · 降级不是错误，是"这次没画成"，要说清为什么（全走 DSH / 审计没过）。 */
+/** 让 DSH 画图（2026-11-22 · D4「全走 DSH」的真落地）。三条口径与主进程一致：
+ *  · 点一下 = 写一份签名派单文件，DSH 开会话读仓库、建草稿卡；方寸进程内零模型调用；
+ *  · 回来必须自报来源：ai = DSH 生成且逐条过审；scan = 扫描图；
+ *  · 降级不是错误，是"这次没画成"，要说清为什么（派单被拒 / 等不到 / 审计没过）。 */
 async function generateSelfArch(): Promise<void> {
   const id = archProjectId.value
   if (!id || archBusy.value) return
   archBusy.value = true
-  // 扫描是本地只读，通常 1–3 秒；进度事件仍可把阶段写到按钮上
-  archPhase.value = '扫描中…'
+  // 派单 + 等草稿要走 DSH 会话，通常以分钟计；按钮上的计时用真数字，不编百分比
+  archPhase.value = '生成中…'
   // 进度订阅只挂一次（重开面板不再叠加监听）；按当前项目过滤，避免 A 的进度串到 B
   if (!archProgressOff) {
     archProgressOff = (window as any).tegula.onArchProgress((p: any) => {
@@ -6322,21 +6457,24 @@ async function generateSelfArch(): Promise<void> {
     // 面板在生成期间被关掉时，结果不能就这么消失 —— 至少留一句话说清"图已经有了、去哪儿看"
     const gone = !archOpen.value ? '（面板已关：重新点“结构地图”就能看到这张图）' : ''
     if (r.cancelled) {
-      showToast('已取消 —— 没有生成任何图，也没写文件' + gone, 'info')
+      showToast('已取消等待 —— 没有生成图；如果派单已经发出去，DSH 会话可能还在跑（方寸停不了它）' + gone, 'info')
     } else if (r.source === 'ai') {
-      showToast(`AI 生成图：${r.attempts || 1} 次过审${r.repaired ? '（输出被截断，按完整节点收尾）' : ''}` + gone, 'success')
+      showToast(`DSH 生成图：${r.attempts || 1} 次过审${r.repaired ? '（输出被截断，按完整节点收尾）' : ''}` + gone, 'success')
     } else if (String(r.reason || '').indexOf('全走 DSH') >= 0) {
-      // D-152：生产路径的正常态 —— 不是失败，是"方寸只出扫描图"
-      showToast('已按源码重扫：这是扫描图（零模型，方寸不再调模型）' + gone, 'success')
+      // 没有 dispatch 通道（MCP / 老调用方）的正常态 —— 不是失败，是"只出扫描图"
+      showToast('已按源码重扫：这是扫描图（生成请在项目卡里点「让 DSH 画图」）' + gone, 'success')
     } else {
       // 失败要说清"坏在哪一步"，不是笼统一句"生成失败"（11-03 驳回）
       const k = String(r.failKind || '')
-      const why = k === 'not_json' ? '模型没按要求给 JSON'
-        : k === 'truncated' ? '模型输出被截断（话没说完）'
-          : k === 'no_content' ? '模型一个字都没返回'
+      const why = k === 'not_json' ? 'DSH 没按要求给 JSON'
+        : k === 'truncated' ? 'DSH 的输出被截断（话没说完）'
+          : k === 'no_content' ? 'DSH 一个字都没返回'
             : k === 'audit_rejected' ? '证据审计没过（节点/连线指不回事实）'
-              : k === 'no_model' ? '还没配模型'
-                : k === 'call_failed' ? '调用模型失败' : '这次没画成'
+              : k === 'timeout' ? '等不到 DSH 的草稿卡（会话可能没起来 / 还在跑）'
+                : k === 'no_dsh' ? 'DSH 派单总闸没开（设置 → Agent → DSH 派单）'
+                  : k === 'dispatch_failed' ? '派单没写出去（冷却 / 上限 / 没开 DSH）'
+                    : k === 'cancelled' ? '已取消等待'
+                      : k === 'call_failed' ? '调用模型失败' : '这次没画成'
       showToast(`已降级为扫描图：${why}${r.reason ? ' —— ' + r.reason : ''}` + gone, 'info')
     }
   } catch (e: any) {
@@ -6349,7 +6487,7 @@ async function generateSelfArch(): Promise<void> {
   }
 }
 
-/** 取消生成：主进程在**每次调用前**检查，取消后不写任何图 */
+/** 取消等待：主进程在轮询里检查；已经派出去的 DSH 会话停不了（如实说，别让用户以为两边都停了） */
 async function cancelSelfArch(): Promise<void> {
   const id = archProjectId.value
   if (!id) return
@@ -7314,7 +7452,7 @@ function importTasksFromFile() {
 //       首次点击弹窗提示（可在设置中关闭，防止新手误触）。」
 // 这里管弹窗与偏好；视觉上的 `data-cost` 在 app.css（金色边 + ¥ 角标）。
 // 口径：默认**每次**点都拦一下（只提示一次防不住第二次误触）；弹窗里勾"不再提示"
-// 或 设置 → 通用 关掉。它是提示，不是授权 —— 点"继续"仍走原有冷却/确认链路。
+// 或 设置 → Agent 关掉。它是提示，不是授权 —— 点"继续"仍走原有冷却/确认链路。
 const costConfirm = ref(true)
 /** null = 没有待确认的花钱动作；非 null 时弹窗显示（Promise 挂起等用户点） */
 const costAskForm = ref<{
@@ -7860,6 +7998,8 @@ const logsViewCtl = reactive({
   openNewLog, openLog, openLogMenu, onLogCardClick, openRelay, openLogPurge,
   copyId, copyLogAsPrompt, copyLogsAsPrompt, askConvertLog, openLogPreview,
   dispatchLogToDsh, logDispatchSending,
+  // 总闸默认关 + 日志页冷却（2026-11-21 · b71e7c6b）：与项目页共用同一套显示
+  dispatchEnabled, dispatchDisabledHint, logDispatchButtonText, dispatchCoolLeft,
   toggleLogRunning, completeLogItem, reopenLogItem, archiveLogItem, destroyLogItem,
   executeLogCleanup, importLogFile,
   // 主日志 + 附属日志（2026-10-30 第 4 条）
@@ -8060,6 +8200,8 @@ const projectsCtl = reactive({
   openAiDoc, openPlans, copyContextPack, dispatchToDsh,
   // 派单按钮冷却（2026-11-20）：模板只读这三样，不自己算时间
   dispatchButtonText, dispatchCoolLeft, dispatchSendingNow,
+  // 派单总闸（2026-11-21）：默认关 → 按钮置灰并写明原因
+  dispatchEnabled, dispatchDisabledHint,
   copyBrief, switchView,
   tripBoardCtl,
 })
@@ -8124,7 +8266,7 @@ async function onNotifyFocus(p: any): Promise<void> {
 // 设置页各页签通过 provide 共享同一组 ref（拆分第七刀）——不传几十个 props，也不会出现第二份状态。
 provide('fc-settings', {
   appVersion, updateState, checkUpdate, downloadUpdate, installUpdate,
-  disableGpu, onDisableGpuChange, THEME_LIST, theme, setTheme,
+  disableGpu, onDisableGpuChange, THEME_LIST, lightThemes, darkThemes, theme, setTheme,
   APPEARANCE_LIST, appearance, setAppearance,
   IDEA_TEXT_DEFAULT, IDEA_TEXT_HARD_MAX, IDEA_TEXT_MIN, ideaMaxChars, onIdeaMaxChange,
   views, viewLayout, VIEW_PRESETS, VIEWS_MIN_VISIBLE, VIEWS_MAX_VISIBLE, curLayoutName,
@@ -8133,11 +8275,16 @@ provide('fc-settings', {
   diagSelf, diagSkills, diagActivity, diagBusy, runSelfCheck, checkSkillsCopies, loadDiagActivity, relativeTime,
   addAgentPreset, addPriceRow, agentPresets, fmtShort, idleCfg, idleSave, idleSaving, loadUsageStats, newAgentName, priceMsg, priceRows, priceSaving, removeAgentPreset, savePrices, usageStats_,
   copyPolicyText, openPolicyEdit, openProjectInSettings, policyMap, projects,
-  // 花钱动作确认（2026-11-20）：设置 → 通用 用这个开关
+  // 花钱动作确认（2026-11-20）：设置 → Agent 用这个开关
   costConfirm, setCostConfirm,
+  // DSH 派单总闸（2026-11-21）：设置 → Agent 的四项（默认关；界面只渲染主进程返回值）
+  dispatchHealth, dispatchEnabled, refreshDispatchGate, saveDispatchSettings,
 })
 
 onMounted(() => {
+  // 派单总闸（2026-11-21）：启动就拉一次。默认关时按钮必须已经置灰 ——
+  // 不能等用户点开设置页才去问主进程（那中间他看到的是一排能点的按钮）。
+  void refreshDispatchGate()
   // 问卷角标（2026-11-05）：启动时问一次“有没有没批准的卷”，有就在顶栏按钮上挂个数字
   void refreshQnPending()
   // 记忆待审批（2026-11-20）：启动拉一次，之后每 10 秒看有没有新的；有新才通知
@@ -8186,7 +8333,7 @@ onMounted(() => {
   // 版本号（设置页首区块显示）
   loadAppVersion()
   // 2026-11-20 BYOK 退场：不再启动时读模型通道；文档拆卡等入口直接走 DSH 派单。
-  // 花钱确认偏好（2026-11-20）：设置 → 通用 的开关也读同一份
+  // 花钱确认偏好（2026-11-20）：设置 → Agent 的开关也读同一份
   void costConfirmLoad()
   // 更新事件订阅：updater 主进程回调 → 设置页状态更新
   const t: any = (window as any).tegula || {}

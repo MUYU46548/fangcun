@@ -297,6 +297,20 @@ check('★★ 导出的 HTML 是自包含的（没有外链样式 / 脚本 / 网
   !/<link\b/i.test(html) && !/<script\s+src=/i.test(html) && !/fetch\(/.test(html) && !/https?:\/\/(?!www\.w3\.org)/.test(html),
   (html.match(/https?:\/\/[^\s"']+/g) || []).join(','))
 check('导出 HTML 带标题 / 组件明细 / 证据', html.indexOf(graph.title) >= 0 && html.indexOf('组件明细') >= 0 && html.indexOf('证据') >= 0)
+// 2026-11-21（卡 0c2d9d25 · 架构图抽搐）：
+// ① 导出件里的 SVG 必须吃满面板宽度 —— 没有这条规则时 SVG 按默认 300×150 渲染；
+// ② 面板滚动条留槽 —— 否则滚动条出现/消失会改宽度，等比 SVG 跟着改高度（面板同款反馈环）。
+check('★★ 导出 HTML 的 SVG 吃满面板宽度（不是默认 300×150）',
+  /\.panel svg\s*\{[^}]*width:\s*100%[^}]*height:\s*auto/s.test(html),
+  (html.match(/\.panel svg[^}]*\}/) || ['(没有 .panel svg 规则)'])[0])
+check('★★ 导出 HTML 的面板滚动条留槽（防滚动条↔等比图高度互踢）',
+  /\.panel\s*\{[^}]*scrollbar-gutter:\s*stable/s.test(html),
+  (html.match(/\.panel\s*\{[^}]*\}/s) || ['(没有 .panel 规则)'])[0])
+// 导出件的主滚动容器是**整页**（html），不是 .panel：页面滚动条出现/消失同样改视口宽度，
+// 等比 SVG 的高度跟着变 → 内容高度又跨过滚动条阈值 → 逐帧抽搐。
+check('★★ 导出 HTML 的根元素滚动条留槽（防整页滚动条↔等比图高度互踢）',
+  /html\s*\{[^}]*scrollbar-gutter:\s*stable/s.test(html),
+  (html.match(/html\s*\{[^}]*\}/s) || ['(没有 html 规则)'])[0])
 check('空图的导出不假装有图（写明缺项）', S.renderArchHtml(emptyGraph).indexOf('缺什么') >= 0)
 const missingHtml = S.renderArchHtml({ ...graph, missing: [{ what: 'X', why: '没有 X 就没法 Y' }] })
 check('★ 有缺项时 HTML 里逐条列出（what + why 都在）', missingHtml.indexOf('X') >= 0 && missingHtml.indexOf('没有 X 就没法 Y') >= 0)

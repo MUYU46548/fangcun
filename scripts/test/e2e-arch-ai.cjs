@@ -99,7 +99,7 @@ const FAKE_DRAFT = {
   check('★★ 图上的节点来自草稿且数字来自事实',
     okRes.graph.nodes.length === 4 && okRes.graph.nodes.find((n) => n.id === 'src/main').files === 9,
     JSON.stringify(okRes.graph.nodes.map((n) => n.id + ':' + n.files)))
-  check('★ 图表头自报"AI 生成图"', /AI 生成图/.test(okRes.graph.text), okRes.graph.text)
+  check('★ 图表头自报"DSH 生成图"', /DSH 生成图/.test(okRes.graph.text), okRes.graph.text)
   check('★ 连线条数来自事实（6 / 3）',
     okRes.graph.edges.map((e) => e.count).sort((a, b) => a - b).join(',') === '3,6',
     JSON.stringify(okRes.graph.edges.map((e) => e.count)))

@@ -262,12 +262,21 @@ export function renderArchHtml(graph: ArchGraph): string {
 <style>
 :root { --ink:#17181c; --muted:#777b84; --line:#e6e5e2; --bg:#f7f7f5; --card:#fff; }
 * { box-sizing: border-box; }
+/* 2026-11-21（卡 0c2d9d25）：导出件是**整页滚动** —— 页面滚动条出现/消失会改视口宽度，
+   宽度一变，等比 SVG 的高度跟着变，内容高度又可能跨过"要不要滚动条"的阈值，
+   于是整页逐帧抽搐。根元素留槽 = 滚动条永远占着那一条，宽度不再变。 */
+html { scrollbar-gutter: stable; }
 body { margin:0; padding:28px 32px 48px; background:var(--bg); color:var(--ink);
   font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif; line-height:1.65; }
 h1 { font-size:22px; margin:0 0 4px; }
 .sub { color:var(--muted); font-size:12.5px; margin:0 0 14px; }
 .text { display:inline-block; font-size:12px; background:#fff; border:1px solid var(--line); border-radius:999px; padding:4px 12px; margin-bottom:16px; }
-.panel { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:10px; overflow:auto; }
+.panel { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:10px; overflow:auto; scrollbar-gutter:stable; }
+/* 2026-11-21（卡 0c2d9d25）：导出件也是同一张 viewBox 图。
+   之前没有这条规则 → SVG 按默认 300×150 渲染（导出图小得看不清），
+   而且滚动条一出现就会改宽度、让等比图改高度（面板那处的抖动同源）。
+   现在：宽度吃满、高度按比例、滚动条留槽 —— 两处同一套口径。 */
+.panel svg { width:100%; height:auto; max-width:100%; display:block; }
 .cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:18px; }
 .cols section { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 16px; }
 h2 { font-size:13px; margin:0 0 8px; }

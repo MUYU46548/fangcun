@@ -269,7 +269,13 @@ body {
   --btn-px: 14px;
 }
 button { font-family: inherit; cursor: pointer; }
-button[disabled] { opacity: .55; cursor: not-allowed; }
+/* 2026-11-21（卡 30980018）：不可点 = **箭头**，不是手型、也不是 not-allowed。
+   统一口径：可点 pointer；disabled / 闸闭 / 冷却中 / 只读 → default。
+   ⚠ 高度相关的坑：日志卡整张是 `cursor:pointer`（点开详情）。以前 Button 基座写着
+     `disabled:pointer-events-none`，置灰按钮不接指针 → 指针落到卡上 → 显示白手，
+     用户以为能点（项目页同款按钮不挂在可点容器里，所以是箭头）。
+     Button 基座已去掉 pointer-events-none，这里用 default 收口。 */
+button[disabled] { opacity: .55; cursor: default; }
 /* 2026-10-31（用户：外观只影响卡片，按钮从不变）：按钮也要跟着 --el-1/--el-2 走。
    flat 下三档都是 none，shadow 下才有贴地/浮起 —— 与卡片同一套高度，不再"卡片浮、按钮钉死"。
    ⚠ 只给**动作按钮**（ghost/pri/ok/warning/danger + Button 组件）加；
@@ -1100,7 +1106,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .attach-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .attach-head .attach-lbl { margin: 0; font-size: 11px; font-weight: 600; color: var(--muted); }
 .attach-add { height: 26px; padding: 0 10px; font-size: 12px; }
-.attach-add:disabled { opacity: .55; cursor: not-allowed; }
+.attach-add:disabled { opacity: .55; cursor: default; }
 /* 2026-10-25：右侧“Ctrl+V 粘图”提示 + 新建态的待挂清单（虚线胶囊 = 还没落盘） */
 .attach-head-r { display: flex; align-items: center; gap: 8px; }
 .attach-paste-hint { font-size: 11px; color: var(--muted); user-select: none; }
@@ -1370,7 +1376,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 }
 /* 契约操作小按钮：独立全局规则（与祖先无关）—— 守卫要求"用了 class 就得有规则" */
 .trip-mini { height: 22px; padding: 0 8px; font-size: 11px; border-radius: 6px; margin-right: 4px; }
-.trip-mini:disabled { opacity: .45; cursor: not-allowed; }
+.trip-mini:disabled { opacity: .45; cursor: default; }
 /* 一屏头部/弹窗的按钮：同样必须是独立规则（`.sm` 那种"借用别处的尺寸类"本条守卫不认） */
 .trip-headbtn { height: 26px; padding: 0 10px; font-size: 11.5px; border-radius: 7px; }
 /* 有项目没进这一屏时的说明条：必须显眼（否则用户以为"我加的项目没了"），但不报警色 */
@@ -1882,6 +1888,11 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 #smodal .theme-swatch.on { border-color: var(--accent); background: var(--tint); box-shadow: 0 0 0 2px var(--accent-soft); }
 #smodal .theme-swatch .sw-dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(0,0,0,.14); flex: none; }
 #smodal .theme-swatch .sw-check { color: var(--accent); }
+/* 主题按明暗分排（2026-11-22）：两排各带文字标题；暗色排没内容时给一句实情，不摆空圈。 */
+#smodal .theme-group + .theme-group { margin-top: 12px; }
+#smodal .theme-group-title { font-size: 11.5px; font-weight: 600; color: var(--muted); margin: 0 0 6px; }
+#smodal .theme-group-empty { font-size: 11.5px; color: var(--muted); line-height: 1.6;
+  padding: 7px 10px; border: 1px dashed var(--border); border-radius: 8px; }
 
 /* 外观形态（2026-10-30 卡 004）：两张小卡，预览里那个方块就是"有没有影子"的差别。
    ⚠ 新块用自己的 class（不复用 .theme-swatch —— 旧断言按 class 数过它）。 */
@@ -2386,6 +2397,12 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 /* 使命行：label 与「从 README 取一句」并排（2026-11-14 · P1-2）。
    ⚠ 按钮**不能**放进 <label>：浏览器会把点击当成"点了这个 label"转发给表单控件，
      按钮自己的 click 就收不到（实测 .click() 与 dispatchEvent 都失效）。 */
+/* ⚠ 2026-11-23（卡 5c315cb7）：`.pf-mission-draft` 此前是**死类** —— 模板给它挂了 class，
+   但 CSS 里一条规则都没有（`e2e-mission-draft.cjs:232` 还拿它当锚点做断言，属于"锚在一个不存在的类上"）。
+   这里给它真实语义：这条按钮是**辅助动作**（从 README 取一句填进使命），
+   不该跟主操作抢视觉重量。用 muted 前景色 + 无色边框，hover 才浮出来。 */
+.pf-mission-draft { color: var(--muted); border-color: var(--border); }
+.pf-mission-draft:hover { color: var(--ink); border-color: var(--accent-soft); }
 .pf-mission-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .pf-mission-row label { margin-bottom: 0; }
 /* 草稿取回来之后把原文摆出来，让人能核"有没有被改写过" */
@@ -2597,7 +2614,7 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .aq-master input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .aq-master span { font-size: 12px; color: var(--ink); }
 .aq-btn { height: 24px; padding: 0 9px; font-size: 11.5px; display: inline-flex; align-items: center; gap: 5px; }
-.aq-btn:disabled { opacity: .4; cursor: not-allowed; }
+.aq-btn:disabled { opacity: .4; cursor: default; }
 /* 该状态全部在选时点亮：一眼看出选了哪几组（同邮箱里"该筛选下的都勾上了"） */
 .aq-btn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
 .aq-btn.on .aq-n { color: #fff; background: rgba(255, 255, 255, .25); }
@@ -3501,6 +3518,15 @@ button[data-cost]::after {
 .log-kid-row .lk-run { min-width: 24px; text-align: center; }
 .lg-box-empty, .lg-box-hidden { font-size: 10.5px; color: var(--muted); padding: 7px 10px; line-height: 1.65; }
 .lg-box-hidden { border-top: 1px dashed var(--line-2); background: var(--tint-2); }
+/* ⚠ 2026-11-23（卡 5c315cb7）：`.log-dsh-btn` 此前是**死类** —— LogsView 给它挂了 class，
+   但全站 CSS 一条规则都没有。结果日志页的「发送给 DSH」和旁边那一排普通 ghost 按钮
+   长得一模一样，用户看不出"这是那个会花钱、会开会话的"。
+   ⚠ 不能靠删掉这个 class 了事：`renderer-web-assert.js` 与 `renderer-main.cjs` 都拿它当选择器
+   （那是"这条按钮存在且行为对"的锚点），删了等于把断言一起废掉。
+   所以给它真实语义：**付费动作 = 加粗 + 品牌色边框**（¥ 角标由 `button[data-cost]` 另给，
+   两者叠在一起才是完整标识：颜色说"这是动作"，金色说"这会花钱"）。 */
+.log-card-actions .log-dsh-btn { font-weight: 600; color: var(--accent); border-color: var(--accent-soft); }
+.log-card-actions .log-dsh-btn:hover { border-color: var(--accent); }
 .log-card-actions .log-bind-btn { color: var(--accent); border-color: var(--accent-soft); background: var(--card); }
 .log-card-actions .log-group-run.on { background: var(--tint-3); border-color: var(--warning); color: var(--warn-text); }
 .log-card-actions .log-group-done { color: var(--ok-text); border-color: var(--success); }
@@ -3537,7 +3563,7 @@ button[data-cost]::after {
 .la-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; cursor: pointer; }
 .la-row:hover { background: var(--tint); }
 .la-row.picked { background: var(--tint); }
-.la-row.blocked { opacity: .68; cursor: not-allowed; }
+.la-row.blocked { opacity: .68; cursor: default; }
 .la-row .la-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .la-row .la-title { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .la-row .la-sub { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;

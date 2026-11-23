@@ -166,7 +166,7 @@ check('★★ 连线条数来自事实（import ×6 / ×3）',
   gai.edges.length === 2 && gai.edges.every((e) => e.count > 0)
   && gai.edges.find((e) => e.from === 'src/renderer').count === 6,
   JSON.stringify(gai.edges.map((e) => e.from + '->' + e.to + ':' + e.count)))
-check('★★ 图表头自报"AI 生成图"', /AI 生成图/.test(gai.text) && /证据审计/.test(gai.subtitle), gai.text)
+check('★★ 图表头自报"DSH 生成图"', /DSH 生成图/.test(gai.text) && /证据审计/.test(gai.subtitle), gai.text)
 const scan = draftToGraph({ nodes: [], edges: [] }, FACTS, { source: 'scan', note: '没配模型' })
 check('★★ 降级图自报"扫描图，不是生成图"（不许冒充）', /扫描图/.test(scan.text) && /不是生成图/.test(scan.text), scan.text)
 check('★ 降级图仍带扫描事实里的缺项（不装完整）', Array.isArray(scan.missing))

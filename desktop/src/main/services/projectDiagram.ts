@@ -12,9 +12,23 @@
  * 所以这一版只做一件事：**找到该项目仓库里最新的一份 archify 产物，打开它。**
  *   · 找不到 → 明说“还没有 archify 结构图”，并给出生成方法。
  *   · 找到了 → 交给 shell.openPath 用系统浏览器打开（方寸不重画、不改写）。
+ *
+ * 2026-11-21（卡 ff9476ff）补第二层：**打开的是“稳定副本”，不是仓库里那份原件。**
+ *   archify 2.17 的 adaptive reader layout 会在 `ResizeObserver` / `requestAnimationFrame`
+ *   里按“垂直预算”反推容器宽度；容器宽度又会改变 header/cards 的换行高度 →
+ *   再触发 measure → 宽度来回跳。本机无头 Edge 实测（125%/150% 缩放，120 帧）：
+ *     · 原图：clientWidth 每帧 1497↔1512（滚动条进出），SVG 宽 1097.4↔1114.4，
+ *       scrollHeight 772↔778，**3 帧一个循环**；
+ *     · 只补 `scrollbar-gutter`：宽度稳定了，但 SVG 仍 1097.4↔1114.4 抖（换行反馈环还在）；
+ *     · 再钉死 `--archify-reader-width`：120 帧全部 0 变化。
+ *   方寸**不原地改项目仓库**（对 repo 只读），所以把 HTML 读进来、注入两行稳定样式、
+ *   写到临时目录再用浏览器打开；`<base href>` 指回原目录，相对资源照常能取。
  */
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
+import * as crypto from 'crypto'
+import { pathToFileURL } from 'url'
 import { parseRegistry } from '../data'
 
 export interface ArchifyArtifactHit {
@@ -106,4 +120,66 @@ export function findArtifactForProject(projectId: string): {
     }
   }
   return { ok: true, hit, project: { id: String(p.id ?? want), name, repo } }
+}
+
+// ── 打开副本的稳定性补丁（2026-11-21 · 卡 ff9476ff）──────────────────────────
+//
+// 只改**方寸打开的那一份副本**，仓库里的原件一个字节不动。
+// 两行样式各治一个环，缺一不可（120 帧实测见文件头）：
+//   ① `scrollbar-gutter: stable` —— 滚动条进出不再改内容宽度；
+//   ② 钉死 `--archify-reader-width` —— archify 的“按垂直预算反推宽度”不再
+//      参与布局（宽度→header 换行→高度→宽度 的反馈环被剪断）。
+// 数值取 archify 自己的默认上限 1440px：比它窄的窗口照旧 100% 自适应。
+
+export const STABLE_OPEN_STYLE_ID = 'fangcun-stable-open'
+
+/** 注入的样式（e2e 直接断言这一份，别在测试里另抄一遍）。 */
+export const STABLE_OPEN_CSS = [
+  'html{scrollbar-gutter:stable;overflow-y:scroll}',
+  'html{--archify-reader-width:1440px !important}',
+].join('')
+
+function escapeAttr(v: string): string {
+  return String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+}
+
+/**
+ * 给 archify 产物注入稳定样式 + `<base>`（相对资源仍从原目录取）。
+ * 幂等：已注入过的 HTML 原样返回，重复打开不会叠一层。
+ */
+export function patchArtifactHtml(html: string, baseHref: string): string {
+  const src = String(html ?? '')
+  if (src.includes(`id="${STABLE_OPEN_STYLE_ID}"`)) return src
+  const inject = `<base href="${escapeAttr(baseHref)}">`
+    + `<style id="${STABLE_OPEN_STYLE_ID}">${STABLE_OPEN_CSS}</style>`
+  if (/<head[^>]*>/i.test(src)) return src.replace(/<head[^>]*>/i, (m) => m + inject)
+  if (/<html[^>]*>/i.test(src)) return src.replace(/<html[^>]*>/i, (m) => m + `<head>${inject}</head>`)
+  return inject + src
+}
+
+/** 副本落点：按**源路径**做哈希，同一张图反复打开只覆盖同一份副本。 */
+export function stableCopyPathFor(srcPath: string, root?: string): string {
+  const rootDir = root || path.join(os.tmpdir(), 'fangcun-arch-open')
+  const hash = crypto.createHash('sha1').update(path.resolve(srcPath)).digest('hex').slice(0, 12)
+  return path.join(rootDir, hash, path.basename(srcPath))
+}
+
+/**
+ * 读原图 → 注入 → 写临时副本。失败返回原因（调用方决定退回原图还是报错）。
+ * ⚠ 只读源文件：不写回项目仓库、不改 mtime。
+ */
+export function prepareStableArtifactCopy(
+  srcPath: string,
+  root?: string,
+): { ok: boolean; path?: string; error?: string } {
+  try {
+    const html = fs.readFileSync(srcPath, 'utf8')
+    const baseHref = pathToFileURL(path.dirname(srcPath) + path.sep).href
+    const out = stableCopyPathFor(srcPath, root)
+    fs.mkdirSync(path.dirname(out), { recursive: true })
+    fs.writeFileSync(out, patchArtifactHtml(html, baseHref), 'utf8')
+    return { ok: true, path: out }
+  } catch (e: any) {
+    return { ok: false, error: '生成稳定副本失败：' + (e?.message || e) }
+  }
 }

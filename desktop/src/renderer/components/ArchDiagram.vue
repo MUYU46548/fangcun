@@ -110,17 +110,20 @@ function submitReject(): void {
       <!-- 上次生成结果（关窗/切页回来也查得到"上次怎么了"）——
            11-03 驳回原话："点关闭是否有影响？" 现在答案是：结果落盘，重开就看得到。 -->
       <span v-if="lastRun && !busy" class="archd-last" :class="{ bad: lastRun.source !== 'ai' && !lastRun.cancelled }">
-        {{ lastRun.cancelled ? '上次：已取消' : lastRun.source === 'ai' ? '上次：生成成功' : '上次：扫描图' }}
+        {{ lastRun.cancelled ? '上次：已取消' : lastRun.source === 'ai' ? '上次：DSH 生成成功' : '上次：扫描图' }}
         <template v-if="lastRun.reason">· {{ lastRun.reason }}</template>
         <template v-if="lastRun.ms">· {{ Math.round((lastRun.ms || 0) / 1000) }}s</template>
       </span>
-      <button v-if="busy" class="danger archd-cancel font-[inherit]" title="取消这次扫描：不会再发下一次请求，也不会写任何图" @click="emit('cancel')">
+      <button v-if="busy" class="danger archd-cancel font-[inherit]" title="取消等待：不再等这次草稿，也不会把半成品图当结果；已经开出去的 DSH 会话停不了" @click="emit('cancel')">
         取消
       </button>
-      <Button class="archd-gen font-[inherit]" variant="ghost" size="tool" :disabled="busy"
-        title="只读扫源码重画一版：节点 = 真实目录、连线 = 真实 import / IPC 计数；不走模型（D-152 全走 DSH）"
+      <!-- ⚠ 2026-11-23（卡 5c315cb7）：补上 `data-cost` —— 点一下 = 开一个 DSH 会话（实测 139 秒 / 真实费用）。
+           `app.css` 的 `button[data-cost]`（金色描边 + 右上角 ¥）靠这个属性生效；
+           此前这里没有它，和项目页那两个同类按钮长得完全不一样。 -->
+      <Button class="archd-gen font-[inherit]" variant="ghost" size="tool" data-cost :disabled="busy"
+        title="派给 DSH：DSH 会话读仓库、按扫描事实画草图；回来由方寸逐条证据审计，编的节点/连线一律拒收"
         @click="emit('generate')">
-        {{ busy ? `${phase || '扫描中…'} ${elapsed || 0}s` : '⟳ 重新扫描' }}
+        {{ busy ? `${phase || '生成中…'} ${elapsed || 0}s` : '让 DSH 画图' }}
       </Button>
       <button class="ghost font-[inherit]" :disabled="busy || !approved || !review?.ok"
         :title="!review?.ok ? '校验没过，先重画或剔除问题块' : (!approved ? '先点“通过这张图”' : '导出成一份独立 HTML（保存位置由你选）')"
@@ -136,11 +139,11 @@ function submitReject(): void {
          同时把“能不能关”写在这儿，省得他点关闭之后才发现结果没了。 -->
     <div v-if="busy" class="archd-busybar">
       <span class="archd-busybar-dot"></span>
-      <span>正在只读扫描源码… 已等 <b>{{ elapsed || 0 }}</b> 秒（通常 1–3 秒；零模型，不发外部请求）</span>
-      <span class="archd-busybar-note">现在关掉面板不会中断这次扫描 —— 但结果你看不到</span>
+      <span>正在让 DSH 画图… 已等 <b>{{ elapsed || 0 }}</b> 秒（开会话 / 读仓库 / 建草稿卡；回来还要逐条审计）</span>
+      <span class="archd-busybar-note">现在关掉面板不会中断这次生成 —— 但结果你看不到；点「取消」只停等待，DSH 会话可能还在跑</span>
     </div>
     <div v-if="closeWarn" class="archd-closewarn">
-      <span>还在扫描（已 {{ elapsed || 0 }} 秒）。<b>现在关掉 = 这次扫描白做</b>，图也看不到。</span>
+      <span>还在等 DSH 交草稿（已 {{ elapsed || 0 }} 秒）。<b>现在关掉 = 这次生成白做</b>，图也看不到。</span>
       <button class="ghost font-[inherit]" @click="closeWarn = false">继续等</button>
       <button class="danger font-[inherit]" @click="emit('close')">仍然关闭</button>
     </div>
@@ -251,7 +254,12 @@ function submitReject(): void {
 .archd-ok { font-size: 11px; font-weight: 700; color: #3f6b3a; background: #e9f3e4; border: 1px solid #bcd4b4; border-radius: 999px; padding: 2px 8px; }
 .archd-grow { flex: 1; }
 .archd-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 12px; padding: 10px 0 6px; }
-.archd-canvas { min-height: 0; overflow: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--tint-3); padding: 4px; }
+/* ⚠ 2026-11-23：`scrollbar-gutter: stable` 这条**测试早就要求了、代码里一直没有**。
+   `renderer-web-assert.js:9705` 原文：「反例自证过：去掉 scrollbar-gutter 后 ① 会红（2026-11-21）」
+   —— 但那次修复从没提交进 0.7.8（0.7.8 的 dist CSS 里也没有），于是 0.7.8 每次跑都红这一条。
+   症状：滚动条一出现，画布内宽少 15px → 等比 SVG 跟着缩 → 高度变 → 触发/解除滚动条 → 抖动。
+   加在 `.archd-canvas` 上（不是 `#board.pv`，那是另一处）。 */
+.archd-canvas { min-height: 0; overflow: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--tint-3); padding: 4px; scrollbar-gutter: stable; }
 .archd-canvas :deep(svg) { width: 100%; height: auto; display: block; }
 .archd-side { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
 .archd-side-block { border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; background: var(--card); }

@@ -303,12 +303,20 @@
           <Button variant="ghost" size="tool" title="复制成可直接粘给 agent 的提示词块" @click="copyLogAsPrompt(log.id)">📋 复制</Button>
           <!-- 2026-11-21 暮雨：「后续在日志里加个按钮我顺手测就行」——
                把这条日志的“下一步”写成任务书发给 DSH。没项目就禁用（上下文包按项目拼，不能瞎猜）。 -->
-          <Button class="log-dsh-btn" variant="ghost" size="tool"
-            :disabled="!log.project || !!ctl.logDispatchSending[log.id]"
-            :title="!log.project
-              ? '这条日志没写项目归属 —— 先编辑它选一个项目，再发送给 DSH'
-              : '把这条日志的「下一步」+ 正文节选写成任务书，发送给 DSH 开一个新会话（可能产生真实费用；会先确认）'"
-            @click="ctl.dispatchLogToDsh(log)">{{ ctl.logDispatchSending[log.id] ? '发送中…' : '🚀 发送给 DSH' }}</Button>
+          <!-- ⚠ 2026-11-23（卡 5c315cb7）：这里漏了 `data-cost` —— 而它是**真会开 DSH 会话花钱**的入口。
+               设置页 `DshAgentSettings.vue:96` 明写「所有『发送给 DSH…』都带金色 ¥ 角标」，
+               但守卫 `e2e-dispatch-click-only.cjs` 只读 `ProjectsView.vue`，所以这里漏了半年没人发现。
+               加了 data-cost 后 `app.css` 的 `button[data-cost]` 规则（金色描边 + 右上角 ¥）自动生效。 -->
+          <Button class="log-dsh-btn" variant="ghost" size="tool" data-cost
+            :disabled="!log.project || !ctl.dispatchEnabled || ctl.dispatchCoolLeft({ id: log.project }) > 0 || !!ctl.logDispatchSending[log.id]"
+            :title="!ctl.dispatchEnabled
+              ? ctl.dispatchDisabledHint()
+              : (ctl.dispatchCoolLeft({ id: log.project }) > 0
+                ? '冷却中：' + ctl.dispatchCoolLeft({ id: log.project }) + ' 秒后才能再派（同一项目防连点）'
+                : (!log.project
+                  ? '这条日志没写项目归属 —— 先编辑它选一个项目，再发送给 DSH'
+                  : '把这条日志的「下一步」+ 正文节选写成任务书，发送给 DSH 开一个新会话（可能产生真实费用；会先确认）'))"
+            @click="ctl.dispatchLogToDsh(log)">{{ ctl.logDispatchButtonText(log) }}</Button>
           <!-- 主日志 + 附属日志（2026-10-30 暮雨第 4 条）：绑定与全组动作都摆在卡上，
                不再要求“先点多选 → 再找批量栏”。有组时“全组完成 / 开工单”收进下面的
                附属框头（那里才是组的地盘），卡上只留一个“绑定 / 改绑定”入口。 -->

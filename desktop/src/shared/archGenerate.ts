@@ -357,7 +357,7 @@ export function draftToGraph(
   const parts = [`${nodes.length} 个组件`, `${edges.length} 条连线`, `扫描 ${Number(facts?.scannedFiles) || 0} 个文件`]
   if (base.missing.length) parts.push(`缺 ${base.missing.length} 项依据`)
   const head = meta.source === 'ai'
-    ? '这是 AI 生成图（每个节点/连线都过了证据审计）'
+    ? '这是 DSH 生成图（每个节点/连线都过了证据审计）'
     : '这是扫描图，不是生成图'
   const text = nodes.length
     ? `${head} · ${parts.join(' · ')}${meta.note ? ' · ' + meta.note : ''}`
@@ -368,7 +368,7 @@ export function draftToGraph(
   return {
     ...base,
     title: base.title,
-    subtitle: meta.source === 'ai' ? 'AI 生成 · 逐条证据审计' : (meta.note || '静态扫描'),
+    subtitle: meta.source === 'ai' ? 'DSH 生成 · 逐条证据审计' : (meta.note || '静态扫描'),
     nodes,
     edges,
     text,

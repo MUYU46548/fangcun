@@ -110,6 +110,13 @@ contextBridge.exposeInMainWorld('tegula', {
    */
   dispatchMessageDsh: (projectId: string, kind: 'work' | 'plan', message: string) =>
     ipcRenderer.invoke('context:dispatchMessage', projectId, kind, message),
+  /**
+   * 派单总闸（2026-11-21）：读四项设置 + 今天几单 + 闸门（默认关）。
+   * 设置页与 health.dispatch 渲染的是**同一个对象**，渲染层不自己算数。
+   */
+  dispatchSettingsGet: () => ipcRenderer.invoke('dispatch:settings'),
+  /** 改四项：enabled / cooldownSec / dailyCap / concurrency（局部 patch，原子落盘） */
+  dispatchSettingsSet: (patch: Record<string, unknown>) => ipcRenderer.invoke('dispatch:settingsSet', patch),
   /** 开工简报（2026-11-16 · 治病①）：上次做到哪 / 这次先做什么 / 有哪些规矩别犯。只读 */
   brief: (projectId: string) => ipcRenderer.invoke('brief:get', projectId),
   briefFile: (projectId: string) => ipcRenderer.invoke('brief:write', projectId),
@@ -275,7 +282,7 @@ contextBridge.exposeInMainWorld('tegula', {
   /** 方寸自绘架构图（2026-10-30）：只读扫源码 → 图模型；导出由用户选保存位置 */
   archGet: (projectId: string, opts?: { strict?: boolean; excluded?: string[] }) => ipcRenderer.invoke('arch:get', projectId, opts),
   archExport: (projectId: string, opts?: { strict?: boolean; excluded?: string[] }) => ipcRenderer.invoke('arch:export', projectId, opts),
-  /** AI 生成图（0.6.0）：点一下才会调模型；返回 source=ai|scan，界面按它写"生成图 / 扫描图" */
+  /** 架构图生成（2026-11-22 · D4）：点一下 = 派给 DSH 等草稿卡 → 方寸逐条证据审计；返回 source=ai|scan */
   archGenerate: (projectId: string) => ipcRenderer.invoke('arch:generate', projectId),
   // 2026-11-07（修 11-03 驳回）：进度推送 / 取消 / 上次结果
   archCancel: (projectId: string) => ipcRenderer.invoke('arch:cancel', projectId),
