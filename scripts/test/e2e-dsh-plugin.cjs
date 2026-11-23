@@ -180,9 +180,18 @@ function main() {
     const pendingDir = path.join(dataRoot, '.dispatch-dsh')
     fs.mkdirSync(pendingDir, { recursive: true })
     fs.writeFileSync(path.join(pendingDir, 'dispatch-2.md'), 'x', 'utf-8')
+    // 2026-11-21：没有设置文件 = 出厂默认关。此时先说“未启用”，
+    // 比“插件没在跑”更准确 —— 用户没打开总闸，插件跑着也不会消费。
+    s = mod.detectDshPlugin('0.7.0')
+    const d0 = s.checks.find(c => c.key === 'dispatch')
+    check('★★ 没有设置文件 → 派单链路说“未启用”（默认关），不是“插件没在跑”',
+      d0.status === 'warn' && /未启用/.test(d0.detail) && /设置 → Agent → DSH 派单/.test(d0.action), JSON.stringify(d0))
+    // 显式打开之后，才轮到“有文件没人消费”这条诊断
+    fs.writeFileSync(path.join(pendingDir, 'dispatch-settings.json'),
+      JSON.stringify({ enabled: true, cooldownSec: 0, dailyCap: 0, concurrency: 10 }), 'utf-8')
     s = mod.detectDshPlugin('0.7.0')
     const d2 = s.checks.find(c => c.key === 'dispatch')
-    check('★★ 有派单没被消费 → warn，并说明“插件没在跑 / 不在这个 profile”',
+    check('★★ 已启用 + 有派单没被消费 → warn，并说明“插件没在跑 / 不在这个 profile”',
       d2.status === 'warn' && /没在跑|profile/.test(d2.detail), JSON.stringify(d2))
 
     // ── ⑥ 密钥两边路径不一致 → bad（最难查的一种）──

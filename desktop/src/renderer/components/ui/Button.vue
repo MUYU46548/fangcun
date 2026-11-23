@@ -23,13 +23,17 @@ const buttonVariants = cva(
   //   flat 下两档都是 none，shadow 下才有贴地/浮起；与 Card.vue 同一套高度。
   //   ⚠ 必须用 `.ui-elev-1`，不能写 `shadow-[var(--el-1)]` —— Tailwind 会把后者当颜色，
   //     生成 --tw-shadow-color，计算值仍是 none（2026-10-31 实测抓到的真因）。
-  'ui-btn-elev inline-flex shrink-0 appearance-none items-center justify-center gap-1.5 whitespace-nowrap border-0 border-solid font-[inherit] font-semibold transition-[background-color,border-color,color,filter,opacity,box-shadow] duration-100 outline-none disabled:pointer-events-none disabled:opacity-50',
+  // 2026-11-21（卡 30980018）：**不再用 `disabled:pointer-events-none`**。
+  // 它会让置灰按钮不接指针 —— 指针落到下面那张 `cursor:pointer` 的日志卡上，
+  // 于是"点不动的按钮"显示白手（用户实测）。改为按钮自己接指针 + `cursor:default`，
+  // 同时把 hover 效果在 disabled 下按回原样（否则置灰按钮还会亮起来像能点）。
+  'ui-btn-elev inline-flex shrink-0 appearance-none items-center justify-center gap-1.5 whitespace-nowrap border-0 border-solid font-[inherit] font-semibold transition-[background-color,border-color,color,filter,opacity,box-shadow] duration-100 outline-none disabled:cursor-default disabled:opacity-50 disabled:hover:brightness-100',
   {
     variants: {
       variant: {
         primary: 'bg-[var(--ui-primary)] text-[var(--ui-primary-foreground)] hover:brightness-105',
         outline:
-          'border border-[var(--ui-border)] bg-[var(--ui-card)] text-[var(--ui-foreground)] hover:bg-[var(--ui-accent)]',
+          'border border-[var(--ui-border)] bg-[var(--ui-card)] text-[var(--ui-foreground)] hover:bg-[var(--ui-accent)] disabled:hover:bg-[var(--ui-card)]',
         // 2026-10-17 暮雨第 4 条补：“决策”页混着两种按钮 —— 这里原来的 ghost 是**无边框**的
         // （hover 才浮出来），而老界面的 `.ghost` 一律白底 + 1px 描边。同一行里一眼看出是两套。
         // 统一到老那套：有边框 + 白底。
@@ -42,7 +46,7 @@ const buttonVariants = cva(
         // 所以这里改成 `--ui-foreground`（= --ink）。**只改 ghost，不动 bare**：
         //   bare 是待办行尾那种“静音钮”，压暗是它的本意（那几枚本来就该退到背景里）。
         ghost:
-          'border border-[var(--ui-border)] bg-[var(--ui-card)] text-[var(--ui-foreground)] hover:bg-[var(--ui-accent)]',
+          'border border-[var(--ui-border)] bg-[var(--ui-card)] text-[var(--ui-foreground)] hover:bg-[var(--ui-accent)] disabled:hover:bg-[var(--ui-card)]',
         danger: 'bg-[var(--ui-destructive)] text-[var(--ui-destructive-foreground)] hover:brightness-105',
         /**
          * `success`（2026-11-12 · 卡《基座 Button 缺 bare/success/xl》的变体二）。
@@ -68,7 +72,7 @@ const buttonVariants = cva(
          * ⚠ 它是**透明**的，不是“白底去边框”：`bg-transparent` 必须显式写，否则会继承 Card 的底色
          *   而看起来像一块色块。hover 的底色/描边由使用处按语义给（危险色 vs 强调色不同）。
          */
-        bare: 'border-0 bg-transparent text-[var(--ui-muted-foreground)] shadow-none hover:bg-[var(--ui-accent)] hover:text-[var(--ui-foreground)]',
+        bare: 'border-0 bg-transparent text-[var(--ui-muted-foreground)] shadow-none hover:bg-[var(--ui-accent)] hover:text-[var(--ui-foreground)] disabled:hover:bg-transparent disabled:hover:text-[var(--ui-muted-foreground)]',
       },
       size: {
         // 2026-10-17 暮雨第 4 条：“按钮视觉风格不统一……我更喜欢扁平化圆角”——

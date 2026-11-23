@@ -74,7 +74,7 @@ const age = (d: unknown) => formatAge(Number(d))
           @click="emit('reject-card', r.id)">↩ 驳回</button>
       </div>
       <div class="review-foot">
-        驳回后这张卡会回到“驳回”状态（看板里按状态能看到）；想让它返工，在卡片上点“退回返工”。
+        驳回后这张卡会回到“驳回”状态（看板里按状态能看到）。AI 下次取活会直接读它、优先返工；
         不想返工就归档 —— 归档 = 这件事不要了。
       </div>
     </div>

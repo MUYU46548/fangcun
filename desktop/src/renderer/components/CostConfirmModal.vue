@@ -16,7 +16,7 @@
         ⚠ 这会调用外部模型 / 开一个 DSH 会话，可能产生真实费用。方寸不预置端点、不代收费用；
         花销由你与模型服务方结算。
       </div>
-      <label class="chk" title="关掉后可在 设置 → 通用 →「花钱动作前确认」重新打开">
+      <label class="chk" title="关掉后可在 设置 → Agent →「花钱动作前确认」重新打开">
         <input type="checkbox" v-model="ctl.costAskForm.noMore" />
         以后不再提示（可在设置里重新打开）
       </label>

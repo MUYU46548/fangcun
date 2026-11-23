@@ -166,12 +166,14 @@
       <div class="acts task-acts">
         <div class="acts-group">
           <span class="acts-label">流转</span>
+          <!-- 2026-11-22 暮雨：「直接驳回，然后 AI 去读驳回的卡（且优先读）。只留驳回就够了，为什么一直退待办？」
+               完成卡只给「驳回」这一条流转出口；退回待办只在归档还原那条路上还保留。 -->
           <button
             v-if="previewTask.status === '完成'"
-            class="ok"
-            title="退回“待办”—— 只改状态，文件一个不动"
-            @click="restoreTask(previewTask)"
-          >↩ 退回待办</button>
+            class="danger"
+            title="驳回这张完成卡：写清哪里不行；AI 会直接读这张卡返工（不用退回待办）"
+            @click="openDirectReject(previewTask)"
+          >↩ 驳回</button>
           <!-- 终态的“删除”不放这里：它与“操作”组里那个删除按钮重复（用户 2026-09-25 第 5 条）。
                底部“操作”组的删除对任何状态都在，单一入口，不重复。
                2026-10-06 用户报“驳回任务只能还原和归档，为了省事点了归档”——
@@ -182,7 +184,7 @@
               驳回不是终态：AI 下次取活会直接读这张卡和理由返工，不用退回待办｜不要了 →“归档”或“删除”
             </template>
             <template v-else>
-              接着做 →“退回待办”｜先收起 →“归档”（文件移进 archive/，随时能还原）｜不要了 → 下面“操作”组最右的“删除”（进回收站，可找回）
+              驳回 = 这张卡没过关，AI 会直接读它返工（不用退回待办）｜先收起 →“归档”（文件移进 archive/，随时能还原）｜不要了 → 下面“操作”组最右的“删除”（进回收站，可找回）
             </template>
           </span>
           <template v-else>
@@ -285,7 +287,7 @@ const {
   previewTimeLabel, rejectReasonOf, startRejectEdit, saveRejectEdit, onBodyChange,
   openLogPreview, quickCompleteLog, reopenLogItem, openLogForTask,
   logStatusClass, logStatusLabel,
-  restoreTask, openReview, forceCloseTask, openDirectReject, archiveTask, signAndApplySmap,
+  openReview, forceCloseTask, openDirectReject, archiveTask, signAndApplySmap,
   openEdit, openCalAssignTask, copyId, openTaskFile, copyTaskClick, deleteTask,
   copyTaskAsDispatch,
 } = ctl

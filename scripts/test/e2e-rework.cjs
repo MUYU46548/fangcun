@@ -174,6 +174,16 @@ check('★ 驳回就是驳回：UI 里不再有“退回待办”选项/状态�
 check('★ 驳回路径不再调 unarchiveTask（旧流程已删，不是只换文案）',
   !/async function rejectTask[\s\S]{0,1600}?unarchiveTask\(/.test(APP_VUE))
 
+// 2026-11-22 暮雨：「直接驳回，然后 AI 去读驳回的卡（且优先读）。只留驳回就够了，为什么一直退待办？」
+const TASKPREVIEW = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'renderer', 'components', 'TaskPreview.vue'), 'utf8')
+check('★★ 完成卡只给「驳回」直达（不再给「退回待办」按钮）',
+  /previewTask\.status === '完成'[\s\S]{0,320}?openDirectReject\(previewTask\)/.test(TASKPREVIEW)
+  && !/previewTask\.status === '完成'[\s\S]{0,320}?restoreTask\(previewTask\)/.test(TASKPREVIEW))
+check('★ 完成卡提示写明：AI 直接读驳回卡返工，不用退回待办',
+  /驳回 = 这张卡没过关[\s\S]{0,80}?不用退回待办/.test(TASKPREVIEW))
+check('★ 待验收横幅不再叫用户“退回返工”（AI 直接读驳回卡、优先返工）',
+  !/退回返工/.test(BANNERS) && /优先返工/.test(BANNERS))
+
 console.log(`\nRESULT ${pass} / ${fail}`)
 if (fail) {
   console.log('\n失败项：')

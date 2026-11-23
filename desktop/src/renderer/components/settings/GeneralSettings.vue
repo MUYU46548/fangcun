@@ -8,15 +8,8 @@ import Button from '../ui/Button.vue'
 defineProps<{ active: boolean }>()
 const ctx: any = inject('fc-settings')
 const {
-  appVersion, updateState, checkUpdate, downloadUpdate, installUpdate, disableGpu, onDisableGpuChange, THEME_LIST, theme, setTheme, APPEARANCE_LIST, appearance, setAppearance, IDEA_TEXT_DEFAULT, IDEA_TEXT_HARD_MAX, IDEA_TEXT_MIN, ideaMaxChars, onIdeaMaxChange, views, viewLayout, VIEW_PRESETS, VIEWS_MIN_VISIBLE, VIEWS_MAX_VISIBLE, curLayoutName, onViewVisibleChange, resetCollapsedViews, openViewLayout, applyViewPreset,
-  costConfirm, setCostConfirm,
+  appVersion, updateState, checkUpdate, downloadUpdate, installUpdate, disableGpu, onDisableGpuChange, THEME_LIST, lightThemes, darkThemes, theme, setTheme, APPEARANCE_LIST, appearance, setAppearance, IDEA_TEXT_DEFAULT, IDEA_TEXT_HARD_MAX, IDEA_TEXT_MIN, ideaMaxChars, onIdeaMaxChange, views, viewLayout, VIEW_PRESETS, VIEWS_MIN_VISIBLE, VIEWS_MAX_VISIBLE, curLayoutName, onViewVisibleChange, resetCollapsedViews, openViewLayout, applyViewPreset,
 } = ctx
-
-/** 花钱确认开关（2026-11-20）：真身 prefs.json 的 costConfirm；默认开 */
-function onCostConfirmChange(e: Event): void {
-  const v = !!(e.target as HTMLInputElement | null)?.checked
-  void setCostConfirm(v)
-}
 
 // ── 记忆开关（2026-11-20）────────────────────────────────────────────
 // 真身 prefs.json；缺省开（键不存在 = 开）。只关 agent 的自动读写，
@@ -89,7 +82,11 @@ async function onAutoStartChange(e: Event): Promise<void> {
   }
 }
 
-onMounted(() => { void loadMemoryPrefs(); void loadAutoStart() })
+// ── DSH 派单总闸 / 花钱确认（2026-11-21 · 卡 2bd6106a）────────────────────
+// 已搬进「设置 → Agent」：见 components/settings/DshAgentSettings.vue。
+// 这里一行也不留 —— 两处都能改同一份 prefs 的话，用户永远不知道哪份才是真的。
+
+onMounted(() => { void loadMemoryPrefs(); void loadAutoStart(); })
 </script>
 
 <template>
@@ -129,27 +126,36 @@ onMounted(() => { void loadMemoryPrefs(); void loadAutoStart() })
             </div>
             <div v-if="autoStartMsg" class="hint">{{ autoStartMsg }}</div>
           </div>
-          <!-- 花钱动作确认（2026-11-20 · 暮雨）：默认开；关掉后按钮仍带金色 ¥ 角标，
-               但不再弹窗。弹窗里勾「以后不再提示」也会把这里关掉。 -->
-          <div class="sect" v-show="active">
-            <h4>花钱动作前确认</h4>
-            <label class="chk" title="调用 DSH 或模型前先弹窗说明可能产生的费用；关掉后不再拦，但按钮仍有 ¥ 角标">
-              <input type="checkbox" :checked="costConfirm" @change="onCostConfirmChange" />
-              调用 DSH / 模型前弹窗确认（防止新手误触）
-            </label>
-            <div class="hint">默认开。关掉后所有「发送给 DSH / 让 DSH 做规划 / 文档拆卡 / 出单」不再弹窗，但仍带金色 ¥ 角标。</div>
-          </div>
-          <!-- 2026-09-29 用户第 4 条：多主题外观（参考另一款自有产品的色板与摆法） -->
+          <!-- 2026-11-21（卡 2bd6106a）：DSH 派单 / 花钱动作确认已搬进「Agent」分类，
+               本页不再重复渲染（同一个开关两处能改 = 用户永远不知道哪份是真的）。 -->
+
           <div class="sect" v-show="active">
             <h4>外观主题</h4>
             <div class="hint">只换配色，不改布局；六套全部过可读性检查（正文 / 次要文字 / 按钮白字对比度 ≥ WCAG AA）。</div>
-            <div class="theme-swatches">
-              <button v-for="t in THEME_LIST" :key="t.id" class="theme-swatch font-[inherit]"
-                :class="{ on: theme === t.id }" :title="'切换到主题：' + t.name" @click="setTheme(t.id)">
-                <span class="sw-dot" :style="{ background: t.dot }"></span>
-                <span class="sw-name">{{ t.name }}</span>
-                <span v-if="theme === t.id" class="sw-check">✓</span>
-              </button>
+            <!-- 2026-11-22（用户：「主题亮暗两排，方寸也可以做」）：按明暗分组，各带文字标题。
+                 方寸现在一套暗色都没有 —— 暗色排如实写"还没做"，不摆空圈。 -->
+            <div class="theme-group">
+              <div class="theme-group-title">亮色主题</div>
+              <div class="theme-swatches">
+                <button v-for="t in lightThemes" :key="t.id" class="theme-swatch font-[inherit]"
+                  :class="{ on: theme === t.id }" :title="'切换到主题：' + t.name" @click="setTheme(t.id)">
+                  <span class="sw-dot" :style="{ background: t.dot }"></span>
+                  <span class="sw-name">{{ t.name }}</span>
+                  <span v-if="theme === t.id" class="sw-check">✓</span>
+                </button>
+              </div>
+            </div>
+            <div class="theme-group">
+              <div class="theme-group-title">暗色主题</div>
+              <div v-if="darkThemes.length" class="theme-swatches">
+                <button v-for="t in darkThemes" :key="t.id" class="theme-swatch font-[inherit]"
+                  :class="{ on: theme === t.id }" :title="'切换到主题：' + t.name" @click="setTheme(t.id)">
+                  <span class="sw-dot" :style="{ background: t.dot }"></span>
+                  <span class="sw-name">{{ t.name }}</span>
+                  <span v-if="theme === t.id" class="sw-check">✓</span>
+                </button>
+              </div>
+              <div v-else class="theme-group-empty">还没做 —— 方寸现在只有浅色主题。要加暗色，先把界面里的白底换成主题令牌（已记卡，属美化类，可后延）。</div>
             </div>
           </div>
           <!-- 2026-10-30 卡 004：全局外观（阴影 / 扁平）——

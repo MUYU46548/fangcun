@@ -27,6 +27,8 @@ import { getPolicy } from './policies'
 import { readContractFile, repoOfProject } from './tripBoard'
 import * as logs from './logs'
 import { ensureDispatchSecret, newDispatchNonce, signDispatch } from './dispatchSign'
+import { DISPATCH_SETTINGS_DEFAULTS, checkDispatch, dispatchGateText } from '../../shared/dispatchGate'
+import { appendDispatchAudit, lastDispatchAttemptMs, readDispatchAudit, readDispatchSettings } from './dispatchConfig'
 
 export interface ContextPack {
   ok: boolean
@@ -296,39 +298,52 @@ export interface DispatchResult {
   cooling?: boolean
   /** 冷却还剩多少毫秒（拒绝时给出，renderer 拿它起倒计时） */
   leftMs?: number
-  /** 本进程的冷却时长（成功时给出。renderer 照它显示，不许自己另写一个数） */
+  /** 本次生效的冷却时长（成功时给出。renderer 照它显示，不许自己另写一个数） */
   cooldownMs?: number
+  /** 派单总闸没开（默认态）：这次没有写文件，也不是故障 —— 是用户还没启用 */
+  disabled?: boolean
+  /** 这次是闸门的哪一条拦下的：disabled / cooldown / daily-cap / concurrency */
+  reason?: string
+  /** 今天已成功开过的会话数 / 日上限（0 = 不限） */
+  today?: number
+  dailyCap?: number
+  /** 今天还能开几个（-1 = 不限） */
+  leftToday?: number
+  enabled?: boolean
 }
 
 /**
- * 派单冷却（2026-11-20 · 暮雨）：
- * 「规划类派活类任务的按钮有没有冷却机制？比如点一次倒计时 10s，
+ * 派单冷却（2026-11-20 · 暮雨；2026-11-21 改为**共享设置**驱动）。
+ *
+ * 暮雨原话：「规划类派活类任务的按钮有没有冷却机制？比如点一次倒计时 10s，
  *   防止用户狂点开一堆会话浪费钱。」
  *
  * **没有冷却时是什么样**：点一次 = 写一份派单文件；插件每 8 秒消费最新一份并
  * `agents.create` + `followup`，也就是真的开一个模型会话、烧一份上万字的上下文。
  * 连点 N 次就是 N 个会话 —— 钱是按会话烧的，手滑一次就翻倍。
  *
- * 冷却按**项目**算，不按按钮算：同一个项目的「发送给 DSH」和「让 DSH 做规划」
- * 走的是同一根管子、开的是同一种会话，10 秒内只该有一份。不同项目互不影响 ——
- * 那是有意的两次操作，不是手滑。
+ * 2026-11-21 起冷却**不再是一个写死的 10 秒常量**：
+ *   · 出厂总闸是关的（`dispatchEnabled:false`）；
+ *   · 用户打开之后，冷却秒数 / 日上限 / 在途数从
+ *     `<数据根>/.dispatch-dsh/dispatch-settings.json` 读；
+ *   · 判据只有一条（`shared/dispatchGate.ts#checkDispatch`），插件消费端用同一套。
  *
- * ⚠ 这一层只管**界面手滑**。真正防滥用的闸（agent 不能直调、插件消费前要用户确认、
- *   单发/日上限/审计）在卡「派单防滥用…」里，别把这里当安全边界。
+ * ⚠ 这一层只是第二道闸。真正防滥用的是「默认关 + 签名」：
+ *   文件在不在都不该等于"可以开会话"。
  */
-export const DISPATCH_COOLDOWN_MS = 10_000
+export const DISPATCH_COOLDOWN_MS = DISPATCH_SETTINGS_DEFAULTS.cooldownSec * 1000
 
-/** 上次成功派单的时刻（ms）。只在主进程内存里 —— 重启后清零是对的：
- *  重启前的派单文件已经落盘，冷却不该跨进程假装还知道。 */
-const lastDispatchAt = new Map<string, number>()
-
-/** 距离冷却结束还有多少毫秒（0 = 可以派）。纯读，不改状态。 */
+/**
+ * 距离冷却结束还有多少毫秒（0 = 可以派）。**纯读**，不改状态。
+ *
+ * 从审计真身算，不靠内存 —— 重启后方寸与插件的答案才是同一个：
+ * 内存里记"10 秒内派过"会在下一进程里凭空消失，而钱已经花过了。
+ */
 export function dispatchCooldownLeft(projectId: string, now: number = Date.now()): number {
   const pid = String(projectId || '').trim()
   if (!pid) return 0
-  const at = lastDispatchAt.get(pid) || 0
-  const left = at + DISPATCH_COOLDOWN_MS - now
-  return left > 0 ? left : 0
+  const gate = checkDispatch(pid, readDispatchSettings(), readDispatchAudit(), now)
+  return gate.reason === 'cooldown' ? gate.leftMs : 0
 }
 
 /**
@@ -435,15 +450,55 @@ export function dispatchMessageToDsh(
   const kind = normalizeDispatchKind(kindRaw)
   const pre = String(prefix || '').trim()
 
-  // ① 冷却闸：先判，不建包、不写文件。手滑连点在这里就被挡住，
-  //    不会先烧掉上万字的上下文包再被拒。
-  const left = dispatchCooldownLeft(pid, now)
-  if (left > 0) {
+  // ① 总闸：**先判，不建包、不写文件**。
+  //    2026-11-21 改口径：出厂默认关（`enabled:false`），没被用户显式打开之前，
+  //    任何路径都开不出会话。冷却 / 日上限 / 在途是打开之后的第二道闸。
+  //    判据只有一条（shared/dispatchGate.ts），插件消费端用的是同一套。
+  const settings = readDispatchSettings()
+  const gate = checkDispatch(pid, settings, readDispatchAudit(), now, 0, lastDispatchAttemptMs(pid))
+  if (!gate.ok) {
+    // 拒单也留痕（audit.jsonl）：这是"到底是谁在开会话"的唯一凭据。
+    // 只数 ok:true 的算额度，所以这些行不会消耗当天配额。
+    appendDispatchAudit({
+      ok: false,
+      reason: gate.reason,
+      stage: 'gui-gate',
+      source: 'gui',
+      project: pid,
+      kind,
+    })
+    const error = dispatchGateText(gate)
+    if (gate.reason === 'disabled') {
+      return {
+        ok: false,
+        disabled: true,
+        enabled: false,
+        reason: 'disabled',
+        error,
+        projectId: pid,
+        kind,
+      }
+    }
+    if (gate.reason === 'cooldown') {
+      return {
+        ok: false,
+        cooling: true,
+        leftMs: gate.leftMs,
+        enabled: true,
+        reason: 'cooldown',
+        error,
+        projectId: pid,
+        kind,
+      }
+    }
     return {
       ok: false,
-      cooling: true,
-      leftMs: left,
-      error: `冷却中：还要 ${Math.ceil(left / 1000)} 秒才能再派（防连点开一堆会话）`,
+      enabled: true,
+      reason: gate.reason,
+      today: gate.today,
+      dailyCap: gate.dailyCap,
+      leftToday: gate.leftToday,
+      error,
       projectId: pid,
       kind,
     }
@@ -495,7 +550,6 @@ export function dispatchMessageToDsh(
     fs.writeFileSync(p, body, 'utf-8')
     // 新的一落盘就清掉同项目的旧派单（同一项目同时只留一份"待消费"）。
     pruneStaleDispatches(dir, String(r.projectId), path.basename(p))
-    lastDispatchAt.set(String(r.projectId), now)
     return {
       ok: true,
       path: p,
@@ -504,7 +558,13 @@ export function dispatchMessageToDsh(
       missing: r.missing || [],
       at,
       kind,
-      cooldownMs: DISPATCH_COOLDOWN_MS,
+      enabled: true,
+      reason: 'ok',
+      today: gate.today,
+      dailyCap: gate.dailyCap,
+      leftToday: gate.leftToday,
+      // 倒计时长度以**共享设置**为准：设置页改成 120 秒，这里立刻是 120 秒。
+      cooldownMs: settings.cooldownSec * 1000,
     }
   } catch (e: any) {
     return { ok: false, error: String(e?.message || e) }

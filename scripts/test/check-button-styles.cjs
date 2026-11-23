@@ -365,6 +365,26 @@ function main() {
   }
 
 
+  // ── 检查 ⑦：不可点 = 箭头（2026-11-21 · 卡 30980018）──────────────────────
+  //
+  // 用户原话：「光标放上去是“点击”，即白色手……明明项目里面是箭头，同一个软件里
+  //              到底还有多少不统一的细节」。
+  // 真因：日志卡整张 `cursor:pointer`，而 Button 基座写着 `disabled:pointer-events-none`
+  //   → 置灰按钮不接指针 → 指针落到卡上 → 白手。**只改 CSS 的 cursor 抓不到这条**，
+  //   因为按钮根本没参与 hit-testing，所以这里把"基座不许 pointer-events-none"也钉住。
+  {
+    const btnVuePath = path.resolve(__dirname, '../../desktop/src/renderer/components/ui/Button.vue')
+    const btnVueRaw = fs.existsSync(btnVuePath) ? fs.readFileSync(btnVuePath, 'utf-8') : ''
+    // 注释里也会出现这个类名（解释为什么删掉它），先剥注释再判，否则守卫自己假红。
+    const btnVue = btnVueRaw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    check('⑦ 全局 disabled 按钮 cursor=default（不是 hand，也不是 not-allowed）',
+      /button\[disabled\][^{]*\{[^}]*cursor:\s*default/.test(body) && !/cursor:\s*not-allowed/.test(body))
+    check('⑦ 基座不再给置灰按钮 pointer-events:none（否则指针穿到可点父卡上显示白手）',
+      btnVue.length > 0 && !/disabled:pointer-events-none/.test(btnVue))
+    check('⑦ 基座显式 disabled:cursor-default + disabled:hover 复位（置灰不该亮起来）',
+      /disabled:cursor-default/.test(btnVue) && /disabled:hover:brightness-100/.test(btnVue))
+  }
+
   console.log(`\n通过 ${pass} / 失败 ${fail}`)
   if (fail) {
     console.log('\n失败项：')

@@ -24,6 +24,8 @@ import { dshHome } from './probe'
 import { pipeNameFor } from '../mcp/pipe'
 import { getDataDir } from '../data'
 import { resolveDispatchSecretPath } from './dispatchSign'
+import { buildDispatchHealth } from './dispatchConfig'
+import type { DispatchAuditRow, DispatchGate, DispatchSettings } from '../../shared/dispatchGate'
 
 export interface DshPluginRow {
   /** 包名（dsh-fangcun） */
@@ -56,18 +58,8 @@ export interface DshLegacyBridge {
   isDevPath: boolean
 }
 
-/** 派单审计里的一行（插件 `appendDispatchAudit` 写的） */
-export interface DshDispatchAuditRow {
-  at: string
-  ok: boolean
-  reason?: string
-  source?: string
-  project?: string
-  kind?: string
-  sessionId?: string
-  file?: string
-  error?: string
-}
+/** 派单审计里的一行（插件 `appendDispatchAudit` 写的）—— 与共享模块同一形状 */
+export type DshDispatchAuditRow = DispatchAuditRow
 
 /** 诊断清单的一条：状态 + 人话 + 该做什么。**不做“只有通/不通”的二元结论。** */
 export interface DshDiagnosticCheck {
@@ -86,6 +78,18 @@ export interface DshDispatchStatus {
   pending: number
   /** rejected/ 里被拒的派单数（证据保留） */
   rejected: number
+  /** 派单总闸（2026-11-21）：默认关；设置页四项就是它 */
+  settings: DispatchSettings
+  /** 真源文件（`<数据根>/.dispatch-dsh/dispatch-settings.json`） */
+  settingsFile: string
+  /** `file` = 读了文件；`default` = 文件不存在，用默认值（关） */
+  settingsSource: 'file' | 'default'
+  /** 文件存在但读坏了时的那句话（读坏 → 按默认关处理） */
+  settingsError: string
+  /** 全局视角的闸（没有具体项目 → 不判冷却；判总闸 / 日上限） */
+  gate: DispatchGate
+  /** 今天已成功开过的会话数 */
+  today: number
   /** 签名密钥是否存在（不返回内容） */
   secret: {
     present: boolean
@@ -274,27 +278,8 @@ function detectDshVersion(home: string): { version: string; from: string } {
 }
 
 // ── 派单链路实况（2026-11-21）─────────────────────────────────────────────
-function readAuditRows(dir: string): DshDispatchAuditRow[] {
-  try {
-    const text = fs.readFileSync(path.join(dir, 'audit.jsonl'), 'utf-8')
-    const rows: DshDispatchAuditRow[] = []
-    for (const line of text.split(/\r?\n/)) {
-      const s = line.trim()
-      if (!s) continue
-      try {
-        const row = JSON.parse(s)
-        if (row && typeof row === 'object') rows.push(row as DshDispatchAuditRow)
-      } catch { /* 坏行跳过：审计不能卡住界面 */ }
-    }
-    return rows
-  } catch {
-    return []
-  }
-}
-
-function countFiles(dir: string, re: RegExp): number {
-  try { return fs.readdirSync(dir).filter((n) => re.test(n)).length } catch { return 0 }
-}
+// 审计行的解析 / 设置四项 / 闸门都收在 `services/dispatchConfig.ts` 一处：
+// 这一页与设置页渲染的是同一个对象，不许各算一个数。
 
 /**
  * 插件侧会挑中的密钥路径（与 `dsh-fangcun/lib/dispatch.js#resolveDispatchSecret` 同口径）。
@@ -314,6 +299,10 @@ function pluginSecretPick(): string {
 
 /** 插件拒绝派单的原因 → 人话 + 该做什么。**这句是本页存在的理由。** */
 const DISPATCH_REASONS: Record<string, { text: string; action: string }> = {
+  disabled: {
+    text: '派单总闸未启用（出厂默认关）—— 任何入口都开不出会话，手写派单也会被拒收',
+    action: '到 方寸 设置 → Agent → DSH 派单 里显式打开；打开后才谈冷却 / 日上限 / 在途',
+  },
   'no-secret': {
     text: '插件找不到方寸的派单密钥 —— 它读的目录和方寸写的不是同一处（常见：一个用安装版、一个读开发态 userData）',
     action: '两边升级到同一版本并重启 DSH / 方寸；仍不行就看密钥路径是否一致',
@@ -331,16 +320,16 @@ const DISPATCH_REASONS: Record<string, { text: string; action: string }> = {
     action: '方寸与 dsh-fangcun 一起升级到同一条发布线（不要只升一边）',
   },
   cooldown: {
-    text: '派单被冷却限制拦下（同一时间太密）',
-    action: '等冷却结束，或到 DSH 插件设置里调「派单限流」',
+    text: '派单被冷却限制拦下（同一项目太密）',
+    action: '等冷却结束，或到 方寸 设置 → Agent → DSH 派单 里调冷却秒数',
   },
   'daily-cap': {
     text: '派单达到每日上限',
-    action: '到 DSH 插件设置里调「派单限流」；默认已是不限',
+    action: '到 方寸 设置 → Agent → DSH 派单 里调日上限，或明天再派',
   },
   concurrency: {
     text: '并行派单已满（同时在跑的会话达到上限）',
-    action: '等手上的会话结束，或到插件设置里调并发数',
+    action: '等手上的会话结束，或到 方寸 设置 → Agent → DSH 派单 里调在途数',
   },
   'open-failed': {
     text: 'DSH 基座没能开新会话 —— 宿主接口变了（插件与当前 DSH 版本不兼容）',
@@ -424,24 +413,30 @@ export function detectDshPlugin(appVersion = ''): DshPluginStatus {
   const dshVer = detectDshVersion(home)
 
   // ── 派单实况 ──
-  const dispatchDir = path.join(getDataDir(), '.dispatch-dsh')
-  const auditRows = readAuditRows(dispatchDir)
-  const recent = auditRows.slice(-5).reverse()
-  const last = recent[0]
+  // 2026-11-21：设置四项 / 今天几单 / 闸门都从 `dispatchConfig` 现算（唯一真源），
+  // 这一页只补"密钥在不在、两边是不是同一份"。
+  const dispatchHealth = buildDispatchHealth()
+  const dispatchDir = dispatchHealth.file ? path.dirname(dispatchHealth.file) : path.join(getDataDir(), '.dispatch-dsh')
   const secretPath = resolveDispatchSecretPath()
   const pluginSecretPath = pluginSecretPick()
   const dispatch: DshDispatchStatus = {
     dir: dispatchDir,
-    pending: countFiles(dispatchDir, /^dispatch-.*\.md$/i),
-    rejected: countFiles(path.join(dispatchDir, 'rejected'), /\./),
+    pending: dispatchHealth.pending,
+    rejected: dispatchHealth.rejected,
+    settings: dispatchHealth.settings,
+    settingsFile: dispatchHealth.file,
+    settingsSource: dispatchHealth.source,
+    settingsError: dispatchHealth.settingsError,
+    gate: dispatchHealth.gate,
+    today: dispatchHealth.today,
     secret: {
       present: isFile(secretPath),
       path: secretPath,
       pluginPath: pluginSecretPath,
       same: !!pluginSecretPath && path.resolve(pluginSecretPath).toLowerCase() === path.resolve(secretPath).toLowerCase(),
     },
-    last,
-    recent,
+    last: dispatchHealth.last,
+    recent: dispatchHealth.recent,
   }
 
   // ── 诊断清单：每一项只回答“这一环现在是什么状态 + 坏了该动哪里” ──
@@ -506,18 +501,25 @@ export function detectDshPlugin(appVersion = ''): DshPluginStatus {
       ? '把旧的那份删掉或统一 userData，再点一次「发送给 DSH」'
       : '点一次「发送给 DSH」生成密钥；若点过仍没有，检查两侧 userData 是否同一个'),
   })
+  const last = dispatch.last
   const badReason = reasonOf(last)
+  const gateDisabled = !dispatch.settings.enabled
   checks.push({
     key: 'dispatch', label: '派单链路',
-    status: badReason ? 'bad' : (dispatch.pending > 0 ? 'warn' : 'ok'),
+    status: badReason ? 'bad' : ((gateDisabled || dispatch.pending > 0) ? 'warn' : 'ok'),
     detail: badReason
       ? `最近一次被拒（${last?.at ? String(last.at).slice(0, 19).replace('T', ' ') : '时间不详'}）：${badReason.text}`
-      : dispatch.pending > 0
-        ? `有 ${dispatch.pending} 份派单还没被消费 —— 插件没在跑 / 不在这个 profile`
-        : (last
-          ? `最近一次成功：${String(last.at || '').slice(0, 19).replace('T', ' ')}${last.project ? ' · ' + last.project : ''}${last.sessionId ? ' · 会话 ' + String(last.sessionId).slice(0, 8) : ''}`
-          : '还没有派单记录（没点过「发送给 DSH」，或审计文件还没生成）'),
-    action: badReason ? badReason.action : (dispatch.pending > 0 ? '确认 DSH 已启动且加载了 dsh-fangcun；重启 DSH 后再看' : ''),
+      : gateDisabled
+        ? `派单总闸未启用（出厂默认）—— 三个入口置灰，任何路径都开不出会话`
+          + (dispatch.pending > 0 ? `；目录里还压着 ${dispatch.pending} 份旧派单，插件会整目录拒收` : '')
+        : dispatch.pending > 0
+          ? `有 ${dispatch.pending} 份派单还没被消费 —— 插件没在跑 / 不在这个 profile`
+          : (last
+            ? `最近一次成功：${String(last.at || '').slice(0, 19).replace('T', ' ')}${last.project ? ' · ' + last.project : ''}${last.sessionId ? ' · 会话 ' + String(last.sessionId).slice(0, 8) : ''}（今天 ${dispatch.today}/${dispatch.settings.dailyCap || '不限'}）`
+            : '还没有派单记录（没点过「发送给 DSH」，或审计文件还没生成）'),
+    action: badReason ? badReason.action : (gateDisabled
+      ? '到 方寸 设置 → Agent → DSH 派单 里打开；不打开就不会有会话'
+      : (dispatch.pending > 0 ? '确认 DSH 已启动且加载了 dsh-fangcun；重启 DSH 后再看' : '')),
   })
   if (legacy) {
     checks.push({

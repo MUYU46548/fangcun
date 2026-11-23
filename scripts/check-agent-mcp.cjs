@@ -85,7 +85,22 @@ function readDsh() {
     return { found: false, path: p, reason: `YAML 解析失败：${e.message}` }
   }
   const entry = findById(doc, 'mcp-fangcun')
-  if (!entry) return { found: false, path: p, reason: '解析后没有 id: mcp-fangcun 的条目' }
+  if (!entry) {
+    // 2026-11-22：DSH 现在走**插件**（dsh-fangcun，插件工具直接由 DSH 提供），
+    // 不再配 MCP。旧诊断只认 mcp-fangcun，于是把"插件已接、MCP 没配"报成
+    // ❌「DSH 未配置方寸」—— 假红，而且出现在排查主入口上。
+    // 插件在场就如实报"走插件"，不再要求 MCP 条目。
+    const pluginPkg = path.join(os.homedir(), '.dsh', 'profiles', 'desktop', 'node_modules', 'dsh-fangcun', 'package.json')
+    if (fs.existsSync(pluginPkg)) {
+      let ver = ''
+      try { ver = JSON.parse(fs.readFileSync(pluginPkg, 'utf-8')).version || '' } catch { /* 版本读不到不挡检测 */ }
+      return {
+        found: false, plugin: true, pluginVersion: ver, path: p,
+        reason: `走插件 dsh-fangcun${ver ? ' v' + ver : ''}（DSH 侧不配 MCP 是正常的）`,
+      }
+    }
+    return { found: false, path: p, reason: '解析后没有 id: mcp-fangcun 的条目，也没找到 dsh-fangcun 插件' }
+  }
   const cfg = entry.config || {}
   const env = cfg.env && typeof cfg.env === 'object' ? Object.fromEntries(
     Object.entries(cfg.env).map(([k, v]) => [k, String(v)])
@@ -261,6 +276,12 @@ async function main() {
   for (const [name, cfg] of [['DSH', dsh], ['Hermes', hermes]]) {
     console.log(`── ${name}  ${cfg.path}`)
     if (!cfg.found) {
+      if (cfg.plugin) {
+        // 插件路线：不配 MCP 是正常形态，不是失败。
+        ok(`DSH 走插件${cfg.pluginVersion ? ' v' + cfg.pluginVersion : ''}（不配 MCP 是正常的）`, cfg.reason)
+        console.log('')
+        continue
+      }
       no(`${name} 未配置方寸`, cfg.reason || '配置文件里找不到')
       console.log('')
       continue

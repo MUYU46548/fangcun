@@ -3,6 +3,7 @@
 -->
 <script setup lang="ts">
 import { inject, reactive, ref, watch } from 'vue'
+import DshAgentSettings from './DshAgentSettings.vue'
 
 const props = defineProps<{ active: boolean }>()
 const ctx: any = inject('fc-settings')
@@ -95,6 +96,9 @@ watch(() => props.active, (v) => { if (v) loadWriteGate() }, { immediate: true }
 </script>
 
 <template>
+    <!-- 2026-11-21（卡 2bd6106a）：DSH 派单 / 花钱确认从「通用」搬进 Agent ——
+         这两组决定 agent 会不会被开、会不会花钱，是 Agent 语义。 -->
+    <DshAgentSettings :active="active" />
     <!-- 模型单价（可选，2026-10-25 卡 005 B 档）——**空表就是"一律未折算"**。
          为什么不内置默认价：暮雨原话“单价表从哪里来？每家都不一样，还随时可能变”。
          内置常量过半年就是谎话，而且不会报错，只会安静地算错。 -->
