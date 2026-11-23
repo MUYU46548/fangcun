@@ -1,7 +1,7 @@
 ---
 name: fangcun-bridge
-description: 方寸（tegula）↔ 任意 agent 接线卡（agent 中立）。要查询/修改方寸任务、读项目状态或阻塞链时加载：两个 stdio 入口选型、named pipe 自检、工具边界、写操作规则。
-version: 1.16.0
+description: 方寸（tegula）↔ 任意 agent 接线卡（agent 中立）。要查询/修改方寸任务、读项目状态或阻塞链、**出问卷让用户答题、提阶段卡、写决策、记记忆** 时加载：两个 stdio 入口选型、named pipe 自检、工具边界、**照抄即用的调用配方（别去读源码猜参数）**、写操作规则。
+version: 1.17.0
 metadata:
   hermes:
     tags: [fangcun, 方寸, mcp, bridge, 接线卡]
@@ -25,6 +25,15 @@ Hermes 侧的自动装卡与覆盖策略是特例（`skills/manifest.json` 登�
 - 派活前后需要确认任务状态
 - 需要从本 agent 侧触发方寸操作
 - 需要从本 agent 侧了解绒花墨坊运行状态
+- **有 ≥2 个问题要用户拍板 → 出问卷（`qn_propose`），见「①.9」**
+- **要提议作战计划的阶段卡（`stage_plan_propose`）、写决策（`decision_add`）、写记忆（`memory_write`）**
+
+⚠ **不要为了搞清参数去读 `desktop/src/main/mcp/tools.ts`。**
+本文档的「常做的几件事」就是照抄即用的配方；工具清单见「工具清单」节。
+2026-11-23 用户原话：「问卷居然需要查，是不是方寸的失败？方寸应该教 AI 怎么用问卷，
+而不是浪费 token 再做不稳定的『查』。」
+—— 那次的真因是**本节漏了问卷这一条触发**，于是 AI 判定"这技能与问卷无关"，
+转头去 grep 源码。技能正文里 ①.9 一直是完整的，缺的是**入口处的指引**。
 
 ## 入口（两个，按需选型）
 
