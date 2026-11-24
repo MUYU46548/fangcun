@@ -36,6 +36,48 @@ const repoD = path.join(TMP, 'repoD')
 process.env.FC_TEST_USERDATA = USERDATA
 for (const d of [DATA, USERDATA, repoA, repoB, repoC, repoD]) fs.mkdirSync(d, { recursive: true })
 
+/**
+ * ⚠ 2026-11-24：这些夹具目录**落在被测仓库内部**（`mkTmp` 从 2026-11-22 起把临时根
+ * 放到仓库同盘的 `.test-tmp/`，为了不往 C 盘塞垃圾）。
+ *
+ * 副作用：`gitLastCommitAt(repoX)` 里的 `git -C <repoX> log -1` 会一路往上找到
+ * **方寸自己的 .git**，返回方寸最近一次提交（几十秒前）→ `recent30` 全为真 →
+ * 每个夹具都命中默认判据、全被放上一屏。
+ *
+ * 于是这三条永远不可能过：
+ *   · 默认判据：无卡无提交项目不入屏
+ *   · 默认判据：空项目不入屏
+ *   · 判据没命中的项目被回传
+ * 而它们看起来像产品坏了 —— 实际是夹具在说"我这刚提交过"。
+ *
+ * 修法：给每个夹具**自己的、没有父仓库的** git 历史，提交时间回拨。
+ * 不复用 e2e-ask 里那个建新提交的函数：这里要的是"很久没提交"，
+ * 所以直接把那个唯一提交的日期定在 120 天前。
+ */
+function makeRepoHistory(dir, daysAgo) {
+  const { spawnSync } = require('child_process')
+  const when = new Date(Date.now() - daysAgo * 86400000).toISOString()
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_DATE: when, GIT_COMMITTER_DATE: when,
+    GIT_AUTHOR_NAME: 'fixture', GIT_AUTHOR_EMAIL: 'f@x',
+    GIT_COMMITTER_NAME: 'fixture', GIT_COMMITTER_EMAIL: 'f@x',
+  }
+  try {
+    const init = spawnSync('git', ['init', '-q'], { cwd: dir, encoding: 'utf-8', windowsHide: true, timeout: 15000 })
+    if (init.status !== 0) throw new Error('git init 失败')
+    fs.writeFileSync(path.join(dir, '.fixture'), 'old\n', 'utf-8')
+    spawnSync('git', ['add', '-A'], { cwd: dir, encoding: 'utf-8', windowsHide: true, timeout: 15000 })
+    const c = spawnSync('git', ['commit', '-qm', 'fixture'], { cwd: dir, encoding: 'utf-8', windowsHide: true, timeout: 15000, env })
+    if (c.status !== 0) throw new Error(String(c.stderr || '').slice(0, 120))
+  } catch (e) {
+    console.log('⚠ 夹具 git 历史没造出来（' + String(e.message || e).slice(0, 120)
+      + '）—— 下面三条"不入屏"断言会照实变红，不是产品坏了')
+  }
+}
+// 120 天：足够让 recent7 / recent30 都为假，于是"有没有卡/有没有日志"成为唯一判据
+for (const d of [repoA, repoB, repoC, repoD]) makeRepoHistory(d, 120)
+
 // electron 桩：本进程注入（避免 spawnSync）
 const origResolve = Module._resolveFilename
 Module._resolveFilename = function (request, ...rest) {

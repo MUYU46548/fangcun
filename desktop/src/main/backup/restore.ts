@@ -120,7 +120,28 @@ export async function restoreFrom(
   result.manifest = verify.manifest
 
   // ── 3. 解压到临时目录 ────────────────────────────────────────────────
-  const stagingRoot = path.join(os.tmpdir(), `fangcun-restore-stage-${Date.now()}`)
+  //
+  // ⚠ 2026-11-24 真 bug（在 e2e-backup 里抓到的，不是假红）：
+  //   这里原来**写死 `os.tmpdir()`**（= C 盘），而第 6 步用 `fs.renameSync` 把它搬到数据根。
+  //   `rename` 是**同盘原子操作**，跨盘一律 EXDEV：
+  //     EXDEV: cross-device link not permitted, rename
+  //       'C:\Users\…\Temp\fangcun-restore-stage-…\task-data'
+  //       -> 'E:\CODE\CangKu\fangcun\…\task-data'
+  //   后果：**数据在非 C 盘的用户，恢复功能 100% 失败**（而且失败发生在"已经建好快照"之后，
+  //   靠回滚兜着 —— 数据不至于丢，但恢复这条路等于不存在）。
+  //   本机数据根就在 E 盘，所以这不是理论风险。
+  //
+  // 修法：**暂存目录放到数据根同盘**，于是后面每一步 rename 都是同盘。
+  //   ⚠ 数据根可能**还不存在**（演练/首次恢复到新目录）—— 那就退到它的**父目录**，
+  //     仍然同盘；只有连父目录都不存在时才用 os.tmpdir()（那种情况本来就写不进去）。
+  //   为什么不改成"先拷再删"：那要两倍磁盘 + 中途失败会留下半套数据，
+  //   而"同盘 rename"本身就是我们要的原子性 —— 换目录比换算法便宜得多。
+  // ⚠ 名字带 `.` 前缀：备份/整理/盘点都会跳过点开头的目录，不会把它当成数据。
+  const anchor = [dataDir, path.dirname(dataDir)].find((p) => {
+    try { return fs.statSync(p).isDirectory() } catch { return false }
+  })
+  const stagingParent = anchor || os.tmpdir()
+  const stagingRoot = path.join(stagingParent, `.restore-stage-${Date.now()}`)
   try {
     fs.mkdirSync(stagingRoot, { recursive: true })
     result.restoredFiles = extractZipTo(zipBuffer, stagingRoot)

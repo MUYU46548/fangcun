@@ -94,10 +94,23 @@ function main() {
   check('C3 preload 暴露 prefsGet', /prefsGet:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('prefs:get'\)/.test(preloadSrc))
   check('C4 preload 暴露 prefsSet', /prefsSet:\s*\(key: string, value: any\)\s*=>\s*ipcRenderer\.invoke\('prefs:set'/.test(preloadSrc))
   check('C5 渲染层有与主进程对齐的同步逻辑', /async function syncAgentPresets/.test(vueSrc) && /syncAgentPresets\(\)/.test(vueSrc))
-  // ⚠ 窗口 2026-10-31 由 400 放宽到 1500：onMounted 里先后加了“清空撤销栈”测试钩子
-  //   （带 try/catch 与说明注释）与通知焦点订阅，几十行说明把原窗口撑爆了。
-  //   判据本身没变：**启动时**（onMounted 内）必须调用 syncAgentPresets。
-  check('C6 启动时调用同步（onMounted 内）', /onMounted\(\(\) => \{[\s\S]{0,1500}syncAgentPresets\(\)/.test(vueSrc))
+  // ⚠ 这条判据被数字坑过两次（本仓记过的老病：**窗口宽度不是判据**）：
+  //   400 → 1500（2026-10-31，加了测试钩子与通知订阅）→ 2026-11-24 又破（1656），
+  //   而这次撑爆它的根本不是偏好相关代码，是旁边那段**免责声明闸**。
+  //   每破一次就调大一次，等于把"判据"慢慢变成"几乎没有判据"。
+  // 现在改成**按块边界**取，不再靠字数：
+  //   把 `onMounted(() => {` 起点到「同层的下一个顶层调用/末尾」之间整段拿来判。
+  //   只要 syncAgentPresets() 出现在启动块里，不管中间塞了多少无关代码都算过。
+  check('C6 启动时调用同步（onMounted 内）', (() => {
+    const i = vueSrc.indexOf('onMounted(() => {')
+    if (i < 0) return false
+    // 从 onMounted 起点往后，取到「下一个顶格声明」（`\n}\n` 或 `\napp.` / `\nfunction ` 这类）为止。
+    // 上限 20000 只是为了别把整个文件吃进来；它**不是**判据本身。
+    const tail = vueSrc.slice(i, i + 20000)
+    const endM = /\n\}\)\s*\n/.exec(tail)       // onMounted 的回调靠 `})` 收口
+    const body = endM ? tail.slice(0, endM.index) : tail
+    return body.includes('syncAgentPresets()')
+  })(), 'onMounted 块里没找到 syncAgentPresets()')
   check('C7 预设写入同时落缓存与真身', /function saveAgentPresets[\s\S]{0,400}prefsSet\('fc_agent_presets'/.test(vueSrc))
   check('C8 真身空而缓存有值时做一次性迁移',
     /cached && cached\.length[\s\S]{0,160}prefsSet\('fc_agent_presets', cached\)/.test(vueSrc))

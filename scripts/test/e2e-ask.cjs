@@ -34,6 +34,51 @@ for (const d of [DATA, USERDATA, repoA, repoB, repoC]) fs.mkdirSync(d, { recursi
 fs.mkdirSync(path.join(DATA, 'task-data'), { recursive: true })
 fs.mkdirSync(path.join(DATA, 'docs', '执行日志'), { recursive: true })
 
+/**
+ * ⚠ 2026-11-24：夹具目录**落进了被测仓库内部**，于是"冷项目"永远不冷。
+ *
+ * `mkTmp` 从 2026-11-22 起把临时根放到仓库同盘的 `.test-tmp/`（为了不往 C 盘塞垃圾）。
+ * 副作用：`gitLastCommitAt(repoC)` 里的 `git -C <repoC> log -1` 会一路往上找到
+ * **方寸自己的 .git**，返回方寸最近一次提交（几十秒前）→ `recent7` 为真 → `active`。
+ *
+ * 结果：`★ 60 天没动的项目被判"休眠"` 这条**永远不可能过**，
+ * 而它看起来像产品坏了（实际是夹具在说"我这刚提交过"）。
+ *
+ * 修法：给冷项目一个**自己的、很旧的、没有父仓库**的 git 历史。
+ * 不能用 .git 手工拼（容易写坏），直接 `git init` + 一个 `--date` 回拨的提交 ——
+ * 于是 `git -C repoC log` 找到的是 repoC 自己那个 70 天前的提交，往上不再有仓库。
+ *
+ * 跑不起来（本机没 git / 沙盒禁 spawn）时**不静默**：打一行警告，
+ * 那条断言会照实变红 —— 红得明白，而不是红得莫名其妙。
+ */
+function makeColdRepoHistory(dir, daysAgo) {
+  const { spawnSync } = require('child_process')
+  const when = new Date(Date.now() - daysAgo * 86400000).toISOString()
+  const run = (args, env) => spawnSync('git', args, {
+    cwd: dir, encoding: 'utf-8', windowsHide: true, timeout: 15000,
+    env: { ...process.env, ...(env || {}) },
+  })
+  try {
+    if (run(['init', '-q']).status !== 0) throw new Error('git init 失败')
+    fs.writeFileSync(path.join(dir, '.fixture'), 'cold\n', 'utf-8')
+    run(['add', '-A'])
+    const commit = spawnSync('git', ['commit', '-qm', 'fixture'], {
+      cwd: dir, encoding: 'utf-8', windowsHide: true, timeout: 15000,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_DATE: when, GIT_COMMITTER_DATE: when,
+        GIT_AUTHOR_NAME: 'fixture', GIT_AUTHOR_EMAIL: 'f@x',
+        GIT_COMMITTER_NAME: 'fixture', GIT_COMMITTER_EMAIL: 'f@x',
+      },
+    })
+    if (commit.status !== 0) throw new Error(String(commit.stderr || '').slice(0, 120))
+  } catch (e) {
+    console.log('⚠ 冷项目夹具的 git 历史没造出来（' + String(e.message || e).slice(0, 120)
+      + '）—— 下面那条"休眠"断言会照实变红，不是产品坏了')
+  }
+}
+makeColdRepoHistory(repoC, 70)
+
 const origResolve = Module._resolveFilename
 Module._resolveFilename = function (request, ...rest) {
   if (request === 'electron') return path.join(REPO, 'scripts', 'test', 'electron-stub.cjs')
