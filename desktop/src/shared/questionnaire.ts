@@ -383,14 +383,123 @@ export interface QDeckIssue {
   text: string
 }
 
-/** Typeform 官方调研：≤6 题/批完成率最高，比长表单高 15% */
+/**
+ * 一卷适合几题（2026-11-24 · 暮雨：「问卷会不会太短了？项目规划这种非常重的任务，
+ * 问个五六十题都不过分」）。
+ *
+ * ## 先纠正一个前提：**技术上没有上限**
+ *
+ * `validateDeckSpec` 不限制题数；实测 60 道合法题可以正常落盘与呈现
+ * （界面有左栏跳题 + 进度条）。所以"问卷太短"从来不是系统拦的。
+ *
+ * ## 这条提示原来的毛病：**对规划卷开错药**
+ *
+ * 原来是 `Q_BATCH_MAX = 6` 一刀切，超过就报「建议拆批或拆层」。
+ * 那个 6 来自 Typeform 的**营销问卷**完成率调研（≤6 题完成率最高），
+ * 但规划类问卷**不是营销问卷**：它的问题是判断题，且**越后面越值钱**
+ * （前面是边界题好答，后面是取舍题）。
+ *
+ * 对着 60 题的规划卷说"超过 6 题/批建议拆批"，是**错的建议** ——
+ * 规划卷该说的是"分层出、别一次写死"。
+ *
+ * ## 现在的判据：看**题型**，不看总数
+ *
+ * | 题型 | 怎么认 | 建议 |
+ * |---|---|---|
+ * | 裁决类（几选一、彼此独立） | 多数题没有跨题依赖 | 一屏 3–8 题 |
+ * | 规划类（后面的题要看前面的答案） | 题面出现"按上面/基于/取决于/依上" | 分层，每层 8–12 题 |
+ * | 收拾旧账（把已发生的事归位） | 题面多是"这条属于哪类" | 10–20 题 |
+ *
+ * ⚠ 认不出题型时**不猜**：只说总数、不瞎建议（见 `deckShape` 返回 `kind: 'unknown'`）。
+ */
+
+/** 单卷题数的参考上限（超了才提一句；**不是硬闸**） */
 export const Q_BATCH_MAX = 6
+/** 规划类分层后的**单层**上限 —— 比裁决类宽，因为题是同一类判断题 */
+export const Q_PLAN_PER_LAYER = 12
+/** 规划类整卷的参考上限（超过就基本该考虑分卷了） */
+export const Q_PLAN_TOTAL_MAX = 40
+
+export type DeckKind = 'verdict' | 'plan' | 'cleanup' | 'unknown'
+
+/**
+ * 判断这张卷是哪一类（只看题面特征，不猜）。
+ *
+ * 判据尽量保守：认不出就返回 `unknown`，**宁可不给建议，也不给错建议**。
+ */
+export function deckShape(questions: { ask?: string; nav?: string }[]): DeckKind {
+  const qs = Array.isArray(questions) ? questions : []
+  if (!qs.length) return 'unknown'
+  const text = qs.map((q) => `${q?.nav || ''} ${q?.ask || ''}`).join(' ')
+  // 规划类最硬的信号：题与题之间有依赖
+  // ⚠ 词表要宽：实测漏过 "基于前面"（只写了"基于上"），于是 50 题的规划卷被认成 unknown
+  //   而**拿到了"没有建议"** —— 不报错，但也没提醒该分层。漏判比误判更难发现。
+  if (/按上面|按前面|基于上|基于前|取决于上|取决于前|依上|依前|结合前面|上一题|前述|以上|上一步/.test(text)) return 'plan'
+  // 收拾旧账：大量"归到哪 / 属于哪类"的分类型题面
+  const classify = qs.filter((q) => /归到|属于哪|归哪|分类|算哪一/.test(String(q?.ask || ''))).length
+  if (classify >= Math.max(2, Math.ceil(qs.length / 3))) return 'cleanup'
+  // 裁决类：多数题是"要不要 / A 还是 B"
+  const verdict = qs.filter((q) => /还是|要不要|选哪|[AB]\s*[.、]|做不做/.test(String(q?.ask || ''))).length
+  if (verdict >= Math.max(2, Math.ceil(qs.length / 3))) return 'verdict'
+  return 'unknown'
+}
+
+export interface DeckSizeHint {
+  kind: DeckKind
+  /** 是否值得提一句（false = 别提，别加噪音） */
+  noteworthy: boolean
+  /** 人话建议（`noteworthy: false` 时为空串） */
+  advice: string
+}
+
+/**
+ * 卷子大小该不该提一句、提什么。
+ *
+ * ⚠ 三条纪律：
+ *   ① **裁决类**超 6 题才提（那个 6 对它是对的）；
+ *   ② **规划类**按"每层"算，不按总数 —— 一张 30 题的规划卷若分了 3 层，
+ *      每层 10 题，那**没问题**，不该报；
+ *   ③ 认不出题型 → **不提**（说总数就够，别瞎建议）。
+ */
+export function deckSizeHint(questions: { ask?: string; nav?: string }[]): DeckSizeHint {
+  const qs = Array.isArray(questions) ? questions : []
+  const n = qs.length
+  const kind = deckShape(qs)
+  if (kind === 'verdict') {
+    if (n <= Q_BATCH_MAX) return { kind, noteworthy: false, advice: '' }
+    return {
+      kind, noteworthy: true,
+      advice: `这卷 ${n} 题，裁决类建议一屏 3–8 题 —— 题越多，后面的题越容易随口答`,
+    }
+  }
+  if (kind === 'plan') {
+    if (n <= Q_PLAN_PER_LAYER) return { kind, noteworthy: false, advice: '' }
+    if (n <= Q_PLAN_TOTAL_MAX) {
+      return {
+        kind, noteworthy: true,
+        advice: `这卷 ${n} 题。规划类可以长，但要**分层**：每层 ${Q_PLAN_PER_LAYER} 题以内、`
+          + '答完一层再出下一层（后面的题常常依赖前面的答案）',
+      }
+    }
+    return {
+      kind, noteworthy: true,
+      advice: `这卷 ${n} 题，超过 ${Q_PLAN_TOTAL_MAX} 题 —— 建议分卷（每一卷聚焦一个阶段），`
+        + '否则后段的题会在"还不知道前面怎么答"的情况下被写死',
+    }
+  }
+  if (kind === 'cleanup') {
+    if (n <= 20) return { kind, noteworthy: false, advice: '' }
+    return { kind, noteworthy: true, advice: `这卷 ${n} 题，收拾旧账类建议一屏 10–20 题` }
+  }
+  // unknown：**不猜题型，也就不给题量建议**
+  return { kind, noteworthy: false, advice: '' }
+}
 
 /**
  * 卷面体检。**只报告、不改卷**：
  *   · `noCost`  —— 选项没写"要付什么"（让人在黑暗里选）；
  *   · `noLine`  —— 题没写【验收线】（事后校验没有判据，`auditAnswer` 会直接拒）；
- *   · `tooMany` —— 一屏超过 `Q_BATCH_MAX` 题（调研数据：完成率明显下降，建议拆批）。
+ *   · `tooMany` —— 题量超出该题型建议（**按题型算，不再一刀切 6**）。
  *
  * 为什么不替它改：题目是 agent 写的（暮雨原话），方寸只做呈现与收答案。
  * 出口是「打包成补代价 / 重出题」，不是替出卷人动刀。
@@ -406,8 +515,7 @@ export function deckIssues(d: QDeck): QDeckIssue[] {
       out.push({ kind: 'noLine', id: q.id, text: `${q.id} 没写验收线（事后没法校验）` })
     }
   }
-  if (d.questions.length > Q_BATCH_MAX) {
-    out.push({ kind: 'tooMany', text: `这卷 ${d.questions.length} 题，超过 ${Q_BATCH_MAX} 题/批 —— 建议拆层或拆批` })
-  }
+  const hint = deckSizeHint(d.questions)
+  if (hint.noteworthy) out.push({ kind: 'tooMany', text: hint.advice })
   return out
 }
