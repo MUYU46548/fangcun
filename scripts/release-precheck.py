@@ -33,6 +33,7 @@
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 
@@ -322,6 +323,49 @@ def verify_release(repo, ver, slug, tag):
 
 # ── 入口 ───────────────────────────────────────────────────────────────
 
+def check_data_health(repo):
+    """数据文件健康体检（2026-11-24 · 事故后加）
+
+    起因：我用 PowerShell `Set-Content -Encoding utf8` 批量改日志，
+    **它写 UTF-8 BOM** → 文件首行从 `---` 变 `\\uFEFF---` → 产品解析正则 `/^---/`
+    匹配失败 → **整份 frontmatter 读不出来 → 那条日志在客户端直接消失**
+    （用户看到的是「少了一条进行中」）。18 个文件被这么改坏。
+
+    **为什么这种事故"差点永远没人发现"**：它不报错。文件在、内容在、字数差不多，
+    只是解析器读不到。症状还是"某条不见了"这种模糊现象。
+
+    所以这个检查挂在发版前置 —— 发版是少数**一定会被执行**的节点。
+    ⚠ 同样**只警告不阻断**：数据坏了不该拦住发版（那会逼人绕过闸），
+       但必须在人眼前过一遍。
+    """
+    lines = []
+    script = os.path.join(repo, "scripts", "audit-data-health.cjs")
+    if not os.path.isfile(script):
+        return E_OK, ["（没有 scripts/audit-data-health.cjs，跳过数据体检）"]
+    if not shutil.which("node"):
+        return E_OK, ["（没有 node，跳过数据体检 —— 不等于数据健康）"]
+    try:
+        p = subprocess.run(["node", script], cwd=repo,
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=300)
+    except Exception as e:                                    # noqa: BLE001
+        return E_OK, [f"数据体检跑不起来（{type(e).__name__}: {e}）—— 不等于数据健康"]
+    out = (p.stdout or "").strip()
+    tail = [ln for ln in out.splitlines() if "合计问题" in ln]
+    bad = [ln.strip() for ln in out.splitlines() if "✗" in ln]
+    if tail:
+        lines.append("数据体检：" + tail[-1].strip())
+    if bad:
+        lines.append("⚠ 有数据文件被改坏（发版不拦，但请知道它还在）：")
+        for b in bad[:8]:
+            lines.append("   " + b)
+        if len(bad) > 8:
+            lines.append(f"   … 另有 {len(bad) - 8} 项")
+    elif p.returncode != 0:
+        lines.append("⚠ 数据体检非零退出但没认出问题项 —— 读数可疑，别当健康")
+    return E_OK, lines
+
+
 def check_promises(repo):
     """「提了没做」收工闸（2026-11-17 · 暮雨：「防止东西提了没做的机制，有了吗？」）
 
@@ -403,6 +447,10 @@ def main(argv):
             rc = rc or c
         # ③ 欠账体检（2026-11-17）：只警告不阻断 —— 说明见 check_promises 注释
         c, diag = check_promises(repo)
+        lines += diag
+        rc = rc or c
+        # ④ 数据文件健康（2026-11-24 事故后加）：同样只警告不阻断
+        c, diag = check_data_health(repo)
         lines += diag
         rc = rc or c
         head = "发版前置体检"
