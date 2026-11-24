@@ -106,8 +106,16 @@ check('★ 搜 kill：只在证据里命中的 EV 排在 D5 之后，且相关�
   JSON.stringify(rk.rows.map((x) => [x.item.id, x.relevance])))
 check('★★ 搜 kill：不含关键词的 D1 不进结果（pinned 也不绕过相关度）',
   !rk.rows.some((x) => x.item.id === 'D1'))
-check('★ 搜 kill：低可信 + 两年前的 LOW 被 0.15 门槛挡掉',
-  !rk.rows.some((x) => x.item.id === 'LOW'), JSON.stringify(rk.rows.map((x) => x.item.id)))
+// ⚠ 2026-11-24 改（C1=A：抄 Generative Agents 的归一化加权和）：
+// 原断言是「低可信 + 两年前的 LOW 被 0.15 门槛挡掉」——那**正是旧乘法模型的行为**，
+// 也正是 C1 要废掉的那条语义：时间一票否决 → 老记忆静默消失。
+// 现在 LOW 仍然**留在结果里**（三条都在），但**排在最后**。
+// 判据从「被淘汰」改成「还在、且排最后」——这才是「时间只影响排位，不影响存亡」。
+check('★★ 搜 kill：低可信 + 两年前的 LOW **不再被时间淘汰**（C1 的核心改动）',
+  rk.rows.some((x) => x.item.id === 'LOW'), JSON.stringify(rk.rows.map((x) => x.item.id)))
+check('★★ 搜 kill：LOW 虽然留下了，但排在 D5 与 EV 之后（时间只降排位）',
+  rk.rows.findIndex((x) => x.item.id === 'LOW') === rk.rows.length - 1,
+  JSON.stringify(rk.rows.map((x) => [x.item.id, x.score])))
 check('★ total 是裁剪前的命中数，不是返回数', rk.total >= 2 && rk.returned === rk.rows.length)
 check('★ chars = 返回条目的 claim 长度之和',
   rk.chars === rk.rows.reduce((n, x) => n + String(x.item.claim).length, 0), String(rk.chars))
@@ -165,6 +173,83 @@ const corePrefix = R.renderCore(items.slice(0, 1), { budget: 200, prefix: '人�
 check('★ renderCore 的人工补充块也算预算（前缀太长就丢条目）',
   corePrefix.chars <= 200 && corePrefix.text.startsWith('人工补充'),
   JSON.stringify({ chars: corePrefix.chars, dropped: corePrefix.dropped }))
+
+// ── ④ 归一化加权和（2026-11-24 · C1=A 抄 Generative Agents）──────────
+// 这一节钉的是**模型的语义**，不是某个具体分数。改模型的人必须让这几条继续绿，
+// 否则就是把「时间一票否决 → 老记忆静默消失」偷偷改回去了。
+const DAY = 86400000
+const ago = (d) => new Date(NOW - d * DAY).toISOString()
+
+check('★ minMax 整组相同 → 全给 1（不是 0）',
+  R.minMax(5, 5, 5) === 1 && R.minMax(0, 0, 0) === 1,
+  `${R.minMax(5, 5, 5)} / ${R.minMax(0, 0, 0)}`)
+check('★ minMax 正常区间 → 端点 0 与 1',
+  R.minMax(3, 1, 5) === 0.5 && R.minMax(1, 1, 5) === 0 && R.minMax(5, 1, 5) === 1)
+check('★ RANK_WEIGHTS 三项都是 1（与论文默认一致）',
+  R.RANK_WEIGHTS.relevance === 1 && R.RANK_WEIGHTS.importance === 1 && R.RANK_WEIGHTS.recency === 1)
+
+// ★★ C1 的验收线本身：一条重要度 5 的旧事故，**多久之后都还搜得到**
+for (const days of [365, 730, 1095]) {
+  const old = [{
+    id: 'OLD5', claim: 'BOM 会写进数据文件，害得解析器读不到',
+    confidence: 0.9, importance: 5, halfLife: 365, time: ago(days), tags: ['BOM'],
+  }, {
+    id: 'NEW2', claim: '今天记的一件小事', confidence: 0.7, importance: 2,
+    halfLife: 365, time: ago(0), tags: ['杂'],
+  }]
+  const r5 = R.rankMemories(old, { q: 'BOM', now: NOW, minScore: 0.15, limit: 10 })
+  check(`★★ C1 验收线：重要度 5 的事故，${days} 天后仍搜得到（不被时间淘汰）`,
+    r5.rows.some((x) => x.item.id === 'OLD5'),
+    JSON.stringify(r5.rows.map((x) => [x.item.id, x.score])))
+}
+
+// ★★ 时间只降排位，不淘汰：三条都命中，最老的排最后但仍然在
+const threeAges = [
+  { id: 'T0', claim: 'BOM 今天刚遇到', confidence: 0.9, importance: 5, halfLife: 365, time: ago(0), tags: ['BOM'] },
+  { id: 'T180', claim: 'BOM 半年前遇到', confidence: 0.9, importance: 5, halfLife: 365, time: ago(180), tags: ['BOM'] },
+  { id: 'T1095', claim: 'BOM 三年前遇到', confidence: 0.9, importance: 5, halfLife: 365, time: ago(1095), tags: ['BOM'] },
+]
+const rAges = R.rankMemories(threeAges, { q: 'BOM', now: NOW, minScore: 0.15, limit: 10 })
+check('★★ 三条同相关度、只差时间 → 全部留下（时间不淘汰）',
+  rAges.rows.length === 3, JSON.stringify(rAges.rows.map((x) => x.item.id)))
+check('★★ 且严格按新→旧排（时间仍影响排位）',
+  rAges.rows.map((x) => x.item.id).join('>') === 'T0>T180>T1095',
+  rAges.rows.map((x) => `${x.item.id}@${x.score}`).join(' '))
+
+// ★★ 反例：把新鲜度做回**乘数**，上面那种"三年后仍搜得到"就会塌
+// 这里不改源码，只用同一个函数算一遍乘法，证明两者语义确实不同 ——
+// 免得以后有人以为"只是换个写法"。
+{
+  const oldItem = threeAges[2]
+  const rel = 1, conf = R.confidenceOf(oldItem.confidence)
+  const imp = R.importanceFactor(oldItem.importance)
+  const fre = R.freshnessOf(oldItem.time, oldItem.halfLife, NOW)
+  const multScore = rel * conf * imp * fre
+  check('★★ 反例自证：同一条用**乘法**算必然跌破 0.15（证明这不是"换个写法"）',
+    multScore < 0.15, `mult=${multScore.toFixed(3)} < 0.15；加法模型下它仍被返回`)
+}
+
+// ★★ 门槛必须打在**绝对匹配质量**上，不能打在归一化后的分数上
+// （2026-11-24 当场抓到的真缺陷：min-max 让分数永远落在高位，0.15 门槛形同虚设）
+//
+// ⚠ 构造要点：JUNK 必须**有非零相关度**才会走到归一化那一步。
+//   第一版拿"毫不相干"的词做 JUNK，relevance 直接是 0，被更早的 `relevance <= 0` 滤掉，
+//   于是注入 `gate -> mixed` 这个 bug 时它**照样绿** —— 假绿。这里是修正后的版本：
+//   JUNK 用弱命中（只在证据里出现一次），
+//   · 正确实现：gate = rel × conf = 0.3 × 0.9 = 0.27 > 0.15 → 其实也会进……
+//   所以门槛改成 0.5，让"弱命中"必须被挡，而"真命中"（rel=1）能过。
+{
+  const junk = [
+    { id: 'STRONG', claim: 'zzneedle 这条真的含探针', evidence: '', confidence: 0.9, importance: 5, halfLife: 0, time: ago(0), tags: [] },
+    { id: 'JUNK', claim: '一条别的话', evidence: 'zzneedle 只在证据里出现一次', confidence: 0.9, importance: 5, halfLife: 0, time: ago(0), tags: [] },
+  ]
+  const rj = R.rankMemories(junk, { q: 'zzneedle', now: NOW, minScore: 0.5, limit: 10 })
+  check('★★ 门槛打在绝对质量上：弱命中(只在证据)不许被归一化抬过 0.5 门槛',
+    rj.rows.length === 1 && rj.rows[0].item.id === 'STRONG',
+    JSON.stringify(rj.rows.map((x) => [x.item.id, x.score, x.gate])))
+  check('★ 每条带 gate（= relevance × confidence），界面/测试能看清为什么被挡',
+    typeof rj.rows[0].gate === 'number' && rj.rows[0].gate > 0, String(rj.rows[0].gate))
+}
 
 console.log('')
 if (failures.length) { console.log('失败明细：'); failures.forEach((x) => console.log('  · ' + x)) }

@@ -286,9 +286,14 @@ python scripts/test/check-promises-mutations.py   # 反例自证（5 条）
   要能单独读懂，细节进证据；③ **不进版本控制** —— `.gitignore` 里是 `memory/*` + `!memory/README.md`
   （规范入库，数据不入库）。⚠ 用 `memory/*` 而不是 `memory/`：**父目录被 ignore 后 `!` 救不回文件**。
 - **召回**：`python scripts/memory.py [--type 事故] [--project X] [--q 词] [--all] [--json]`（只读）；
-  `--rebuild` 重建索引、`--check` 校验 v2 格式。排序 = 相关度 × 可信度 × 重要度 × 新鲜度 ×
-  使用强度 × 权重；预算 core 800 + 简报 800，检索默认 10 条 / 1,500 字，`memory_read` 默认 8k。
-- **core**：`memory/core.md` 由 `钉住: true` 的 claim 生成（≤800 字），**不再手抄**；
+  `--rebuild` 重建索引、`--check` 校验 v2 格式。
+  **排序 = 归一化加权和**（2026-11-24 改，问卷 C1=A 抄 Generative Agents）：
+  `score = (n相关度 + n重要度 + n新鲜度)/3 × 可信度 × 使用强度 × 权重`，前三项**各自
+  min-max 归一化**后相加；**门槛打在 `相关度 × 可信度`（绝对值）上**，不打在归一化分上。
+  预算：core 800 + 简报 800，检索默认 10 条 / 1,500 字，`memory_read` 默认 8k。
+- **core**：`memory/core.md` 由 `钉住: true` 的 claim 生成，**默认 800 字、用户可调**
+  （2026-11-24 暮雨：「预算应该用户可调，不要写死代码」；prefs `memoryCoreBudget`，区间 200–4000）。
+  ⚠ 预算不只管"截不截"，更管"装得下几条"—— 改了会按新预算重排 core。
   `memory/core.manual.md` 放产品规则/环境事实（≤300 字，算进预算）。
 - **开关**（2026-11-20）：prefs `memoryEnabled` / `memoryInjectCore` / `memoryBriefing`，**缺省开**
   （键不存在 = 开，判断写 `!== false`）。关掉后 agent 五个出口都回 `enabled:false`，
@@ -376,137 +381,32 @@ python scripts/test/check-promises-mutations.py   # 反例自证（5 条）
 
 ## 踩过的坑（会再犯的硬规则）
 
-> 只收**同一个错误犯过 2 次以上**的条目。每条都必须带：判据（怎么一眼看出）、
-> 守卫（哪个脚本会当场变红）、以及"为什么之前的防护没挡住"。
-> **一次性事实、环境怪癖别往这里放** —— 那些进 `.workbuddy/memory/`，30 天蒸馏一次。
+> ⚠ **2026-11-24 起正文搬进记忆库**（问卷 C2=B：AGENTS.md 只留指针，单一真相源）。
+> 原因：这份文件已 78KB、被截断到 65KB，而这 11 条最该被检索的机器事实
+> 在记忆库里一条都没有（搬之前搜 `BOM` / `PowerShell` / `乱码` 各命中 0 条）。
+>
+> **怎么读**：`memory_search` 搜关键词，或看 `memory_briefing`；
+> 每条的类型是 `事实`、半衰期 0（不衰减），`## 证据` 里是本节的**原文逐字**。
+>
+> **怎么改**：改记忆里的那条 claim（它在记忆页可编辑），**不要再往这里加正文** ——
+> 两份可编辑的真相 = 迟早漂移。要加新坑，用 `memory_write` 起草、人点通过。
 
-### 1. Vue 响应式代理不能过 contextBridge（已犯 4 次）
-
-`An object could not be cloned` —— 界面只显示一句"保存失败"，真因看不出，排查要重跑一轮。
-
-- **判据**：任何 `window.tegula.xxx(someRef.value)`，只要那个 ref 装的是对象/数组。
-  原始类型（string/number/boolean）不用管。
-- **改法**：实参换成 `toPlain(xxx.value)`（`desktop/src/shared/plain.ts`）。
-- **守卫**：`node scripts/test/check-bridge-args.cjs` —— 静态扫渲染层，抓
-  "整个实参就是某个对象 ref.value" 这一种。**改 UI 必跑**。
-- **为什么前三次的防护没挡住第四次**（重要）：
-  - `e2e-bridge-clone.cjs` 是真 Electron 跑的，**本机起不来 Electron 时行为部分直接 SKIP**，
-    只剩静态断言 —— 它不可能发现"新通道传了 ref.value"。
-  - 假 preload 的 `cloneGuard` 确实会抓，但它只在**跑渲染层断言**时才响，而且要求新通道
-    **已经在假 preload 里登记过**。写代码的人跳过那一步就过去了。
-  - 结论：**新通道必须在假 preload 里同步登记（`cloneGuard` + `rec`）**；
-    否则"守卫存在"只是纸面事实。
-- 历史现场：偏好落盘（10-05）· 梯度榜 `tiers`（10-25）· IPC 载荷 · 模型单价 `priceRows`（10-25）。
-
-### 2. 新增 UI 块不要复用旧块的 class
-
-断言里常按 class 数"这一页有几块/几行"。新块套旧 class → 旧断言凭空变红，
-而**界面看起来完全正常**，很容易被当成"测试写死了数量"而改断言糊过去。
-
-- **判据**：新块模板里出现的 class，是否已被既有断言用 `$$('.x').length === N` 数过。
-- **改法**：新块用自己的类名（`.ask-acc` 而不是 `.ask-report`），样式用**分组选择器**共享：
-  `.ask-report, .ask-acc { ... }`。
-- 历史现场：账户口径块复用了 `.ask-report` / `.ask-report-row`（10-25，一次红两条）。
-
-### 3. 断言含"时间演化"的量，必须跨过至少一个 tick
-
-只在点击后 150ms 断言，注入"按时间猜"的代码照样绿 —— 因为还没到第一个计时器周期。
-同步胶囊的"阶段不许猜"就吃过这个亏（10-25）。
-
-- **判据**：断言依赖"1 秒后变成什么样"，却在 <1 个周期内取样。
-
-### 4. 折叠/隐藏按钮前，先扫一遍"按文字点它"的断言
-
-页签折叠后，`clickText('技能')` 之类直接点不到 → 连带整页断言全挂（10-25 一次红 20 条）。
-- **改法**：统一用 `openViewTab(label)`（先找页签行，找不到就开“更多”再点）。
-
-### 5. `tsconfig` 是 `strict: false`：`if (!r.ok)` 不收窄可辨识联合
-
-没有 `strictNullChecks` 时，可辨识联合**不会**被 truthy 检查收窄，读 `r.reason` 直接编译失败。
-- **改法**：写类型谓词 `isXxxOk(r): r is XxxOk`，别指望 `if (!r.ok)`（10-25 账户口径踩过）。
-
-### 6. BOM 按文件类型分场景 —— **脚本要带，数据文件绝不能带**
-
-> ⚠ 2026-11-24 改。原文只写「`.ps1` 必须带 BOM」，**方向对脚本、对数据文件正好相反**，
-> 而它就摆在最显眼的位置，于是我用 `Set-Content -Encoding utf8`（它写 BOM）去改数据文件，
-> **两次把东西写坏**：`package.json` 变 0 字节、18 份执行日志从客户端消失。
-> **一条会把有害操作合法化的规矩，比没有规矩更糟。**
-
-| 文件 | BOM | 为什么 |
+| # | 一句话 | 记忆 |
 |---|---|---|
-| `.ps1` / `.bat`（被 Windows 脚本宿主执行） | **必须带** | 无 BOM 会被按 ANSI 解码 → 中文乱码、引号配对失败（2026-10-27 报错 `字符串缺少终止符: "`） |
-| `.md` / `.json` / `.yaml` / `.ts` / `.py`（**数据与源码**） | **绝不能带** | BOM 会进字段名/键名（`\ufeffid`），产品解析器读不到；本仓的两起事故都是这一条 |
+| 1. | Vue 响应式代理不能过 contextBridge（已犯 4 次） | agents-pitfall-1. |
+| 2. | 新增 UI 块不要复用旧块的 class | agents-pitfall-2. |
+| 3. | 断言含"时间演化"的量，必须跨过至少一个 tick | agents-pitfall-3. |
+| 4. | 折叠/隐藏按钮前，先扫一遍"按文字点它"的断言 | agents-pitfall-4. |
+| 5. | `tsconfig` 是 `strict: false`：`if (!r.ok)` 不收窄可辨识联合 | agents-pitfall-5. |
+| 6. | BOM 按文件类型分场景 —— **脚本要带，数据文件绝不能带** | agents-pitfall-6. |
+| 6b. | 一次性操作别造一堆入口文件 | agents-pitfall-6b. |
+| 7. | 截图 harness 的 `--virtual-time-budget` 会把 `Date.now()` 一起快进 | agents-pitfall-7. |
+| 8. | 工作区里的 `*.asar` 会被文件索引器锁住 —— 别用"改路径"去绕 | agents-pitfall-8. |
+| 9. | 只修用户提的那个故障，不要顺手改架构（严重） | agents-pitfall-9. |
+| 10. | 绝不允许按进程名杀浏览器（2026-10-31，严重） | agents-pitfall-10. |
 
-- **判据**：文件前 3 字节是 `EF BB BF` = 有 BOM。数据文件里出现它就是红。
-- **写数据文件只用**：`fs.writeFileSync(p, s, 'utf-8')`（Node）或
-  `[System.IO.File]::WriteAllText(p, s, (New-Object System.Text.UTF8Encoding($false)))`（PowerShell）。
-- **永不用**：`PowerShell Set-Content` / `Out-File` / `>` 重定向写数据文件 ——
-  PS 5.1 的 `-Encoding utf8` 默认写 BOM，且 `Set-Content` 还会改行尾。
-- **读**：一律按 `utf-8-sig` 读（容忍别人留下的 BOM，但自己不写）。
-- 顺带：`.bat` 里调脚本先 `chcp 65001`，否则中文输出乱码。
-
-### 6b. 一次性操作别造一堆入口文件
-
-2026-10-27 为用户清理打包残留，我先后造了 3 个 `.bat`（两个中文名 + 一个转发壳）、1 个 `.ps1`、
-还有几个 `%TEMP%` 脚本 —— 用户原话：“留下了更多不必要的临时文件 .bat”。
-- **规则**：逻辑放 `scripts/`；**入口只留一个**；`%TEMP%` 脚本用完即删；
-  不做"转发壳"（`a.bat` 调 `b.bat`），要改名就直接 `git mv`。
-- 顺带：给用户的东西要能一句话说清"双击哪个"，三个都叫"清理"= 等于没有入口。
-
-### 7. 截图 harness 的 `--virtual-time-budget` 会把 `Date.now()` 一起快进
-
-默认 20s 预算下，任何"真实秒数"类界面拍出来都是 20 秒后（同步胶囊拍成"推送 18s"，像卡死）。
-- **改法**：`CASES` 第 5 项给单图预算（如 4500）。
-
-### 8. 工作区里的 `*.asar` 会被文件索引器锁住 —— 别用"改路径"去绕
-
-2026-10-27 查实（别重走这条路，我在上面耗了四轮、判错两次）：
-- **现象**：`desktop/release*/…/app.asar` 删不掉（`err 32` 共享冲突），**目录改名也被拒**（`err 5`），
-  **重启电脑无效**。同目录的 `exe/dll/pak` 全部自由 —— 只有 `.asar` 被锁，这是索引器的指纹。
-- **点名方法**（一次问幂，不要再靠"停了某个服务看还会不会"）：Windows **Restart Manager**
-  `RmStartSession` → `RmRegisterResources(文件列表)` → `RmGetList`，直接返回 PID / 进程名 / 服务名。
-  PowerShell 里 `Add-Type` 若被安全策略拦，**用 Python ctypes 调同一套 API**（零编译，不落临时文件）。
-- **实测持有者**：**WorkBuddy 的后台 daemon**（`daemon-app-server-entry.js --stdio`）。
-  已逐个排除：权限、junction、Defender（已被火绒接管）、火绒、OneDrive `FileSyncHelper`、`WSearch`、
-  `SysMain`、E 盘文件系统（本地 NTFS / Healthy）。
-- **正解**：把索引器**彻底退出**（托盘右键退出，关窗口只是缩到托盘）→ 句柄释放 → 删除不需要管理员。
-- **反面**：① 把产物搬到工作区外（被暮雨否掉，违反"固定目录 + .gitignore"的项目惯例）；
-  ② 用 `open(p,'r+b')` 测"能否独占"——Python 默认共享打开，**永远成功**，是假绿灯；
-  必须 `CreateFileW(..., share=0)`。
-
-### 9. 只修用户提的那个故障，不要顺手改架构（严重）
-
-2026-10-27 用户定性为**严重教训**。他问“release 目录怎么清”，我清理时撞到索引器锁 asar，
-就顺手把**打包输出搬到工作区外**（`E:\CODE\CangKu\_pkg`）—— 被当场否掉：
-“自家产品现成方案都不会抄吗？甚至抄旧的方寸不都好好的？以前都是一个专门的文件夹放打包产物，
-`.gitignore` 忽略文件夹就好了”。
-
-- **事实对照**：`.gitignore:44-49` 早就忽略了 `desktop/release/`、`release*/`、`pkg/`、`.pkg-tmp/`。
-  产物留在工作区是对的 —— **固定单目录 + `.gitignore`** 就够，不需要搬出去。
-- **病根 vs 路上的坑**：病根 = 每打一版新建 `release-<ver>` 目录（修法：固定单目录）；
-  坑 = 索引器握 asar 句柄（修法：退出索引器）。**我把坑当病根治了**，药下在错误的地方。
-- **连带伤害（已修）**：那次把 `pack.cjs` 输出改成 `pkg`，而 `publish-release.sh:135` 与
-  `release-precheck.py`（2 处）仍读 `desktop/release` → 三条链路**脱钩**，下次发版会 `exit 7 缺资产`，
-  而且要等到真发版才暴露。现已统一到 `pkg`，并在 `check-release-precheck.py` 加了 3 条一致性守卫。
-  **教训**：改一处路径不算改完 —— `grep -rn` 把输出目录名全搜一遍，调用方一个都不能漏。
-- **规则**：用户报的是一处症状，就只消那一处症状。要动目录结构 / 输出位置 / 流程边界，
-  **先问一句**，不许拿"顺手治本"当理由 —— 架构是产品决策，不是清理垃圾的副产品。
-
-### 10. 绝不允许按进程名杀浏览器（2026-10-31，严重）
-
-我为了清一个"看起来卡住"的 e2e，跑过
-`Get-Process msedge | Where StartTime > 现在-30分钟 | Stop-Process -Force` ——
-**把用户正在用的 Edge 窗口一起杀了**，而且同一天发生过两次（第二次未复现原因，但先认下再查）。
-
-- **判据**：任何按**进程名**批量结束进程的命令，都是越界。它分不清"测试拉起的"和"用户正在用的"。
-- **改法**：浏览器 e2e 只 kill **自己 spawn 的那个 PID**（`e2e-renderer-web.cjs` 现在就是这么做的，
-  并且用独立 `--user-data-dir`，命令不会被转发到用户实例）。
-- **本机有专用浏览器**：`C:\Program Files\Google\Chrome\Application\chrome.exe`（暮雨留给 AI 用，他自己不用）。
-  跑渲染层 e2e 时显式指定，别碰 Edge：
-  ```
-  FC_WEB_BROWSER="C:/Program Files/Google/Chrome/Application/chrome.exe" node scripts/test/e2e-renderer-web.cjs
-  ```
-- **顺带**：用户在用电脑时，不主动跑会拉起浏览器的测试；要么先问，要么等他不在。
+> 判据（可复跑）：`python scripts/migrate-agents-facts.py --check` → RESULT 一致；
+> 且 `python scripts/memory.py --q BOM` 必须命中 > 0 条（A2 的验收线）。
 
 ## 开工流程（铁律）
 

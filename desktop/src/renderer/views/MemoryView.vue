@@ -388,7 +388,7 @@ const openedText = ref('')
 /** v2：详情里先给人看的一句话，再给原文；不直接把整份 frontmatter 甩出来 */
 const openedClaim = ref('')
 const openedEvidence = ref('')
-const types = ref<string[]>(['事故', '教训', '纪律', '决定', '偏好'])
+const types = ref<string[]>(['事故', '教训', '纪律', '决定', '偏好', '事实'])
 /** 2026-11-20：开关关闭时页面顶部横幅；只影响 agent 自动读写，数据照常可管 */
 const memoryEnabled = ref(true)
 /** 导入 / 整理的结果条（不弹原生 alert，页面里说清） */

@@ -22,6 +22,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { getDataDir, atomicWrite, loadTasks } from '../data'
+import { getPref } from './prefs'
 import { listLogs } from './logs'
 import {
   MEMORY_BUDGETS, RankableMemory, rankMemories, renderCore, findDuplicate, similarity,
@@ -75,7 +76,20 @@ export function claimsDir(): string {
 }
 
 /** 类型取值域 —— 单一真源。界面筛选、MCP 工具、索引都按它走，不许各自再写一份 */
-export const MEMORY_TYPES = ['事故', '教训', '纪律', '决定', '偏好'] as const
+/**
+ * 记忆类型（2026-11-24 加「事实」—— 问卷 B4=B / A2=A+B+C）。
+ *
+ * 为什么必须新开一类，而不是并进「教训」：
+ * A2 要的第三类是「**机器会咬人的事实**」—— 环境/工具/路径层面的硬约束
+ * （BOM 会写进数据文件、`.asar` 被索引器锁住、`strict:false` 下联合类型不收窄）。
+ * 它与「教训」的区别是**没有责任人、没有过程、不会过去**：一条 2026-09 的
+ * 「PowerShell 的 `-Encoding utf8` 会写 BOM」今天仍然成立，不该按事故半衰期衰减。
+ *
+ * 所以它还带两个专属语义：
+ *   ① 半衰期 0（不衰减）—— 工具事实不会「过时」，只会被新的**取代**；
+ *   ② `钉住` 优先级高 —— 它们是「开工就该知道」的那一档。
+ */
+export const MEMORY_TYPES = ['事故', '教训', '纪律', '决定', '偏好', '事实'] as const
 export type MemoryType = (typeof MEMORY_TYPES)[number]
 
 /** 状态取值域（`待审批` 是 agent 提案的中间态，默认检索不返回） */
@@ -277,7 +291,9 @@ function importanceLabel(n: number): string {
 
 /** 默认半衰期：纪律/决定不衰减；事故/教训一年；偏好半年 */
 function defaultHalfLife(type: string): number {
-  if (type === '纪律' || type === '决定') return 0
+  // 「事实」不衰减（2026-11-24）：工具/环境约束不会因为时间过去而失效。
+  // 要让它退场只有一条路 —— 被新的 claim 用 `取代` 顶掉。
+  if (type === '纪律' || type === '决定' || type === '事实') return 0
   if (type === '偏好') return 180
   return 365
 }
@@ -472,8 +488,32 @@ export function searchMemory(q: MemoryQuery = {}): {
   }
 }
 
-/** 固定核心块的硬上限（抄 Letta core memory 的 character-limited 思路） */
+/** 固定核心块的**默认**上限（不是硬上限 —— 见 coreBudget() 的说明） */
 export const MEMORY_CORE_BUDGET = MEMORY_BUDGETS.core
+
+/**
+ * 核心预算的**上下限**（用户可调，但别调成 0 或 100000）。
+ *
+ * ⚠ 2026-11-24 改（暮雨原话：「预算应该用户可调，不要写死代码」）：
+ * 原来 `MEMORY_CORE_BUDGET = 800` 是个**硬上限**，generateCore() 超了就丢钉住条目。
+ * 实测后果很难看：钉住 11 条时，**I5（沙盒只读）与 I10（「规矩写在报告里 ≠ 写在闸门里」）被挤出去**
+ * —— I10 被挤掉，等于重演它自己描述的那个病。而系统给出的话术是「请减少钉住条目」，
+ * 把设计的约束说成了用户的规定。那是错的：预算是**用户的旋钮**，不是系统的判决。
+ */
+export const CORE_BUDGET_MIN = 200
+export const CORE_BUDGET_MAX = 4000
+
+/**
+ * 读当前 core 预算：prefs 的 `memoryCoreBudget`；键不存在用 800。
+ * 认不出 / 越界一律**钳到区间**，不抛错（预算是锦上添花，不能因为它让记忆读不出来）。
+ */
+export function coreBudget(): number {
+  let v: any
+  try { v = getPref('memoryCoreBudget') } catch { v = undefined }
+  const n = Number(v)
+  if (!Number.isFinite(n) || n <= 0) return MEMORY_CORE_BUDGET
+  return Math.round(Math.min(CORE_BUDGET_MAX, Math.max(CORE_BUDGET_MIN, n)))
+}
 
 /**
  * 读台账索引（2026-11-23）。
@@ -575,6 +615,18 @@ export function memoryCore(): {
 } {
   const full = path.join(memoryDir(), 'core.md')
   const manual = path.join(memoryDir(), 'core.manual.md')
+  // 预算被用户调过时**按新预算重新生成**（2026-11-24）。
+  // 不这样做的话：调大预算 → core.md 还是旧的少几条，用户以为调了生效了，
+  // 实际条数没变（守卫当场抓到：预算 4000 时仍只有 9 条）。预算不只管"截不截"，
+  // 更管"装得下几条"，所以它变了就必须重排。
+  if (fs.existsSync(full)) {
+    try {
+      const cur = parseFrontmatter(fs.readFileSync(full, 'utf-8'))
+      const want = coreBudget()
+      const got = Number(cur.fm['预算'])
+      if (Number.isFinite(got) && got !== want) generateCore()
+    } catch { /* core.md 坏了就按原样读，别在这里抛 */ }
+  }
   const target = fs.existsSync(full) ? full : (fs.existsSync(manual) ? manual : full)
   if (!fs.existsSync(target)) {
     return {
@@ -586,7 +638,7 @@ export function memoryCore(): {
     const raw = fs.readFileSync(target, 'utf-8')
     const { fm, body } = parseFrontmatter(raw)
     const text = String(body || '').trim()
-    const budget = MEMORY_CORE_BUDGET
+    const budget = coreBudget()
     const truncated = text.length > budget
     const pinnedCount = scanEntries().filter((r) => r.status === '有效' && r.pinned).length
     return {
@@ -633,15 +685,16 @@ export function generateCore(rowsIn?: MemoryEntry[]): {
     return { ok: false, missing: true, chars: 0, dropped: 0 }
   }
   // 预留标题/说明约 80 字，正文按 720 排
-  const rendered = renderCore(rows, { budget: MEMORY_CORE_BUDGET - 80, prefix: manual })
+  const budget = coreBudget()
+  const rendered = renderCore(rows, { budget: budget - 80, prefix: manual })
   const header = [
     '---',
     'id: core',
     '类型: 核心',
-    `预算: ${MEMORY_CORE_BUDGET}`,
+    `预算: ${budget}`,
     `生成: '${localIso(new Date())}'`,
     '---',
-    '# 方寸记忆核心（固定注入，≤' + MEMORY_CORE_BUDGET + ' 字）',
+    '# 方寸记忆核心（固定注入，≤' + budget + ' 字）',
     '',
     '> 自动生成，勿手改。改 `memory/claims/` 里的 `钉住` / `重要度`；完整原文用 memory_read。',
     '',
@@ -1618,7 +1671,7 @@ export function organizeMemories(
     '4. 最多 8 条；重复的、证据不足的、不确定的不要写；不要修改已有记忆、不要写盘。',
     '5. 写完后报告：写了哪些（claim + source）、跳过了哪些、为什么。',
     '',
-    'memory_write 的字段：claim / evidence / source / type（事故|教训|纪律|决定|偏好）/ confidence（0.6–0.8）/ importance（1–5）/ project / tags。',
+    'memory_write 的字段：claim / evidence / source / type（事故|教训|纪律|决定|偏好|事实）/ confidence（0.6–0.8）/ importance（1–5）/ project / tags。',
     '',
     '候选来源：',
     ...sources.map((s) => `\n[source: ${s.id}] 项目: ${s.project || '跨项目'} 标题: ${s.title}\n${s.text}`),

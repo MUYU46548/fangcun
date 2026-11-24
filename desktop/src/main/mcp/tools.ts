@@ -21,7 +21,7 @@ import { checkIntake } from '../services/intake'
 import { archForProject } from '../services/projectArch'
 // 记忆层（2026-11-17）：暮雨「方寸要管记忆，当 DSH 的记忆层」。
 // 读口直接读源文件；写口只写 memory/，**永远不碰 task-data/**（塞进去会被 parseTask 当任务卡扫）。
-import { searchMemory, readMemory, memoryOverview, memoryBriefing, memoryCore, createMemory, MEMORY_TYPES, MEMORY_CORE_BUDGET, searchLedgers } from '../services/memory'
+import { searchMemory, readMemory, memoryOverview, memoryBriefing, memoryCore, createMemory, MEMORY_TYPES, MEMORY_CORE_BUDGET, coreBudget, searchLedgers } from '../services/memory'
 import { getPref } from '../services/prefs'
 import { generatePlanDraft } from '../llm/planDraft'
 import { buildPlanDraftInputFromDisk, buildPlanDraftInputFromDiskWithRepo } from '../llm/planDraftInput'
@@ -556,7 +556,7 @@ export const MCP_TOOLS: MCPTool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        type: { type: 'string', enum: [...MEMORY_TYPES], description: '事故 / 教训 / 纪律 / 决定 / 偏好' },
+        type: { type: 'string', enum: [...MEMORY_TYPES], description: '事故 / 教训 / 纪律 / 决定 / 偏好 / 事实' },
         claim: { type: 'string', description: 'One-sentence memory (≤200 chars, ideally ≤120) — the only text that gets recalled. One claim per entry.' },
         evidence: { type: 'string', description: 'Verbatim original text / verified facts. Required (or pass legacy `body`); do not summarize.' },
         source: { type: 'string', description: 'Where it came from: user quote / incident / file path. Required — untraceable memory is rumor.' },

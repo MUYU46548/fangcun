@@ -2,7 +2,7 @@
   设置 · 通用（2026-10-30 App.vue 拆分第七刀）：版本与更新 / 外观主题 / 外观形态 / 念头上限 / 顶部工具栏。状态仍留在 App，经 provide("fc-settings") 共享。
 -->
 <script setup lang="ts">
-import { inject, onMounted, ref } from 'vue'
+import { computed, inject, onMounted, ref } from 'vue'
 import Button from '../ui/Button.vue'
 
 defineProps<{ active: boolean }>()
@@ -17,6 +17,14 @@ const {
 const memoryEnabled = ref(true)
 const memoryInjectCore = ref(true)
 const memoryBriefing = ref(true)
+// 常读记忆的字数上限（用户可调；键不存在 = 800）
+const memoryCoreBudget = ref(800)
+// 勾了「自动注入」但预算偏小时，明说会被丢 —— 不许静默
+const budgetNote = computed(() => {
+  if (!memoryEnabled.value || !memoryInjectCore.value) return ''
+  const b = clampBudget(memoryCoreBudget.value)
+  return b < 900 ? ('预算 ' + b + ' 字偏小：常读条目放不下时会被丢掉，' + '需要全部带上就调到 1000 以上。') : ''
+})
 const memoryMsg = ref('')
 
 async function loadMemoryPrefs(): Promise<void> {
@@ -25,7 +33,16 @@ async function loadMemoryPrefs(): Promise<void> {
     memoryEnabled.value = p?.memoryEnabled !== false
     memoryInjectCore.value = p?.memoryInjectCore !== false
     memoryBriefing.value = p?.memoryBriefing !== false
+  const b = Number(p?.memoryCoreBudget)
+  memoryCoreBudget.value = Number.isFinite(b) && b > 0 ? b : 800
   } catch { /* 读不到偏好按开处理；不挡设置页 */ }
+}
+
+/** 预算钳到 200–4000（与主进程 CORE_BUDGET_MIN/MAX 同一区间，前端先挡一道） */
+function clampBudget(v: any): number {
+  const n = Number(v)
+  if (!Number.isFinite(n) || n <= 0) return 800
+  return Math.round(Math.min(4000, Math.max(200, n)))
 }
 
 async function saveMemoryPrefs(): Promise<void> {
@@ -35,6 +52,7 @@ async function saveMemoryPrefs(): Promise<void> {
       memoryEnabled: memoryEnabled.value,
       memoryInjectCore: memoryInjectCore.value,
       memoryBriefing: memoryBriefing.value,
+      memoryCoreBudget: clampBudget(memoryCoreBudget.value),
     })
     memoryMsg.value = r?.ok === false ? ('没存进去：' + (r?.error || '未知原因')) : '已保存（立即生效）'
   } catch (e: any) {
@@ -231,8 +249,19 @@ onMounted(() => { void loadMemoryPrefs(); void loadAutoStart(); })
               启用记忆（默认开）
             </label>
             <label class="chk mem-pref"><input type="checkbox" v-model="memoryInjectCore" :disabled="!memoryEnabled" @change="saveMemoryPrefs" />
-              开工时自动带上常读记忆（最多 800 字）
+              开工时自动带上常读记忆（{{ memoryCoreBudget }} 字以内）
             </label>
+            <!-- 预算用户可调（2026-11-24 暮雨：「预算应该用户可调，不要写死代码」）。
+                 原来 800 是硬上限，钉住条数一多就静默丢条目 —— 而提示语还说"请减少钉住条目"，
+                 把设计的约束说成了用户的规定。 -->
+            <label class="chk mem-pref mem-budget" :class="{ off: !memoryEnabled || !memoryInjectCore }">
+              常读记忆字数上限
+              <input type="number" class="mem-budget-in" min="200" max="4000" step="50"
+                v-model.number="memoryCoreBudget" :disabled="!memoryEnabled || !memoryInjectCore"
+                @change="saveMemoryPrefs" />
+              <span class="hint-inline">字（200–4000，默认 800）</span>
+            </label>
+            <div class="hint" v-if="budgetNote">{{ budgetNote }}</div>
             <label class="chk mem-pref"><input type="checkbox" v-model="memoryBriefing" :disabled="!memoryEnabled" @change="saveMemoryPrefs" />
               开工时按项目给一份提醒（最多 5 条）
             </label>

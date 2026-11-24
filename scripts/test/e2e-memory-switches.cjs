@@ -63,6 +63,8 @@ if (typeof prefs.getPref === 'function') {
 
 const tools = require(toolsPath)
 const mem = require(memPath)
+// 纯函数（不碰 fs）—— 用来验证预算装得下几条，不写盘
+const R = require(path.join(REPO, 'desktop', 'dist', 'shared', 'memoryRank.js'))
 
 function callTool(name, args) {
   const t = tools.MCP_TOOLS.find((x) => x.name === name)
@@ -171,7 +173,57 @@ check('★★ 总开关关 + force:true → 仍返回 enabled:false（force 不�
   allOffCore.enabled === false, JSON.stringify(allOffCore).slice(0, 120))
 PREFS.memoryEnabled = true
 
-// ── ⑦ 源码守卫：状态恢复 ─────────────────────────────────────────────
+// ── ⑦ core 预算必须**用户可调**，且丢了要说出来 ────────────────────────
+// 2026-11-24 暮雨原话：「预算应该用户可调，不要写死代码」。
+// 旧实现是硬上限 800，钉住 11 条时把 I5 与 I10 静默挤出 core —— 
+// 而 I10 正是「规矩写在报告里 ≠ 写在闸门里」。预算该是旋钮，不是判决。
+console.log('\n-- ⑦ core 预算可调（不是写死）--')
+{
+  const before = PREFS.memoryCoreBudget
+  check('★ 没有 memoryCoreBudget 键时用默认 800', (() => {
+    delete PREFS.memoryCoreBudget
+    return mem.coreBudget() === 800
+  })(), String(mem.coreBudget()))
+  check('★★ 调到 1000 真的生效（不是写死的 800）', (() => {
+    PREFS.memoryCoreBudget = 1000
+    return mem.coreBudget() === 1000
+  })(), String(mem.coreBudget()))
+  check('★★ 越界钳到 200（不抛错、不返回 0）', (() => {
+    PREFS.memoryCoreBudget = 50
+    return mem.coreBudget() === 200
+  })(), String(mem.coreBudget()))
+  check('★★ 越界钳到 4000（防止把上下文撑爆）', (() => {
+    PREFS.memoryCoreBudget = 99999
+    return mem.coreBudget() === 4000
+  })(), String(mem.coreBudget()))
+  check('★ 坏值回落默认（不是 0，也不是 NaN）', (() => {
+    PREFS.memoryCoreBudget = 'abc'
+    return mem.coreBudget() === 800
+  })(), String(mem.coreBudget()))
+  check('★★ 上限常量在（界面/文档要能引用同一区间）',
+    mem.CORE_BUDGET_MIN === 200 && mem.CORE_BUDGET_MAX === 4000,
+    JSON.stringify([mem.CORE_BUDGET_MIN, mem.CORE_BUDGET_MAX]))
+  // 预算调大后，钉住条目能不能全部装进去。
+  // ⚠ 2026-11-24：这一条**不能用 memoryCore()** —— 它会按新预算重生成并**写真实 core.md**，
+  //   测试跑一遍就把用户的 core.md 改成 4000 了（当场发生过）。
+  //   改用纯函数 renderCore，在内存里算，一个字节都不落盘。
+  const pinnedRows = mem.scanEntries().filter((r) => r.status === '有效' && r.pinned)
+  if (pinnedRows.length > 0) {
+    const r4 = R.renderCore(pinnedRows, { budget: 4000 })
+    const lines = (String(r4.text || '').match(/→ mem-/g) || []).length
+    check(`★★ 预算 4000 时钉住 ${pinnedRows.length} 条全部装得下（renderCore 纯函数，不写盘）`,
+      lines === pinnedRows.length && r4.dropped === 0,
+      `lines=${lines} pinned=${pinnedRows.length} dropped=${r4.dropped}`)
+    // generateCore 实际用的是 budget - 80（给标题与人工块留位），这里照抄那个口径
+    const r8 = R.renderCore(pinnedRows, { budget: 800 - 80 })
+    check('★★ 预算 800 时确实装不下（证明差别是真的，不是巧合）',
+      r8.dropped > 0, `dropped=${r8.dropped}`)
+  }
+  if (before === undefined) delete PREFS.memoryCoreBudget
+  else PREFS.memoryCoreBudget = before
+}
+
+// ── ⑧ 源码守卫：状态恢复 ─────────────────────────────────────────────
 prefs.getPref = origGet
 
 console.log(`\nRESULT ${pass} / ${fail}`)

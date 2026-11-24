@@ -71,6 +71,12 @@ export interface RankedRow<T> {
   importance: number
   freshness: number
   usage: number
+  /** 归一化后的三项（加权和的三块），便于界面/测试看清分是怎么来的 */
+  nRelevance?: number
+  nImportance?: number
+  nRecency?: number
+  /** 绝对匹配质量 = relevance × confidence，**门槛打在这个上面**（不归一化） */
+  gate?: number
 }
 
 export interface RankResult<T> {
@@ -131,6 +137,36 @@ export function usageFactor(hits30d: any): number {
   const n = Math.max(0, numOr(hits30d, 0))
   return 1 + Math.min(0.25, 0.05 * Math.log2(1 + n))
 }
+
+/**
+ * min-max 归一到 [0,1]。**整组相同时全部给 1**，不人为压低。
+ *
+ * 为什么整组相同给 1 而不是 0：候选里只有一条时，它就是「最相关的那条」，
+ * 让它因为「没有可比的对象」而得 0 分并被门槛挡掉，是纯粹的算法自伤。
+ * 全部并列时也一样 —— 并列就该并列地都留下。
+ */
+export function minMax(x: number, lo: number, hi: number): number {
+  if (!Number.isFinite(x)) return 0
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || !(hi > lo)) return 1
+  return clamp((x - lo) / (hi - lo), 0, 1)
+}
+
+/**
+ * 三项核心分量的权重（Generative Agents 论文实现里三个都是 1.0）。
+ *
+ * ⚠ 这三项走**归一化加权和**，与 `confidence / usage / weight` 的乘法分工不同：
+ *   · 三项（相关度 / 重要度 / 新鲜度）是**同类候选之间的相对比较** → 加权和；
+ *   · 另三个（可信度 / 使用强度 / 手动权重）是**绝对质量修正** → 仍是乘数。
+ *
+ * 为什么不把新鲜度也做成乘数（2026-11-24 改，C1=A 抄现成的）：
+ * 乘法是**合取**语义 —— 任何一项接近 0，整条归零。于是一条重要度 5 的真实事故，
+ * 因为「已经过去 365 天」被时间项一票否决，跌破 0.15 门槛**静默消失**。
+ * 实测算术：重要度5 / 可信度0.9 / 半衰期365 / 仅在证据里命中(rel .3)
+ *   → 180 天 0.192（过门槛）；**365 天 0.135（跌破 0.15，消失）**。
+ * 那不是我们想要的语义：一条 2026-09 的工具坑，今天搜 `BOM` 时相关度最高，
+ * 它就该出现，不该因为「老」被淘汰。时间只该影响**排位**，不该影响**存亡**。
+ */
+export const RANK_WEIGHTS = { relevance: 1, importance: 1, recency: 1 } as const
 
 /**
  * 分词：ASCII 词 + 中文二字组（+ 长度 ≤4 的整段中文）。
@@ -265,19 +301,76 @@ export function rankMemories<T extends RankableMemory>(
   const limit = clamp(Math.round(numOr(opts.limit, 10)), 1, 50)
   const maxChars = clamp(Math.round(numOr(opts.maxChars, MEMORY_BUDGETS.search)), 100, 20000)
 
-  const ranked: RankedRow<T>[] = []
+  // ── 第一趟：算原始分量（还没归一化，因为 min-max 要看整组）────────────
+  const raw: Array<{
+    item: T
+    relevance: number
+    confidence: number
+    importance: number
+    freshness: number
+    usage: number
+    weight: number
+  }> = []
   for (const m of items) {
     const relevance = q
       ? relevanceFor(m, q, tokens, df, n)
       : (opts.project && m.project === opts.project ? 1 : 0.8)
+    // 一个词都没命中 → 不相关，直接不进候选（这条与模型无关，归一化之前就该砍）
     if (q && relevance <= 0) continue
-    const confidence = confidenceOf(m.confidence)
-    const importance = importanceFactor(m.importance)
-    const freshness = freshnessOf(String(m.time || ''), m.halfLife, now)
-    const usage = usageFactor(m.hits30d)
-    const score = relevance * confidence * importance * freshness * usage * weightOf(m.weight)
-    if (q && score < minScore) continue
-    ranked.push({ item: m, score: round3(score), relevance: round3(relevance), confidence, importance, freshness: round3(freshness), usage: round3(usage) })
+    raw.push({
+      item: m,
+      relevance,
+      confidence: confidenceOf(m.confidence),
+      importance: importanceFactor(m.importance),
+      freshness: freshnessOf(String(m.time || ''), m.halfLife, now),
+      usage: usageFactor(m.hits30d),
+      weight: weightOf(m.weight),
+    })
+  }
+
+  // ── 第二趟：三项 min-max 归一化，然后加权和 ────────────────────────
+  // 见 RANK_WEIGHTS 上的说明：这三项是"同类候选之间的相对比较"，必须归一化，
+  // 否则它们各自的量纲（相关度 0–1、重要度 0.4–1、新鲜度 0–1）会把对方压死。
+  const rels = raw.map((r) => r.relevance)
+  const imps = raw.map((r) => r.importance)
+  const fres = raw.map((r) => r.freshness)
+  const [relLo, relHi] = [Math.min(...rels), Math.max(...rels)]
+  const [impLo, impHi] = [Math.min(...imps), Math.max(...imps)]
+  const [freLo, freHi] = [Math.min(...fres), Math.max(...fres)]
+  const wSum = RANK_WEIGHTS.relevance + RANK_WEIGHTS.importance + RANK_WEIGHTS.recency
+
+  const ranked: RankedRow<T>[] = []
+  for (const r of raw) {
+    const nRelevance = minMax(r.relevance, relLo, relHi)
+    const nImportance = minMax(r.importance, impLo, impHi)
+    const nRecency = minMax(r.freshness, freLo, freHi)
+    const mixed = wSum > 0
+      ? (RANK_WEIGHTS.relevance * nRelevance
+        + RANK_WEIGHTS.importance * nImportance
+        + RANK_WEIGHTS.recency * nRecency) / wSum
+      : 0
+    // ⚠ 门槛必须打在**绝对匹配质量**上，不能打在上面那个 mixed 上（2026-11-24 当场抓到）：
+    //   min-max 归一化让分数**永远落在 [0,1] 的高位**（最好的那条 nRelevance 恒为 1），
+    //   于是一条八竿子打不着的条目也能拿到 0.3+，`minScore=0.15` 就形同虚设 ——
+    //   实测搜「要被驳回的提案原文」会返回 2 条毫不相关的东西。
+    //   所以：**能不能进候选**看 `relevance × confidence`（绝对值，不归一化）；
+    //   **排第几**看 mixed（归一化加权和）。两件事分开，各管各的。
+    const gate = r.relevance * r.confidence
+    if (q && gate < minScore) continue
+    const score = mixed * r.confidence * r.usage * r.weight
+    ranked.push({
+      item: r.item,
+      score: round3(score),
+      relevance: round3(r.relevance),
+      confidence: r.confidence,
+      importance: r.importance,
+      freshness: round3(r.freshness),
+      usage: round3(r.usage),
+      nRelevance: round3(nRelevance),
+      nImportance: round3(nImportance),
+      nRecency: round3(nRecency),
+      gate: round3(gate),
+    })
   }
 
   const total = ranked.length
