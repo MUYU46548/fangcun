@@ -1915,7 +1915,7 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
             ? '固定核心还没生成（memory/core.md）；归档里有记忆，按需用 memory_search / memory_read，不要全量注入。'
             : (c.truncated
               ? `核心超过 ${c.budget} 字，已截断 —— 请减少钉住条目或精简 core.manual.md，不要把完整事故塞进来。`
-              : '这是生成的核心（钉住 claim，≤800 字）。完整证据用 memory_search 找指针、memory_read 取正文；不会自动注入。')),
+              : `这是生成的核心（钉住 claim，按预算 ${c.budget} 字排）。完整证据用 memory_search 找指针、memory_read 取正文；不会自动注入。`)),
       }, null, 2) }] }
     }
 

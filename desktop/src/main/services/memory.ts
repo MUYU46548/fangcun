@@ -22,7 +22,8 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { getDataDir, atomicWrite, loadTasks } from '../data'
-import { getPref } from './prefs'
+import { getPref, getPrefs } from './prefs'
+import { hitsMap, recordMemoryUsage } from './memoryUsage'
 import { listLogs } from './logs'
 import {
   MEMORY_BUDGETS, RankableMemory, rankMemories, renderCore, findDuplicate, similarity,
@@ -470,7 +471,12 @@ export function searchMemory(q: MemoryQuery = {}): {
     if (q.global === true && String(r.project || '').trim()) return false
     return true
   })
-  const ranked = rankMemories(hit, {
+  // 使用强度（2026-11-24）：规划 §4.3 的 usage 因子一直空跑 —— 因为 hits30d 从来没人填。
+  // 现在从 memory/usage.jsonl 读近 30 天召回次数；读不到就是空 Map（不假装 0 次）。
+  let hits: Map<string, number> = new Map()
+  try { hits = hitsMap(30) } catch { hits = new Map() }
+  const withHits = hit.map((r) => (hits.has(r.id) ? { ...r, hits30d: hits.get(r.id) } : r))
+  const ranked = rankMemories(withHits, {
     q: q.q,
     project: q.project,
     limit: q.limit || 10,
@@ -478,6 +484,9 @@ export function searchMemory(q: MemoryQuery = {}): {
     minScore: q.q ? MEMORY_BUDGETS.minScore : 0,
   })
   const rows = ranked.rows.map((x) => ({ ...x.item, score: x.score, relevance: x.relevance }))
+  // 记一次召回（2026-11-24）：不改源文件、写失败静默、只记 id。
+  // 它让「哪条从没被用过」变成可算的，而不是要人读全库去判 —— 那是几千万 token 的根源。
+  try { recordMemoryUsage('search', rows.map((x) => x.id), q.q) } catch { /* 静默 */ }
   return {
     rows,
     total: ranked.total,
@@ -508,11 +517,44 @@ export const CORE_BUDGET_MAX = 4000
  * 认不出 / 越界一律**钳到区间**，不抛错（预算是锦上添花，不能因为它让记忆读不出来）。
  */
 export function coreBudget(): number {
+  const r = coreBudgetSource()
+  return r.value
+}
+
+/**
+ * 预算 + **它可不可信**。
+ *
+ * ⚠ 2026-11-24 当场抓到的抖动手故：纯 Node / CLI 下 `getPref` 抛错（没有 electron），
+ * 于是 `coreBudget()` 回落到 800 —— 而 `generateCore()` 会把这个 800 **写进 core.md**，
+ * 把用户在设置页设的 4000 覆盖掉；下次真机读到 4000 又重排回来……
+ * **来回抖**。所以"读不到偏好"与"用户真的设了 800"必须分开：
+ * `trusted=false` 时**不许写盘**，只按默认算显示值。
+ */
+export function coreBudgetSource(): { value: number; trusted: boolean } {
+  // ⚠ 判据不能是"getPref 抛没抛错" —— 2026-11-24 当场验过：纯 Node 下 getPrefs()
+  //   **不抛**，它 catch 住读文件失败并静默返回 {}，于是 getPref 给 undefined，
+  //   看起来跟"用户没设过这个键"一模一样。两者混在一起就会把用户设的 4000 写成 800。
+  //   所以真正要问的是：**prefs 文件读到没有**。
+  let trusted = true
+  try {
+    const all = getPrefs()
+    // 读不到文件 → getPrefs 返回 {}；此时无法区分"没设过"与"读不到"，一律不信
+    trusted = Object.keys(all).length > 0
+  } catch {
+    trusted = false
+  }
   let v: any
-  try { v = getPref('memoryCoreBudget') } catch { v = undefined }
+  try {
+    v = getPref('memoryCoreBudget')
+  } catch {
+    return { value: MEMORY_CORE_BUDGET, trusted: false }
+  }
+  if (v === undefined || v === null || v === '') {
+    return { value: MEMORY_CORE_BUDGET, trusted }
+  }
   const n = Number(v)
-  if (!Number.isFinite(n) || n <= 0) return MEMORY_CORE_BUDGET
-  return Math.round(Math.min(CORE_BUDGET_MAX, Math.max(CORE_BUDGET_MIN, n)))
+  if (!Number.isFinite(n) || n <= 0) return { value: MEMORY_CORE_BUDGET, trusted: false }
+  return { value: Math.round(Math.min(CORE_BUDGET_MAX, Math.max(CORE_BUDGET_MIN, n))), trusted }
 }
 
 /**
@@ -622,9 +664,10 @@ export function memoryCore(): {
   if (fs.existsSync(full)) {
     try {
       const cur = parseFrontmatter(fs.readFileSync(full, 'utf-8'))
-      const want = coreBudget()
+      const src = coreBudgetSource()
       const got = Number(cur.fm['预算'])
-      if (Number.isFinite(got) && got !== want) generateCore()
+      // 只在**预算可信**时才重排：读不到偏好（CLI）时不动文件，否则会把用户设的值写回默认
+      if (src.trusted && Number.isFinite(got) && got !== src.value) generateCore()
     } catch { /* core.md 坏了就按原样读，别在这里抛 */ }
   }
   const target = fs.existsSync(full) ? full : (fs.existsSync(manual) ? manual : full)
@@ -640,6 +683,13 @@ export function memoryCore(): {
     const text = String(body || '').trim()
     const budget = coreBudget()
     const truncated = text.length > budget
+    // 记一次 core 注入（2026-11-24）：core 是**每轮都带**的，所以它覆盖到的条目
+    // 使用强度天然最高 —— 这个信号对"哪条该留"很关键。
+    try {
+      const ids = (String(text).match(/→\s*(mem-[\w-]+)/g) || [])
+        .map((x) => x.replace(/^→\s*/, '').trim())
+      recordMemoryUsage('core', ids, '')
+    } catch { /* 静默 */ }
     const pinnedCount = scanEntries().filter((r) => r.status === '有效' && r.pinned).length
     return {
       ok: true,
@@ -685,7 +735,8 @@ export function generateCore(rowsIn?: MemoryEntry[]): {
     return { ok: false, missing: true, chars: 0, dropped: 0 }
   }
   // 预留标题/说明约 80 字，正文按 720 排
-  const budget = coreBudget()
+  const src = coreBudgetSource()
+  const budget = src.value
   const rendered = renderCore(rows, { budget: budget - 80, prefix: manual })
   const header = [
     '---',
@@ -700,7 +751,10 @@ export function generateCore(rowsIn?: MemoryEntry[]): {
     '',
   ].join('\n')
   const text = header + rendered.text + '\n'
-  atomicWrite(path.join(memoryDir(), 'core.md'), text)
+  // ⚠ 预算不可信（纯 Node / 无 electron 读不到 prefs）时**不写盘**：
+  //   否则会把用户在设置页设的 4000 覆盖成默认 800，下次真机又改回来 —— 来回抖。
+  //   这时返回 ok:true 但不动文件，调用方读到的还是原来那份（它按原预算排的）。
+  if (src.trusted) atomicWrite(path.join(memoryDir(), 'core.md'), text)
   return { ok: true, missing: false, chars: rendered.chars + 80, dropped: rendered.dropped }
 }
 
@@ -775,6 +829,8 @@ export function memoryBriefing(project: string, limit = 5): {
     maxChars: MEMORY_BUDGETS.briefing,
     minScore: 0,
   })
+  const briefingItems = ranked.rows
+  try { recordMemoryUsage('briefing', briefingItems.map((x) => x.item.id), '') } catch { /* 静默 */ }
   const items = ranked.rows.map((x) => {
     const age = reviewAgeDays(x.item.review, Date.now())
     return {

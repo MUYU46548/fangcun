@@ -223,6 +223,26 @@ console.log('\n-- ⑦ core 预算可调（不是写死）--')
   else PREFS.memoryCoreBudget = before
 }
 
+// ── ⑦b 预算不可信时**不许写盘**（防抖动）────────────────────────────
+// 2026-11-24 当场抓到：纯 Node/CLI 下 getPrefs() 读不到文件会**静默返回 {}**，
+// 于是 getPref 给 undefined，看起来跟"用户没设过"一模一样。
+// 若此时 generateCore() 照常写盘，就会把用户设的 4000 写成默认 800；
+// 真机下次读到 4000 又重排回来 —— **来回抖**。
+console.log('\n-- ⑦b 预算不可信 → 不写盘 --')
+{
+  // 把 getPrefs 打成"读不到"（模拟纯 Node 无 electron / prefs 文件缺失）
+  const origGetPrefs = prefs.getPrefs
+  const origGetPref = prefs.getPref
+  prefs.getPrefs = () => ({})
+  prefs.getPref = () => undefined
+  const src = mem.coreBudgetSource()
+  check('★★ 读不到 prefs 时 trusted=false（不许把"读不到"当成"用户设了默认值"）',
+    src.trusted === false, JSON.stringify(src))
+  check('★★ 此时仍给出默认值 800 用于显示', src.value === 800, String(src.value))
+  prefs.getPrefs = origGetPrefs
+  prefs.getPref = origGetPref
+}
+
 // ── ⑧ 源码守卫：状态恢复 ─────────────────────────────────────────────
 prefs.getPref = origGet
 
