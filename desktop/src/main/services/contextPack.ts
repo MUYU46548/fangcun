@@ -32,6 +32,8 @@ import { DISPATCH_SETTINGS_DEFAULTS, checkDispatch, dispatchGateText } from '../
 import { appendDispatchAudit, lastDispatchAttemptMs, readDispatchAudit, readDispatchSettings } from './dispatchConfig'
 import { describeDispatchDelivery } from '../../shared/dispatchDelivery'
 import type { DispatchConsumerProbe, DispatchDelivery } from '../../shared/dispatchDelivery'
+// 2026-11-24（暮雨第 2 条）：材料的新鲜度由一份纯判定管，别在包拼装里就地写 if
+import { judgeFreshness, freshnessNote, STALE_DAYS } from '../../shared/contextFreshness'
 
 export interface ContextPack {
   ok: boolean
@@ -73,6 +75,11 @@ function fieldBlock(label: string, v?: string): string[] {
   if (!t) return [`- **${label}**：（未填）`]
   if (!t.includes('\n') && t.length <= 100) return [`- **${label}**：${t}`]
   return [`- **${label}**：`, '', t, '']
+}
+
+/** 读一个文本文件；读不到给空串（节点新鲜度的判断不该因为一次读盘失败就炸掉整包） */
+function safeReadText(p: string): string {
+  try { return fs.readFileSync(p, 'utf-8') } catch { return '' }
 }
 
 function fmtDay(v: unknown): string {
@@ -118,6 +125,13 @@ export function buildContextPack(projectId: string, opts: { maxTasks?: number; m
     ] as const) out.push(...fieldBlock(label, v))
     if (contract.placeholderFields.length) out.push(`- ⚠ 仍是模板占位（不是内容）：${contract.placeholderFields.join('、')}`)
     if (contract.unmatched.length) out.push(`- ⚠ 这些小节名对不上标准六节：${contract.unmatched.join('、')}`)
+    // 2026-11-24（暮雨第 2 条）：**契约原文逐字照搬，但它里面的"当前断点"早就不成立了**。
+    // 实测这份契约写着「一屏视图不存在」「6 个项目在方寸零任务卡」—— 两件都做完了。
+    // 模型不会怀疑上下文包，所以要么标出过期、要么它就会去建一个已经存在的东西。
+    // ⚠ 时间锚只能从**原文**里找：`TripContract` 只暴露六个字段，断点那几行不在里面。
+    const contractRaw = repo ? safeReadText(path.join(repo, '立项契约.md')) : ''
+    const fresh = freshnessNote('这份契约', judgeFreshness(contractRaw))
+    if (fresh) out.push(fresh)
   } else {
     out.push(`- （这个项目还没有立项契约${repo ? `：${repo}` : '（也没登记工作目录）'}）`)
     missing.push('立项契约')
@@ -147,6 +161,10 @@ export function buildContextPack(projectId: string, opts: { maxTasks?: number; m
     ] as const) out.push(...fieldBlock(label, v))
     if (pol.structureMap && pol.structureMap.trim()) {
       out.push('', '### 结构地图', '', pol.structureMap.trim())
+      // 2026-11-24（暮雨第 2 条）：结构地图是「一张写下来的现状」，最容易悄悄过期。
+      // 判据与共享模块同一份（`shared/contextFreshness`），阈值沿用本仓既有的 90 天。
+      const mapFresh = freshnessNote('这张结构地图', judgeFreshness(pol.structureMap))
+      if (mapFresh) out.push(mapFresh)
     } else {
       out.push('- ⚠ 没有结构地图（烂地图比没地图危险 —— 别照着猜模块分布）')
     }
