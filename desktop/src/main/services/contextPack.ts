@@ -34,6 +34,11 @@ import { describeDispatchDelivery } from '../../shared/dispatchDelivery'
 import type { DispatchConsumerProbe, DispatchDelivery } from '../../shared/dispatchDelivery'
 // 2026-11-24（暮雨第 2 条）：材料的新鲜度由一份纯判定管，别在包拼装里就地写 if
 import { judgeFreshness, freshnessNote, STALE_DAYS } from '../../shared/contextFreshness'
+// 2026-11-24（暮雨：「垃圾内容太多」）：瘦身口径也收成一处纯逻辑
+import {
+  dropStruckBlocks, fixNestedLabelLines, compactStructureMap, slimNote, clipAtPunct,
+  HARD_RULES_HEADER, HARD_RULES_UNIVERSAL,
+} from '../../shared/packSlim'
 
 export interface ContextPack {
   ok: boolean
@@ -117,12 +122,16 @@ export function buildContextPack(projectId: string, opts: { maxTasks?: number; m
   const contract = readContractFile(repo)
   out.push('## 1. 这个项目的边界（立项契约）')
   if (contract.exists) {
+    // 2026-11-24（暮雨：「垃圾内容太多」）：契约里的 `~~删除线~~` 是**作者自己划掉的**，
+    // Markdown 语义就是"这段不再算数"。留着它等于把已被推翻的规定当现行规矩喂给 agent ——
+    // 那不是多给信息，是**给错信息**（本仓的反面教材：一张卡把已被收回的发布说明当方向证据）。
+    // 只删成对的 `~~…~~`；落单的 `~~` 原样留着（那是写坏了，不该被我顺手"修好"）。
     for (const [label, v] of [
       ['终态形态', contract.endState],
       ['验收线', contract.acceptLine],
       ['不要什么', contract.notWant],
       ['选型定死', contract.choice],
-    ] as const) out.push(...fieldBlock(label, v))
+    ] as const) out.push(...fieldBlock(label, dropStruckBlocks(v).text))
     if (contract.placeholderFields.length) out.push(`- ⚠ 仍是模板占位（不是内容）：${contract.placeholderFields.join('、')}`)
     if (contract.unmatched.length) out.push(`- ⚠ 这些小节名对不上标准六节：${contract.unmatched.join('、')}`)
     // 2026-11-24（暮雨第 2 条）：**契约原文逐字照搬，但它里面的"当前断点"早就不成立了**。
@@ -160,7 +169,15 @@ export function buildContextPack(projectId: string, opts: { maxTasks?: number; m
       ['边界', pol.boundary],
     ] as const) out.push(...fieldBlock(label, v))
     if (pol.structureMap && pol.structureMap.trim()) {
-      out.push('', '### 结构地图', '', pol.structureMap.trim())
+      // 2026-11-24（暮雨：「垃圾内容太多」）：结构地图 1772 字里，
+      // 模块表（1035）与规约层（170，含硬约束）是 agent 要的；
+      // 「主数据流 / 桌面端数据流」两段描述（542 字）它有仓库可读，是重复劳动。
+      // 判据在 `shared/packSlim.compactStructureMap`：**按有没有约束力决定去留，不按文体**。
+      const mapCompact = compactStructureMap(pol.structureMap)
+      out.push('', '### 结构地图', '', mapCompact.text)
+      // 省了什么必须写在包里 —— 不许让 agent 以为它看到了完整那张图
+      const mapNote = slimNote(mapCompact.omitted, `policies/${pid}.md`)
+      if (mapNote) out.push(mapNote)
       // 2026-11-24（暮雨第 2 条）：结构地图是「一张写下来的现状」，最容易悄悄过期。
       // 判据与共享模块同一份（`shared/contextFreshness`），阈值沿用本仓既有的 90 天。
       const mapFresh = freshnessNote('这张结构地图', judgeFreshness(pol.structureMap))
@@ -190,16 +207,120 @@ export function buildContextPack(projectId: string, opts: { maxTasks?: number; m
   } catch {
     decs = []
   }
-  decs.sort((a, b) => String(b.日期 || '').localeCompare(String(a.日期 || '')))
-  if (decs.length) {
-    for (const d of decs.slice(0, 12)) {
+  /**
+   * 决策**自足程度**（2026-11-24 · 暮雨：「垃圾内容太多」）。
+   *
+   * ## 为什么需要它
+   *
+   * 这个项目 74 条有效决策里，**41 条是"答题型"**：内容是
+   * `K2：在B的基础上，已取消默认隐藏…` / `N2：全部默认开` 这种
+   * 「题号 + 选项」的形态。它们都是真决定，但：
+   *   · **脱离那道题就读不懂**（"全部默认开"—— 什么叫全部？开什么？）；
+   *   · 对 agent 的约束力最弱：它们回答"甲方想要哪个选项"，
+   *     而 agent 真正要守的是**"你不能做什么"**。
+   *
+   * 按日期倒序取 12 条，结果**全是最近三份问卷**，
+   * 把 `D-032 交付三铁律` / `D-031 数据零外部依赖` / `D-152 全走DSH` 这些
+   * **真正的规矩**全挤出去了 —— 这不是"少几条"，是**给错了方向**
+   * （契约里还写着「BYOK 本阶段接」，而 D-152 早已改判"全走DSH"）。
+   *
+   * ## 判据
+   *
+   * 自足 = 这句话单独拿出来还看得懂。**只看形态，不看重要性** ——
+   * "哪条更重要"是人的判断，我不该替用户打这个分。
+   *
+   * 所以排序是：**先按自足，再按日期**。同一天里，正着读得懂的排前面。
+   */
+  const isAnswerShaped = (d: any): boolean => {
+    const c = String(d?.内容 || '').trim()
+    // `K2：B. …` / `S1：A. …` / `N2：…`（题号 + 冒号，后接选项字母或直接是答案）
+    if (/^[A-Z]\d*\s*[：:]\s*[A-D][.、]/.test(c)) return true
+    // 只有题号没有内容（"N2：全部默认开" 这种仍算半自足，但排在自足之后）
+    return false
+  }
+  decs.sort((a, b) => {
+    const sa = isAnswerShaped(a) ? 1 : 0
+    const sb = isAnswerShaped(b) ? 1 : 0
+    if (sa !== sb) return sa - sb                  // 自足的在前
+    return String(b.日期 || '').localeCompare(String(a.日期 || ''))
+  })
+  // 2026-11-24（暮雨：「垃圾内容太多」）：
+  // **别让一份问卷把决策节吃光**。
+  //
+  // 实测：74 条有效决策里，按日期倒序取 12 条，结果是 **11 条问卷答案**
+  // （"K1：A. …" / "N2：全部默认开" 这类）。它们都是真的决定，但**离开了那道题就读不懂**，
+  // 而且对 agent 的约束力最弱 —— 它们回答的是"甲方想要哪个选项"，不是"你不能做什么"。
+  //
+  // 更糟的是被挤掉的：**D-152「全走DSH，方寸无任何理由留自带模型调用」（11-20，排第 19）**
+  // —— 而契约 §1 里还写着「LLM 智能层本阶段接（BYOK）」。两条互相矛盾，
+  // 包里给了旧的那条、藏了新的那条。这不是"少几条"，是**给了错的方向**。
+  //
+  // 判据：**同一个出处（同一份问卷 / 同一个来源）最多占 3 条**。
+  // 为什么是 3 而不是"每条都要有"：问卷一次能出十来个选项题，
+  // 若每条都算，任何限定条数都会被一份新问卷淹没。
+  // ⚠ 被挤掉的照旧明说"另有 N 条"，不假装那就是全部。
+  const PER_SOURCE_CAP = 3
+  /**
+   * 把「出处」归到**它的来源**上。
+   *
+   * ⚠ 第一版直接拿 `出处` 原文当 key，结果**一条都没限住** —— 因为问卷落卡的出处带着题号：
+   *     `问卷 方寸-通知默认策略-20261121 · N1`
+   *     `问卷 方寸-通知默认策略-20261121 · N2`
+   *   每条字符串都不同，于是"同一份问卷"看起来像五个不同来源。
+   *
+   * 所以取 `· <题号>` **之前**的部分。注意不能简单按 `-` 切 —— 卷名里本来就有 `-`。
+   */
+  const sourceGroupOf = (src: string): string => {
+    const s = String(src || '').trim()
+    if (!s) return ''
+    const head = s.split('·')[0].trim()
+    return head || s
+  }
+  const seenSource = new Map<string, number>()
+  const kept: any[] = []
+  for (const d of decs) {
+    const src = String(d.出处 || '').trim()
+    // 没有出处的**不参与限流**（那种条数很少，且往往是手写的老规矩，更该给 agent 看）
+    if (!src) { kept.push(d); continue }
+    const g = sourceGroupOf(src)
+    const n = seenSource.get(g) || 0
+    if (n >= PER_SOURCE_CAP) continue
+    seenSource.set(g, n + 1)
+    kept.push(d)
+  }
+  const shownDecs = kept.slice(0, 12)
+  /**
+   * 一条决策在包里最多占多少字（2026-11-24）。
+   *
+   * 实测真身：`L1` 那条是 **150+ 字的口述**（"我自己爱用git，一键无脑备份……
+   * 顺便问卷功能没做输入保护，刚才我打的字全没了"）—— 它是**真实反馈**，
+   * 但作为"现行规矩"它只有前半句有效，后半句是一次事故的具体抱怨。
+   *
+   * 关键：**截断必须让 agent 知道自己看到的是截断的**，否则它会以为那就是全文。
+   * 所以尾部一定带 `…（全文见决策页 <id>）`。
+   */
+  const DEC_CHAR_CAP = 90
+  if (shownDecs.length) {
+    // 2026-11-24：**「最新」不等于「最要紧」** —— 这一行必须说清楚，
+    // 否则 agent 会以为列出来的就是全部现行规矩，而没列的那些可以不管。
+    out.push('- 下面是**最近**拍板的一部分（不是全部，也不等于最要紧的都在这里）：')
+    for (const d of shownDecs) {
       const src = String(d.出处 || '').trim()
       // 生效范围只在这条**不是**"本卷"时标出来：满屏都是「本卷」等于没有信息。
       const scope = String((d as any).生效范围 || '').trim()
       const scopeTag = scope && scope !== '本卷' ? `〔${scope}〕` : ''
-      out.push(`- ${fmtDay(d.日期)} · ${scopeTag}${String(d.内容 || '').trim()}${src ? `（出处：${src}）` : ''}`)
+      const rawContent = String(d.内容 || '').trim()
+      const body = clipAtPunct(rawContent, DEC_CHAR_CAP)
+      const idTag = rawContent.replace(/\s+/g, ' ').trim().length > DEC_CHAR_CAP
+        ? `…（全文见决策页 ${String(d.id || '')}）`
+        : ''
+      out.push(`- ${fmtDay(d.日期)} · ${scopeTag}${body}${idTag}${src ? `（出处：${src}）` : ''}`)
     }
-    if (decs.length > 12) out.push(`- …… 另有 ${decs.length - 12} 条，去“决策”页看`)
+    if (kept.length > shownDecs.length || decs.length > kept.length) {
+      const more = decs.length - shownDecs.length
+      out.push(`- …… 另有 ${more} 条，去“决策”页看`
+        + (decs.length > kept.length ? `（同一份问卷最多列 ${PER_SOURCE_CAP} 条 —— 其余的条目脱离原题就读不懂）` : ''))
+    }
   } else {
     out.push('- （没有记过有效决策 —— 这不等于"没有约定"，可能是没人记）')
     missing.push('有效决策卡')
@@ -225,10 +346,26 @@ export function buildContextPack(projectId: string, opts: { maxTasks?: number; m
         fm.assignee ? `指派 ${String(fm.assignee)}` : '',
         fm.deadline ? `截止 ${String(fm.deadline)}` : '',
       ].filter(Boolean).join(' · ')
-      out.push(`- **${String(fm.title || t.id)}**（${meta}）`)
+      // 2026-11-24（暮雨：「垃圾内容太多」）：**卡标题在包里要封顶**。
+      // 实测真身里有 60+ 字的标题（"【UI 不统一·守卫漏了】6 个真花钱入口只有 2 个带 ¥ 角标
+      // —— 因为守卫只读 ProjectsView.vue；同一按钮还有 26/28/28 三种高度"），
+      // 一条就顶三行。标题的作用是**让 agent 认出这张卡**，不是把卡读完 —— 正文它会去读。
+      const titleRaw = String(fm.title || t.id)
+      const title = clipAtPunct(titleRaw, 46)
+      out.push(`- **${title}**（${meta}）`)
       const plan = String(t?.body || '').split(/^##\s*方案\s*$/m)[1] || ''
       const step = plan.split(/\r?\n/).map((x) => x.trim()).find((x) => x.startsWith('-'))
-      if (step) out.push(`  ${firstLine(step.replace(/^-\s*(\[[ xX]\]\s*)?/, ''))}`)
+      if (step) {
+        const stepText = firstLine(step.replace(/^-\s*(\[[ xX]\]\s*)?/, ''))
+        // 2026-11-24：**别把标题再说一遍**。实测真身：`[账本] 方寸：备份选型（0.3.4-B …）`
+        // 下面紧跟一行 `备份选型（0.3.4-B 数据安全项，10-09 起无下文）` ——
+        // 同一句话出现两次，agent 会以为那是"方案的第一步"。
+        const dupTitle = stepText && (
+          titleRaw.includes(stepText) || stepText.includes(titleRaw)
+          || (stepText.length > 12 && titleRaw.slice(0, 12) === stepText.slice(0, 12))
+        )
+        if (!dupTitle) out.push(`  ${stepText}`)
+      }
     }
     if (open.length > maxTasks) out.push(`- …… 另有 ${open.length - maxTasks} 张，去“看板”筛“${name}”看全`)
   } else {
@@ -257,21 +394,33 @@ export function buildContextPack(projectId: string, opts: { maxTasks?: number; m
   }
   out.push('')
 
-  // ── ⑦ 干活时的硬约束（从契约与方针里提，不新造规矩）────────────────
+  // ── ⑦ 干活时的硬约束 ────────────────────────────────────────────
+  //
+  // ⚠ 2026-11-24（暮雨：「上下文包有问题也要改，垃圾内容太多」）：
+  //   这一节原来把契约的「不要什么」和方针的「边界」**原样再贴一遍** ——
+  //   实测 909 / 1109 字（82%）与第 1 节逐行相同。
+  //
+  //   重复不只是费字，还会**制造两份可漂移的副本**：agent 在同一份包里读到
+  //   同一批规矩的两个版本（一个带完整 REV 链、一个被截断），会以为其中一段是补充说明。
+  //
+  //   所以这一节只留**别处没有的**：一句指路 + 方寸自己的两条通用规矩。
+  //   那句指路值得花 40 字 —— 没有它，agent 会看到一个只有两条的"硬约束"节，
+  //   反推出"这项目没有别的规矩"。
   out.push('## 7. 干活时的硬约束')
-  const hard: string[] = []
-  if (contract.exists && contract.notWant.trim()) hard.push(`不做：${contract.notWant.trim()}`)
-  if (pol && String(pol.boundary || '').trim()) hard.push(`方针边界：${String(pol.boundary).trim()}`)
-  hard.push('改完必须真跑验证（不是"应该没问题"）；拿不准就停下来问，别猜。')
-  hard.push('这一包是**只读的现状快照**，会过期 —— 你动手前如果隔了很久，先重新生成一份。')
-  for (const h of hard) out.push(`- ${h}`)
+  for (const h of HARD_RULES_UNIVERSAL) out.push(h)
+  out.push(HARD_RULES_HEADER)
   out.push('')
 
   if (missing.length) {
     out.push('---', `⚠ 这一包缺了：${missing.join('、')}。**缺不等于没有**，别拿空白当结论 —— 要么去补，要么问人。`)
   }
 
-  const text = out.join('\n')
+  // 2026-11-24（暮雨：「垃圾内容太多」）：
+  // `fixNestedLabelLines` 修的是拼包时的**结构塌陷**，不是排版洁癖 ——
+  // 实测真身有过 `- 不做：- **运营期要用户手动喂的规划工具**（…）`：
+  // 标签后面直接跟列表符，agent 会把它读成一个叫"不做："的条目，
+  // 而不是"X 属于不做的那一类"。放在最后统一修，省得每个字段各修一遍。
+  const text = fixNestedLabelLines(out.join('\n'))
   return {
     ok: true,
     projectId: pid,
