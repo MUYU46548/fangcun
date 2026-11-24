@@ -125,3 +125,6 @@ arch-last.json
 
 # 提交信息临时文件（我用 write 工具生成，别入库）
 .git-msg*.txt
+
+# 临时探针脚本（我用 write 工具生成，别入库）
+.tmp-*.cjs
