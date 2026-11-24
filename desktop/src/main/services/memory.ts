@@ -665,6 +665,33 @@ export interface MemoryBriefingItem {
   score: number
   file: string
   legacy: boolean
+  /** 复核日期（frontmatter `复核`）；未填 = 空串 */
+  review: string
+  /** 距复核日已过多少天（未填 / 认不出 = null，绝不当 0） */
+  reviewAgeDays: number | null
+  /** 是否已超过复核周期（默认 180 天）—— 见 REVIEW_DAYS */
+  reviewOverdue: boolean
+}
+
+/** 复核周期（天）。规划 §3.3 写的是「>180 天在简报里标待复核」。 */
+export const REVIEW_DAYS = 180
+
+/**
+ * 复核日期距今多少天；**认不出就返回 null，绝不当 0**。
+ *
+ * 为什么单独一个函数：本仓栽过「认不出的时间被当成 0 → 1970 年 → 晾了 20000 天」，
+ * 那会让每一条老记忆都被标成"待复核"，提示等于噪音，人会顺手忽略它。
+ * null 的语义是"不知道"，界面上要说"没有复核日期"，不是"刚刚复核过"。
+ */
+export function reviewAgeDays(review: string, now: number): number | null {
+  const s = String(review || '').trim()
+  if (!s) return null
+  // 只认 YYYY-MM-DD / ISO8601；`2026-11-20` 当本地日 00:00
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s)
+  if (!m) return null
+  const t = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime()
+  if (!Number.isFinite(t)) return null
+  return Math.max(0, Math.floor((now - t) / 86400000))
 }
 
 /**
@@ -695,21 +722,27 @@ export function memoryBriefing(project: string, limit = 5): {
     maxChars: MEMORY_BUDGETS.briefing,
     minScore: 0,
   })
-  const items = ranked.rows.map((x) => ({
-    id: x.item.id,
-    type: x.item.type,
-    impact: x.item.impact,
-    project: x.item.project,
-    time: x.item.time,
-    title: x.item.claim,
-    summary: x.item.claim,
-    claim: x.item.claim,
-    confidence: x.item.confidence,
-    importance: x.item.importance,
-    score: x.score,
-    file: x.item.file,
-    legacy: x.item.legacy,
-  }))
+  const items = ranked.rows.map((x) => {
+    const age = reviewAgeDays(x.item.review, Date.now())
+    return {
+      id: x.item.id,
+      type: x.item.type,
+      impact: x.item.impact,
+      project: x.item.project,
+      time: x.item.time,
+      title: x.item.claim,
+      summary: x.item.claim,
+      claim: x.item.claim,
+      confidence: x.item.confidence,
+      importance: x.item.importance,
+      score: x.score,
+      file: x.item.file,
+      legacy: x.item.legacy,
+      review: String(x.item.review || ''),
+      reviewAgeDays: age,
+      reviewOverdue: age !== null && age > REVIEW_DAYS,
+    }
+  })
   return {
     project: p,
     total: ranked.total,

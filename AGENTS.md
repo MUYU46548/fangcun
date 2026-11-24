@@ -293,6 +293,12 @@ python scripts/test/check-promises-mutations.py   # 反例自证（5 条）
 - **开关**（2026-11-20）：prefs `memoryEnabled` / `memoryInjectCore` / `memoryBriefing`，**缺省开**
   （键不存在 = 开，判断写 `!== false`）。关掉后 agent 五个出口都回 `enabled:false`，
   记忆页照常可看可管；「关 / 空 / 读失败 / 没连上」四种状态分开说。
+  ⚠ **两个子开关到 2026-11-24 才真正接线**：此前它们只在设置页有复选框，后端零消费
+  （点掉「开工简报」，简报照旧返回）。现在支持 `force: true` 临时取一次，但**不越总闸**。
+  守卫 `node scripts/test/e2e-memory-switches.cjs`（26 条 + 2 条反例）。
+- **复核提醒**（2026-11-24）：`memory_briefing` 每条带 `reviewAgeDays` / `reviewOverdue`，
+  顶层带计数；超 180 天在 hint 里点名。⚠ 认不出日期给 **`null` 不是 `0`** ——
+  0 会被读成"刚复核过"，而"认不出→1970年→晾了 20000 天"会把每条都标红，提示变噪音。
 - **和记忆插件的关系**（REV-015）：`scope-recall` 不捞、不参考；
   但「不参考」≠「不联动」。联动的正确形态是 **方寸当唯一真相源、插件来读**，
   **不做双向同步** —— 那会变成第二个"各写各的"，正是这件事要治的病。
@@ -419,11 +425,24 @@ python scripts/test/check-promises-mutations.py   # 反例自证（5 条）
 没有 `strictNullChecks` 时，可辨识联合**不会**被 truthy 检查收窄，读 `r.reason` 直接编译失败。
 - **改法**：写类型谓词 `isXxxOk(r): r is XxxOk`，别指望 `if (!r.ok)`（10-25 账户口径踩过）。
 
-### 6. 给 Windows 写 `.ps1` 必须存成 **UTF-8 带 BOM**
+### 6. BOM 按文件类型分场景 —— **脚本要带，数据文件绝不能带**
 
-无 BOM 的 UTF-8 会被 Windows 自带脚本宿主按 ANSI 解码 → 中文变乱码，甚至让引号配对失败
-（2026-10-27 实际报错：`字符串缺少终止符: "`，一个看起来"语法明明对"的脚本跑不起来）。
-- **判据**：文件前 3 字节必须是 `EF BB BF`；自查 `node -e "…slice(0,3)"`。
+> ⚠ 2026-11-24 改。原文只写「`.ps1` 必须带 BOM」，**方向对脚本、对数据文件正好相反**，
+> 而它就摆在最显眼的位置，于是我用 `Set-Content -Encoding utf8`（它写 BOM）去改数据文件，
+> **两次把东西写坏**：`package.json` 变 0 字节、18 份执行日志从客户端消失。
+> **一条会把有害操作合法化的规矩，比没有规矩更糟。**
+
+| 文件 | BOM | 为什么 |
+|---|---|---|
+| `.ps1` / `.bat`（被 Windows 脚本宿主执行） | **必须带** | 无 BOM 会被按 ANSI 解码 → 中文乱码、引号配对失败（2026-10-27 报错 `字符串缺少终止符: "`） |
+| `.md` / `.json` / `.yaml` / `.ts` / `.py`（**数据与源码**） | **绝不能带** | BOM 会进字段名/键名（`\ufeffid`），产品解析器读不到；本仓的两起事故都是这一条 |
+
+- **判据**：文件前 3 字节是 `EF BB BF` = 有 BOM。数据文件里出现它就是红。
+- **写数据文件只用**：`fs.writeFileSync(p, s, 'utf-8')`（Node）或
+  `[System.IO.File]::WriteAllText(p, s, (New-Object System.Text.UTF8Encoding($false)))`（PowerShell）。
+- **永不用**：`PowerShell Set-Content` / `Out-File` / `>` 重定向写数据文件 ——
+  PS 5.1 的 `-Encoding utf8` 默认写 BOM，且 `Set-Content` 还会改行尾。
+- **读**：一律按 `utf-8-sig` 读（容忍别人留下的 BOM，但自己不写）。
 - 顺带：`.bat` 里调脚本先 `chcp 65001`，否则中文输出乱码。
 
 ### 6b. 一次性操作别造一堆入口文件

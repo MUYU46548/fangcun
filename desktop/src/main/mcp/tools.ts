@@ -95,6 +95,39 @@ function memoryOff(): MCPToolResult | null {
   }
 }
 
+/**
+ * 读取单个记忆开关（2026-11-24）。
+ *
+ * 为什么要有它：`memoryInjectCore` / `memoryBriefing` 这两个子开关
+ * **之前在 UI 上存在、后端零消费** —— 用户点掉「按项目开工简报」，什么都没变。
+ * 那是本仓最讨厌的那种病：界面说关了，闸门里没关（与 I10「规矩写报告里 ≠ 写闸门里」同一条）。
+ *
+ * 语义两条（与总开关一致）：
+ *  ① **键不存在 = 开**（`!== false`），升级用户第一次打开必须是开的；
+ *  ② 读 prefs 失败（纯 Node 测试没有 electron）**按开处理**，不把测试搞挂。
+ */
+function memorySubPref(key: 'memoryInjectCore' | 'memoryBriefing'): boolean {
+  try { return getPref(key) !== false } catch { return true }
+}
+
+/** 子开关关掉时的返回体（说清"关了哪个"，不说成"没有记忆"）。 */
+function subOff(key: 'memoryInjectCore' | 'memoryBriefing'): MCPToolResult {
+  const zh = key === 'memoryInjectCore' ? '开工自动注入核心' : '按项目开工简报'
+  return {
+    content: [{
+      type: 'text',
+      text: JSON.stringify({
+        ok: true,
+        enabled: true,
+        subEnabled: false,
+        switch: key,
+        hint: `「${zh}」这个子开关是关的（方寸 → 设置 → 通用 → 记忆）。关掉 ≠ 没有记忆：数据还在，`
+          + '要临时取一次就显式传 force: true；也可去设置里打开它。',
+      }, null, 2),
+    }],
+  }
+}
+
 export const MCP_TOOLS: MCPTool[] = [
   {
     name: 'list_tasks',
@@ -500,7 +533,16 @@ export const MCP_TOOLS: MCPTool[] = [
       + 'memory_search / memory_read on demand. This is the only memory content fangcun_context auto-injects — '
       + 'a generated core, not a dynamic top-N of all memories. If the memory switch is off, it returns '
       + 'enabled:false with a clear hint instead of pretending the core is missing.',
-    inputSchema: { type: 'object', properties: {} },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        force: {
+          type: 'boolean',
+          description: 'Return the core even if the 「开工自动注入核心」 sub-switch is off '
+            + '(use for a one-off read the user explicitly asked for). Default false.',
+        },
+      },
+    },
   },
   {
     name: 'memory_write',
@@ -546,6 +588,10 @@ export const MCP_TOOLS: MCPTool[] = [
       properties: {
         project: { type: 'string', description: 'Project id, e.g. fangcun-base' },
         limit: { type: 'integer', description: 'Max rows (default 5, max 20)' },
+        force: {
+          type: 'boolean',
+          description: 'Return the briefing even if the 「按项目开工简报」 sub-switch is off. Default false.',
+        },
       },
       required: ['project'],
     },
@@ -1844,11 +1890,16 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
       }
       const c = memoryCore()
       const ov = memoryOverview()
+      // 子开关（2026-11-24）：关掉「开工自动注入核心」就不给正文 —— 但**说明库里有几条**，
+      // 让调用方能区分"关着"与"没有记忆"（本仓反复栽的四态混淆）。
+      const injectOn = memorySubPref('memoryInjectCore') || args.force === true
       return { content: [{ type: 'text', text: JSON.stringify({
         ok: c.ok,
         enabled: true,
-        text: c.text,
-        chars: c.chars,
+        subEnabled: injectOn,
+        switch: 'memoryInjectCore',
+        text: injectOn ? c.text : '',
+        chars: injectOn ? c.chars : 0,
         budget: c.budget,
         truncated: c.truncated,
         missing: c.missing,
@@ -1856,11 +1907,15 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
         pinnedCount: c.pinnedCount,
         generated: c.generated,
         archived: ov.effective,
-        hint: c.missing
-          ? '固定核心还没生成（memory/core.md）；归档里有记忆，按需用 memory_search / memory_read，不要全量注入。'
-          : (c.truncated
-            ? `核心超过 ${c.budget} 字，已截断 —— 请减少钉住条目或精简 core.manual.md，不要把完整事故塞进来。`
-            : '这是生成的核心（钉住 claim，≤800 字）。完整证据用 memory_search 找指针、memory_read 取正文；不会自动注入。'),
+        hint: !injectOn
+          ? '「开工自动注入核心」这个子开关是关的（方寸 → 设置 → 通用 → 记忆）。'
+            + `关掉 ≠ 没有记忆：${ov.effective} 条记忆还在，钉住 ${c.pinnedCount} 条；`
+            + '要临时取一次就显式传 force: true，或去设置里打开它。'
+          : (c.missing
+            ? '固定核心还没生成（memory/core.md）；归档里有记忆，按需用 memory_search / memory_read，不要全量注入。'
+            : (c.truncated
+              ? `核心超过 ${c.budget} 字，已截断 —— 请减少钉住条目或精简 core.manual.md，不要把完整事故塞进来。`
+              : '这是生成的核心（钉住 claim，≤800 字）。完整证据用 memory_search 找指针、memory_read 取正文；不会自动注入。')),
       }, null, 2) }] }
     }
 
@@ -1914,7 +1969,14 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
           ok: false, error: '需要 project', hint: '传项目 id，例如 fangcun-base。',
         }, null, 2) }], isError: true }
       }
+      // 子开关（2026-11-24）：关掉「按项目开工简报」就真不返回简报。
+      // 显式传 force:true 表示"我知道它关着，但我这次就是要一份"——那不算绕过，
+      // 因为开关是"别自动喂给我"，不是"不许我看"（记忆页一直是全开的）。
+      if (!memorySubPref('memoryBriefing') && args.force !== true) return subOff('memoryBriefing')
       const b = memoryBriefing(project, Number(args.limit) || 5)
+      // 复核提醒（2026-11-24）：规划 §3.3 要求「>180 天在简报里标待复核」，
+      // 而 `复核` 字段此前只被解析、从没被读过 —— 等于这个承诺没兑现。
+      const overdue = b.items.filter((x) => x.reviewOverdue)
       return { content: [{ type: 'text', text: JSON.stringify({
         ok: true,
         project: b.project,
@@ -1923,10 +1985,14 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
         truncated: b.truncated,
         dropped: b.dropped,
         chars: b.chars,
+        reviewOverdue: overdue.length,
         items: b.items,
         hint: b.total === 0
           ? '这个项目还没有有效记忆（不是读不到）。'
-          : '要原文/证据用 memory_read({file})；简报只给 claim，不塞正文。',
+          : (overdue.length
+            ? `其中 ${overdue.length} 条已过复核周期（>180 天）：${overdue.map((x) => x.id + ' @ ' + x.review).join('、')}`
+              + ' —— 请向用户确认它还成立吗，不要当成现行规矩直接用。'
+            : '要原文/证据用 memory_read({file})；简报只给 claim，不塞正文。'),
       }, null, 2) }] }
     }
 

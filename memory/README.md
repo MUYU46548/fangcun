@@ -109,6 +109,18 @@ python scripts/memory.py --check            # 校验索引 + v2 格式（非零�
 - 「筛出来 0 条」≠「库里一条都没有」；「关掉」≠「空」≠「读失败」≠「没连上」。
 - `--check` 用 `utf-8-sig` 读索引（Windows 的 BOM 不是坏数据，但坏行必须点名）。
 
+**检索文本只拼内容，不拼 frontmatter（2026-11-24 修）**：
+
+原先 haystack 拼的是整篇 `_raw`，**键名被当内容搜** ——
+`--q 格式 / 状态 / 来源 / 证据 / 类型` 各命中 **34/34**，等于"搜什么都能搜到全部"。
+现在与 TS 侧 `memoryRank.ts` 的 `haystack()` 同口径：claim + 编号 + tags + id + 证据正文。
+
+守卫：`python scripts/test/check-memory-search.py --self-check`（20 条）
+- ① 键名当查询词必须 **< 总条数**；
+- ② 真内容（`kill` / `frontmatter` / `worktree`）必须 **> 0**；
+- ③ 同一条查询 Python 与 TS 的命中数**必须相等**（两侧各写一套 = 口径迟早分叉）；
+- 反例两条：把 `_raw` 拼回去 → ① 精确变红；把 haystack 清空 → ② 精确变红。
+
 ---
 
 ## 六、核心与预算
@@ -129,10 +141,31 @@ python scripts/memory.py --check            # 校验索引 + v2 格式（非零�
 ```
 
 - 键不存在 = **开**；判断一律 `!== false`。
-- 关掉后 agent 五个出口（core / search / read / briefing / write）全部返回 `enabled:false`，
-  并说"记忆已关闭；数据还在"。
+- **总开关 `memoryEnabled`**：关掉后 agent 五个出口（core / search / read / briefing / write）
+  全部返回 `enabled:false`，并说"记忆已关闭；数据还在"。
+- **两个子开关（2026-11-24 才真正接线）**：
+  - `memoryInjectCore` 关 → `memory_core` 的 `text` 为空、`subEnabled:false`，
+    hint 说清「钉住 N 条还在」；
+  - `memoryBriefing` 关 → `memory_briefing` 不返回 `items`、`subEnabled:false`；
+  - 两者都支持 **`force: true`**：开关的语义是"别自动喂给我"，不是"不许我看"。
+    `force` **不越总闸** —— 总开关关着时仍然 `enabled:false`。
+  - ⚠ 这两个键在此之前**只有设置页的两个复选框**，后端零消费：点掉它什么都没变。
+    守军 `node scripts/test/e2e-memory-switches.cjs`（26 条，含两条精确反例）。
 - **记忆页照常可看可管**：开关关的是 agent 自动读写，不是数据锁。
 - 关掉 ≠ 空 ≠ 读失败 ≠ 没连上 —— 四种状态四句话，测试逐条钉。
+
+---
+
+## 七之二、复核提醒（2026-11-24 接线）
+
+`memory_briefing` 的每条现在带 `review` / `reviewAgeDays` / `reviewOverdue` 三个字段，
+顶层带 `reviewOverdue` 计数。超过 **180 天**（`REVIEW_DAYS`）的条目会在 hint 里被点名，
+要求向用户确认"它还成立吗"，不许当现行规矩直接用。
+
+⚠ **`reviewAgeDays` 认不出日期时是 `null`，不是 `0`。** 0 会被读成"刚复核过"，
+反过来"认不出 → 0 → 1970 年 → 晾了 20000 天"会把每条老记忆都标成待复核，提示变成噪音。
+未填 `复核` 的条目不标待复核（`null` → `reviewOverdue:false`）。
+在此之前 `复核` 字段只被解析、从没被读过 —— 规划 §3.3 那句承诺是空的。
 
 ---
 

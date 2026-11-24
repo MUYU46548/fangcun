@@ -251,6 +251,28 @@ def build_index(rows):
     return out
 
 
+def search_hay(r):
+    """检索用的文本：**只拼内容字段，不拼整篇原文**。
+
+    ⚠ 2026-11-24 修。原先这里拼的是 `_raw`（整篇文件，含 frontmatter），
+    于是**键名也被当内容搜**：`--q 格式` / `--q 状态` / `--q 来源` / `--q 证据` / `--q 类型`
+    各命中 34/34 —— 全部是假命中，等于"搜什么都能搜到全部"。
+
+    现在与 TS 侧 `memoryRank.ts` 的 `haystack()` 对齐：claim + 编号 + tags + id + 证据正文。
+    证据正文仍参与（那是真的内容），但**键名不再参与**。
+    """
+    tags = r.get('tags') or []
+    if not isinstance(tags, list):
+        tags = [str(tags)]
+    return ' '.join([
+        str(r.get('claim', '')),
+        str(r.get('code', '')),
+        str(r.get('id', '')),
+        ' '.join(str(t) for t in tags),
+        str(r.get('evidence', '')),
+    ]).lower()
+
+
 def match(r, a):
     status = str(r.get('status', '') or '')
     if a.pending:
@@ -267,8 +289,7 @@ def match(r, a):
     if a.project and a.project != str(r.get('project', '')):
         return False
     if a.q:
-        hay = ' '.join([str(r.get('_raw', '')), str(r.get('claim', '')), str(r.get('id', ''))]).lower()
-        if a.q.lower() not in hay:
+        if a.q.lower() not in search_hay(r):
             return False
     return True
 
