@@ -332,7 +332,15 @@ export function getRegistryPath(): string { return REGISTRY_PATH }
 
 // ── Status Enum ─────────────────────────────────────────────────────────
 
-export const STATUSES = ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回'] as const
+/**
+ * 合法状态（顺序即看板列顺序）。
+ *
+ * 「已取消」是 2026-11-23 K2 拍板的**第八个状态**（"已取消默认隐藏，多搞一个按钮当开关"）。
+ * 它和「驳回」必须分开：驳回 = 被否决（要返工），已取消 = 不做了（终态）。
+ * 判定口径见 `shared/cancelColumn.ts`；⚠ 与 Python `core.STATUSES` **必须逐字一致**
+ * （verify.py 第 27 组会比对，改一处不改另一处会当场变红）。
+ */
+export const STATUSES = ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回', '已取消'] as const
 export type Status = typeof STATUSES[number]
 
 /**

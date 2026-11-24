@@ -150,6 +150,19 @@ if (pluginKindsMatch) {
       '    repo: ""',
       '    tools: []',
       '    sources: []',
+      // D / E 是 2026-11-24「日志派活后自动进行中」那组用例的夹具（已完成日志 / 不带 logId）
+      '  - id: fc-dispatch-demo-d',
+      '    name: 契约夹具 D',
+      '    tasks: ""',
+      '    repo: ""',
+      '    tools: []',
+      '    sources: []',
+      '  - id: fc-dispatch-demo-e',
+      '    name: 契约夹具 E',
+      '    tasks: ""',
+      '    repo: ""',
+      '    tools: []',
+      '    sources: []',
       '',
     ].join('\n'), 'utf-8')
     data.setDataDir(tmp)
@@ -261,6 +274,51 @@ if (pluginKindsMatch) {
     const rm2 = cp.dispatchMessageToDsh('fc-dispatch-demo-b', 'work', '再派一次', T1 + 1_000)
     check('★★ 带任务书的派单同样受 10 秒冷却闸（不是绕过冷却的后门）',
       rm2 && rm2.ok === false && rm2.cooling === true, JSON.stringify(rm2))
+
+    // ── ⑥ 日志派活后自动「进行中」（2026-11-24 暮雨第 1 条）───────────────
+    // 「建议方寸日志派活成功后日志自动标进行中（未测试过绑定日志全组派活）。」
+    // 判据：① 传了 logId 且派单成功 → 那条日志 running=true；
+    //       ② **只动这一条**，它的附属日志一条都不许被顺手拉起来；
+    //       ③ 已完成 / 已归档的日志不许被一次派单改写生命周期；
+    //       ④ 不传 logId（项目页派的单）时行为与之前逐字一致。
+    const logsMod = require(path.join(DIST, 'services', 'logs.js'))
+    const mkLog = (title) => {
+      const r = logsMod.createLog({ title, content: 'x', project: 'fc-dispatch-demo-b' })
+      return (r && (r.data ? r.data.id : r.id)) || ''
+    }
+    const mainLogId = mkLog('派单自动进行中的主日志')
+    const subLogId = mkLog('它的附属日志')
+    if (mainLogId && subLogId) {
+      logsMod.setLogAttached(mainLogId, [subLogId])
+      const rawBefore = logsMod.getLog(mainLogId)
+      check('前置：主日志原本不是进行中（判据得能看出变化）', rawBefore && rawBefore.running !== true)
+      const rl = cp.dispatchMessageToDsh('fc-dispatch-demo-c', 'work', '从日志派活', T1 + 30_000, null, mainLogId)
+      check('★★ 从日志派单成功', rl && rl.ok === true, JSON.stringify(rl))
+      check('★★ 派单成功后那条日志自动变「进行中」', rl && rl.logRunning === true, JSON.stringify(rl))
+      const after = logsMod.getLog(mainLogId)
+      check('★ 日志文件里真的落了 running（不是只回传在返回值里）', after && after.running === true)
+      check('★★ 只动这一条：附属日志没有被一起拉起来（暮雨特意点了"未测试过全组派活"）',
+        logsMod.getLog(subLogId).running !== true,
+        JSON.stringify(logsMod.getLog(subLogId)))
+      // 它仍然是「待处理」那一格（running 是正交标记，不是 status 取值）
+      check('★ status 仍是 active（进行中是独立开关，不是第六种状态）', after && after.status === 'active')
+    }
+
+    // 已完成 / 已归档的不许被一次派单悄悄改写生命周期
+    const doneLogId = mkLog('已经做完的日志')
+    if (doneLogId) {
+      logsMod.completeLog(doneLogId, 7, '做完了')
+      const rd = cp.dispatchMessageToDsh('fc-dispatch-demo-d', 'work', '从已完成的日志派活', T1 + 60_000, null, doneLogId)
+      check('★★ 已完成日志派单成功后**不**被拉回进行中（生命周期不归派单管）',
+        rd && rd.ok === true && rd.logRunning === false, JSON.stringify(rd))
+      check('★ 而且要说清为什么没动它（不许静默）',
+        rd && typeof rd.logRunningError === 'string' && rd.logRunningError.length > 0, JSON.stringify(rd && rd.logRunningError))
+    }
+
+    // 不传 logId：与之前逐字一致
+    const rNo = cp.dispatchMessageToDsh('fc-dispatch-demo-e', 'work', '项目页派的单', T1 + 90_000, null)
+    check('★ 不传 logId 时不动任何日志（项目页派单零破坏）',
+      rNo && rNo.ok === true && rNo.logRunning === false && !rNo.logId, JSON.stringify(rNo))
   } finally {
     try { fs.rmSync(tmp, { recursive: true, force: true }) } catch { /* ignore */ }
   }

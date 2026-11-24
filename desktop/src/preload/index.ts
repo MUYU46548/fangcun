@@ -108,8 +108,10 @@ contextBridge.exposeInMainWorld('tegula', {
    * 带任务书的派单（2026-11-20 · D-150）：文档拆卡 / 出单改成 DSH 派单。
    * `message` = 界面固定生成的任务书（不是 agent 自由文本）；方寸只落文件，不调模型。
    */
-  dispatchMessageDsh: (projectId: string, kind: 'work' | 'plan', message: string) =>
-    ipcRenderer.invoke('context:dispatchMessage', projectId, kind, message),
+  // 2026-11-24（暮雨第 1 条）：多带一个 logId —— 派单成功后把那**一条**日志标进行中。
+  // 不传 = 与之前逐字一致（项目页派的单不涉及日志）。
+  dispatchMessageDsh: (projectId: string, kind: 'work' | 'plan', message: string, logId?: string) =>
+    ipcRenderer.invoke('context:dispatchMessage', projectId, kind, message, logId),
   /**
    * 派单总闸（2026-11-21）：读四项设置 + 今天几单 + 闸门（默认关）。
    * 设置页与 health.dispatch 渲染的是**同一个对象**，渲染层不自己算数。

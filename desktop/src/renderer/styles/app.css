@@ -488,6 +488,11 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
    两个类名同时是**断言的稳定锚点**（比按文案找按钮可靠：文案会随取值变）。 */
 #bar .fbar-group-btn, #bar .fbar-sort-btn { color: var(--muted); }
 #bar .fbar-group-btn.on, #bar .fbar-sort-btn.on { color: var(--accent); }
+/* 「显示已取消」开关（2026-11-24 · 2026-11-23 问卷 K2）。
+   与分组/排序同一档：默认是"没开"，开着时用 accent 色（.on 的通用规则已覆盖）。
+   ⚠ 这里**不**给它加 badge/计数 —— 那一列是"决定不做了"的归档性质，
+     挂个数字会让人以为还有活要干。 */
+#bar .fbar-cancel-btn { color: var(--muted); }
 #bar .fbar-n {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px;

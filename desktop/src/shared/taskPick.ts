@@ -23,6 +23,7 @@
  *     本卡实测过反例：搜 `fangcun` 时提示"另有 0 张没显示"，切到完成档实际 43 张 ——
  *     因为提示只比 id+标题，主匹配还比项目名。同一屏两个答案，比没有提示更糟。
  */
+import { CLOSED_STATUSES as CLOSED_SET } from './cancelColumn'
 
 /** 送进检索的卡（只需要这几个字段，避免把整个 Task 拖进来） */
 export interface TaskPickInput {
@@ -59,7 +60,12 @@ interface Hay {
   status: string
 }
 
-const TERMINAL_STATUSES = ['完成', '驳回']
+/**
+ * 终态（完成 / 驳回 / 已取消）—— 口径统一在 `cancelColumn`。
+ * ⚠ 2026-11-24（K2）：这里原来自己写一份 `['完成','驳回']`，
+ *   于是「已取消」的卡仍会被选进"下一步该干这个"，而它已经决定不做了。
+ */
+const TERMINAL_STATUSES = CLOSED_SET
 
 /** 数组 or 分隔串 → 小写字符串（统一空格分隔） */
 function joinLoose(v: string | string[] | undefined): string {

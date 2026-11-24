@@ -44,7 +44,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 TZ = timezone(timedelta(hours=8))
 NOW = datetime.now(TZ)
-DONE = {"完成", "驳回"}
+# 已收口：完成 / 驳回 / 已取消（2026-11-24 K2 第八个状态）。
+# ⚠ 这里算的是"还欠多少活"，漏掉「已取消」会把决定不做的卡也算成债。
+DONE = {"完成", "驳回", "已取消"}
 # 「真的被用起来」= 验收通过 / 已发布 / 被别处引用。**不算"卡变完成"**——
 # 那是自报。这里能拿到的最强证据只有"状态=完成且没被驳回"，所以口径必须写出来。
 HONEST_DONE = "完成"

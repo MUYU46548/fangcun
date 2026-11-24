@@ -20,6 +20,7 @@
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { execFile } from 'child_process'
 import { dshHome } from './probe'
 import { pipeNameFor } from '../mcp/pipe'
 import { getDataDir } from '../data'
@@ -154,6 +155,111 @@ function pickProfile(home: string): string {
     if (first) return first
   } catch { /* 读不到就当没有 */ }
   return 'desktop'
+}
+
+/**
+ * 派单的**消费方**在不在场（2026-11-24 · 暮雨第 8 条「DSH 未启动时会不会骗用户已成功」）。
+ *
+ * 为什么需要它：方寸只把文件写进 `.dispatch-dsh/`，真正开会话的是 DSH 里的插件。
+ * DSH 没开 = 没人来取 = 文件一直躺着，而界面此前弹的是绿色的"已发送给 DSH"。
+ *
+ * 两个条件都要成立才算"在场"：
+ *   ① DSH 进程在跑 —— `tasklist` 里出现 `DeepSeek Harness` / `dsh` 的进程；
+ *   ② 方寸插件装在那个 profile 的 `node_modules` 里（装了没进 bundles 也是白搭，
+ *      但那是"装错了"不是"没人接"，所以这里只判**装没装**，装错的诊断另有 dshPlugin 页）。
+ *
+ * ⚠ 探测**失败**不许当成"没人"：`checked:false` + 空理由，
+ *   调用方（shared/dispatchDelivery）会归到"没核实到"，措辞保守；
+ *   但**也不许**失败时返回"在" —— 那就又回到"猜一个好消息"。
+ */
+export interface DispatchConsumerProbe {
+  checked: boolean
+  running: boolean
+  pluginInstalled: boolean
+  evidence: string
+}
+
+/** 这些进程名算「DSH 在跑」（大小写不敏感，进程名不带 .exe） */
+const DSH_PROCESS_HINTS = ['deepseek harness', 'deepseek-harness', 'dsh']
+
+/**
+ * 从 `tasklist /FO CSV /NH` 的输出里判 DSH 在不在跑。**纯函数**（本机 node 可直接断言）。
+ *
+ * ⚠ 只认**整名匹配**或带 DSH 前缀的名字：
+ *   本机进程表里还会有 `dsh-fangcun` 之类的东西吗？现在没有（插件跑在 DSH 进程内），
+ *   但用 `includes('dsh')` 会误伤任何名字里带 dsh 的程序 —— 那会把"没人接"说成"有人接"，
+ *   正是要治的病。
+ */
+export function parseDshProcesses(tasklistCsv: string): string[] {
+  const hits: string[] = []
+  for (const line of String(tasklistCsv || '').split(/\r?\n/)) {
+    const cells = line.split('","').map((c) => c.replace(/^"|"$/g, '').trim())
+    if (cells.length < 1) continue
+    const raw = cells[0]
+    if (!raw) continue
+    const name = raw.replace(/\.exe$/i, '').toLowerCase()
+    if (DSH_PROCESS_HINTS.includes(name) || name.startsWith('deepseek harness')) hits.push(raw)
+  }
+  return hits
+}
+
+/**
+ * 真探测一次（异步，`tasklist` 一次拿全表）。
+ *
+ * 抽成 async 而不是 sync：它在**派单成功的返回路径**上，
+ * 同步 spawn 会把主进程卡住几十毫秒（点一下按钮就感觉到）。
+ */
+export async function probeDispatchConsumer(): Promise<DispatchConsumerProbe> {
+  const home = dshHome()
+  const profile = pickProfile(home)
+  const profileDir = path.join(home, 'profiles', profile)
+
+  // ② 插件装没装：dependencies 里有 / node_modules 里有，任一即可
+  let pluginInstalled = false
+  try {
+    const pkg = readJson(path.join(profileDir, 'package.json')) || {}
+    const deps: Record<string, string> = pkg.dependencies || {}
+    pluginInstalled = Object.keys(deps).some((n) => /fangcun/i.test(n))
+      || isDir(path.join(profileDir, 'node_modules', 'dsh-fangcun'))
+  } catch { /* 读不到 = 不知道，按没装算（保守方向） */ }
+
+  // ① DSH 进程在不在：Windows 走 tasklist；别的平台没有这个工具，直接报"没核实到"
+  if (process.platform !== 'win32') {
+    return {
+      checked: false,
+      running: false,
+      pluginInstalled,
+      evidence: `非 Windows 平台没有 tasklist，没核实 DSH 是否在运行（profile=${profile}）`,
+    }
+  }
+  let out = ''
+  try {
+    out = await new Promise<string>((resolve) => {
+      let settled = false
+      const fin = (v: string): void => { if (!settled) { settled = true; resolve(v) } }
+      try {
+        const child = execFile('tasklist', ['/FO', 'CSV', '/NH'],
+          { windowsHide: true, timeout: 4000, maxBuffer: 8 * 1024 * 1024 },
+          (_err: any, stdout: string) => fin(String(stdout || '')))
+        // 超时兜底：tasklist 卡住不能把派单结果一起卡住
+        setTimeout(() => { try { child.kill() } catch { /* 已退出 */ } ; fin('') }, 4500).unref?.()
+      } catch { fin('') }
+    })
+  } catch {
+    return { checked: false, running: false, pluginInstalled, evidence: 'tasklist 调用失败，没核实到 DSH 是否在运行' }
+  }
+  if (!out.trim()) {
+    return { checked: false, running: false, pluginInstalled, evidence: 'tasklist 没有输出，没核实到 DSH 是否在运行' }
+  }
+  const hits = parseDshProcesses(out)
+  return {
+    checked: true,
+    running: hits.length > 0,
+    pluginInstalled,
+    evidence: hits.length
+      ? `tasklist 里看到 ${hits.join(' / ')}；profile=${profile}`
+      : `tasklist 里没有 DSH 进程；profile=${profile}`,
+  }
 }
 
 /**

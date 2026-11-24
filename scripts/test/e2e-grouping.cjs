@@ -128,8 +128,14 @@ function main() {
   // 还接不接折叠逻辑 —— 跟着模板走，不是放宽：状态与函数仍在 App，模板在 BoardView。
   const boardVue = fs.readFileSync(path.join(DESKTOP, 'src', 'renderer', 'views', 'BoardView.vue'), 'utf8')
   check('F1 App.vue 引用了 composables/useBoardColumns', /from '\.\/composables\/useBoardColumns'/.test(vue))
+  // 2026-11-24（K2 第八个状态）：列产出现在叫 `columnsRaw`，外面包一层「已取消默认隐藏」的过滤，
+  // 再以 `columns` 暴露给模板。判据跟着改成**两件事都成立**：
+  //   ① 列派生仍走 useBoardColumns（不是回退到手写三分支）；
+  //   ② 过滤之后的 `columns` 确实是喂给模板的那一份（否则隐藏开关形同虚设）。
   check('F2 列派生走 useBoardColumns（不再在 App 里手写三分支）',
-    /const columns = useBoardColumns\(\{/.test(vue) && !/const cols: Record<string, Task\[\]> = \{\}/.test(vue))
+    /useBoardColumns\(\{/.test(vue) && !/const cols: Record<string, Task\[\]> = \{\}/.test(vue))
+  check('F2b 「已取消」列默认隐藏的过滤真的接在 columns 上（不是只算不用）',
+    /const columns = computed\(\(\) => \(/.test(vue) && /columnsRaw\.value\.filter/.test(vue), '')
   check('F3 有项目名解析函数', /function projectNameOf\(id: string\)/.test(vue))
   check('F4 分组标题可点击折叠', /@click="toggleGroup\(col\.key\)"/.test(boardVue))
   check('F5 折叠时卡片隐藏', /v-show="!groupCollapsed\(col\.key\)"/.test(boardVue))

@@ -207,6 +207,21 @@
             </PopoverPortal>
           </PopoverRoot>
 
+          <!-- 「显示已取消」(2026-11-23 K2 · 暮雨：「已取消默认隐藏，多搞一个按钮当开关，
+               不影响当前看板已经完美的整屏全状态布局」)。
+               放在筛选栏而不是设置页：它是**看板摆法**的一部分，和分组/排序是同一类问题 ——
+               用户想在当下这一屏看到它，不该跑一趟设置页再回来。
+               ⚠ 位置在「排序」**之前**：排序按钮是顶栏右缘的几何锚点（断言按它算到栏右缘的距离），
+                 把它挤离右缘会让"控件贴右端"这条判据变红 —— 那不是布局真的坏了，是锚点动了。 -->
+          <button v-if="isBoardView && groupMode === 'status'" class="fbar-btn fbar-cancel-btn"
+            :class="{ on: showCancelledColumn }"
+            :title="showCancelledColumn
+              ? '现在会显示「已取消」这一列（点一下收起来）'
+              : '「已取消」这一列默认不显示（点一下展开）—— 它不影响完成/驳回的统计口径'"
+            @click="toggleCancelledColumn">
+            {{ showCancelledColumn ? '👁 含已取消' : '👁 已取消' }}
+          </button>
+
           <PopoverRoot :open="fbarPanel === 'sort'" @update:open="onPanelOpen('sort', $event)">
             <PopoverTrigger as-child>
               <button class="fbar-btn fbar-sort-btn" :class="{ on: fbarPanel === 'sort' }"
@@ -846,6 +861,8 @@ import { undoBar, undoBarVisible, undoCount, undoHistory, offerUndo, dismissUndo
 import { statusClass } from '../shared/status'
 import { renderBody } from './markdown'
 import { readUiPref, saveUiPref } from './prefs'
+// 「已取消」列的开关与终态口径（2026-11-24 K2）：判定只此一份，别处 import
+import { CANCEL_STATUS, SHOW_CANCELLED_PREF_KEY, showCancelledEnabled, isClosedStatus } from '../shared/cancelColumn'
 // 顶部工具栏工作区（2026-11-18）：布局算法是纯函数，放 shared 里好断言
 // ⚠ import 必须单行（模板绑定守卫的正则不跨行）
 import { DEFAULT_HIDDEN, MAX_VISIBLE, MIN_VISIBLE, PRESETS as VIEW_PRESETS, applyPreset, defaultLayout, describeLayout, normalizeLayout, resolveOrder, splitVisible, toggleVisible, type ViewLayout } from '../shared/viewLayout'
@@ -972,7 +989,7 @@ import AppCardMenu from './components/AppCardMenu.vue'
 import DisclaimerDialog from './components/DisclaimerDialog.vue'
 import { fetchLicenseState, ackLicense } from './disclaimer'
 
-const STATUSES = ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回'] as const
+const STATUSES = ['草稿', '待审批', '待办', '进行中', '待验收', '完成', '驳回', '已取消'] as const
 type Status = typeof STATUSES[number]
 
 // ── 任务表单元数据 ───────────────────────────────────────────────────
@@ -4213,13 +4230,38 @@ const filteredTasks = computed(() => {
 // 分组规则已抽到 shared/grouping.ts::buildBoardColumns（纯函数，e2e-grouping 断言），
 // 这里只把 ref 接进去。⚠ 必须放在 filteredTasks 之后 —— 传的是 ref 本体，
 // 在它初始化前调用会撞 TDZ（整块看板直接渲染不出来）。模板搬迁（views/BoardView.vue）是下一刀。
-const columns = useBoardColumns({
+const columnsRaw = useBoardColumns({
   tasks: filteredTasks,
   mode: groupMode,
   statuses: STATUSES,
   priorities: taskPriorities,
   nameOf: projectNameOf,
 })
+
+/**
+ * 「已取消」这一列默认隐藏（2026-11-23 问卷 K2 拍板）。
+ *
+ * 暮雨原话：「已取消默认隐藏，多搞一个按钮当开关，**不影响当前看板已经完美的整屏全状态布局**。」
+ *
+ * 所以在**列产出之后**再过滤，而不是从 STATUSES 里去掉：
+ *   · STATUSES 留着它 → 任务表单里选得到、按状态筛得到、拖拽能拖进去；
+ *   · 只影响**看板上摆几列** → 默认七列，布局一个像素都不动。
+ *
+ * ⚠ 不能只过滤"空列"：那样一旦有一张已取消的卡，列就自己冒出来了，
+ *   用户会以为看板在随机变宽。开关就是开关，与数据里有没有卡无关。
+ */
+const showCancelledColumn = ref<boolean>(
+  showCancelledEnabled(readUiPref<unknown>(SHOW_CANCELLED_PREF_KEY, false)),
+)
+const columns = computed(() => (
+  showCancelledColumn.value
+    ? columnsRaw.value
+    : columnsRaw.value.filter((c) => c.key !== CANCEL_STATUS)
+))
+function toggleCancelledColumn(): void {
+  showCancelledColumn.value = !showCancelledColumn.value
+  saveUiPref(SHOW_CANCELLED_PREF_KEY, showCancelledColumn.value)
+}
 
 /**
  * 顶栏“活跃优先 / 最近更新 / 创建时间”排序 —— 2026-09-29 修。
@@ -4560,7 +4602,20 @@ async function dispatchToDsh(p: any, kind: 'work' | 'plan' = 'work'): Promise<vo
     const coolMs = Math.max(0, Number(r.cooldownMs) || 0)
     const coolSec = Math.round(coolMs / 1000)
     armDispatchCooldown(pid, coolMs)
-    showToast(`已发送给 DSH：「${p.name || p.id}」的${what}（${r.chars || 0} 字）—— DSH 那边会冒出一个新会话${coolSec > 0 ? `；${coolSec} 秒内不会重发` : ''}（若被 DSH 限流，去 设置 → Agent → DSH 派单 看原因）`, 'ok')
+    // 2026-11-24（暮雨第 8 条：「DSH 未启动时会不会卡着骗用户已成功？」）：
+    // 原来这里无条件弹绿色「已发送给 DSH…DSH 那边会冒出一个新会话」——
+    // 可 DSH 没开的时候根本没人来取文件，那句话是假的。
+    // 现在措辞以主进程的 `deliveryHint` 为准（它基于真探测：DSH 进程 + 插件），
+    // 拿不到就退回"已排队"，**绝不**再说"会冒出一个新会话"。
+    const hint = String(r.deliveryHint || '').trim()
+    const queuedOnly = r.delivery !== 'will-consume' && r.delivery !== 'sent'
+    const head = queuedOnly ? `已排队：「${p.name || p.id}」的${what}` : `已发送给 DSH：「${p.name || p.id}」的${what}`
+    showToast(
+      (hint ? `${head} —— ${hint}` : `${head}（${r.chars || 0} 字）`)
+      + (coolSec > 0 ? `；${coolSec} 秒内不会重发` : '')
+      + (queuedOnly ? '' : '（若被 DSH 限流，去 设置 → Agent → DSH 派单 看原因）'),
+      queuedOnly ? 'info' : 'ok',
+    )
     void refreshDispatchGate()
     // 缺项单独一条，不混在"已派出"里（与 copyContextPack 同一口径）
     if (Array.isArray(r.missing) && r.missing.length) {
@@ -4658,7 +4713,8 @@ async function dispatchLogToDsh(log: any): Promise<void> {
       '- 做完把「改了什么 / 验证结果 / 还差什么」写清楚，交回方寸。',
     ].filter(Boolean)
     const msg = parts.join('\n')
-    const r: any = await tegula.dispatchMessageDsh(pid, 'work', msg)
+    // 2026-11-24（暮雨第 1 条）：带上 logId —— 派单成功后主进程会把**这一条**日志标进行中。
+    const r: any = await tegula.dispatchMessageDsh(pid, 'work', msg, id)
     if (!r || r.ok === false) {
       if (r && r.disabled) {
         await refreshDispatchGate()
@@ -4682,7 +4738,23 @@ async function dispatchLogToDsh(log: any): Promise<void> {
     // 成功：按主进程给的冷却时长起倒计时（0 = 不冷却，就不显示）
     armDispatchCooldown(pid, Math.max(0, Number(r.cooldownMs) || 0))
     void refreshDispatchGate()
-    showToast(`已发送给 DSH：日志「${log.title || id}」的下一步（${r.chars || msg.length} 字）—— DSH 那边会冒出一个新会话`, 'ok')
+    // 同项目页那条（2026-11-24 暮雨第 8 条）：DSH 没开时不许说"会冒出一个新会话"。
+    const logHint = String(r.deliveryHint || '').trim()
+    const logQueued = r.delivery !== 'will-consume' && r.delivery !== 'sent'
+    showToast(
+      (logQueued ? `已排队：日志「${log.title || id}」的下一步` : `已发送给 DSH：日志「${log.title || id}」的下一步`)
+      + (logHint ? ` —— ${logHint}` : `（${r.chars || msg.length} 字）`),
+      logQueued ? 'info' : 'ok',
+    )
+    // 2026-11-24（暮雨第 1 条）：派单成功 → 这条日志自动「进行中」。
+    // 界面要跟着刷一次，否则用户看到的是"派了，状态没动"，会以为没生效。
+    if (r.logRunning) {
+      await loadLogs()
+      showToast('这条日志已自动标为「进行中」（派单成功就等于开工）', 'success')
+    } else if (r.logRunningError) {
+      // 没标上要说清为什么 —— 但**不是**派单失败（文件已经派出去了）。
+      showToast(`派单已发出，但日志没自动标进行中：${r.logRunningError}`, 'info')
+    }
     if (Array.isArray(r.missing) && r.missing.length) {
       showToast(`这包缺：${r.missing.join('、')} —— agent 会以为这项目没这些规矩`, 'error')
     }

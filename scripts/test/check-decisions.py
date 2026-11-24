@@ -195,9 +195,20 @@ def main():
         check("★ TS 老值别名表 与 Python _LEGACY_DECISION_ALIASES 逐字一致",
               ts_alias == dict(core._LEGACY_DECISION_ALIASES),
               f"ts={ts_alias} py={dict(core._LEGACY_DECISION_ALIASES)}")
-        check("  别名表恰好把三个老值映射到三个新值",
-              set(ts_alias.values()) == set(core.DECISION_STATUSES) and len(ts_alias) == 3,
+        # 2026-11-24：枚举加到了四态（多了「待审批」），别名表**仍然只映射那三个老值** ——
+        # 待审批不是老表的翻译，它是 agent 提议时落的那一档，没有对应的历史写法。
+        # 所以判据从"别名目标 == 全部状态"改成"别名目标 ⊆ 合法状态"，另外钉住
+        # 三个老值各自还能翻成今天那一档（这才是别名表存在的意义）。
+        check("  别名表恰好三个老值，且目标都是合法状态",
+              len(ts_alias) == 3 and set(ts_alias.values()) <= set(core.DECISION_STATUSES),
+              f"{ts_alias} / statuses={list(core.DECISION_STATUSES)}")
+        check("★ 三个老值各自翻成今天那一档（作数→有效 / 已作废→已撤销 / 已并入→已合并）",
+              ts_alias.get('作数') == '有效'
+              and ts_alias.get('已作废') == '已撤销'
+              and ts_alias.get('已并入') == '已合并',
               str(ts_alias))
+        check("★ 待审批**不是**别名（它是新状态，不是老值的翻译）",
+              '待审批' not in ts_alias.values() and '待审批' not in ts_alias)
         # ⚠ 这一条比状态枚举更要紧：一侧写出 `- 生效范围:` 行而另一侧不认这个键，
         #   那行就会被当成"续行"拼回上一字段，**下次写盘就把数据写坏**（静默、无报错）。
         # 取法：逐行找 `const kv = /^-\s+(键|键|…)\s*…` 那一行，再抠出括号里的键表。

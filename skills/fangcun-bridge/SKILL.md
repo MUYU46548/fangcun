@@ -26,7 +26,7 @@ Hermes 侧的自动装卡与覆盖策略是特例（`skills/manifest.json` 登�
 - 需要从本 agent 侧触发方寸操作
 - 需要从本 agent 侧了解绒花墨坊运行状态
 - **有 ≥2 个问题要用户拍板 → 出问卷（`qn_propose`），见「①.9」**
-- **要提议作战计划的阶段卡（`stage_plan_propose`）、写决策（`decision_add`）、写记忆（`memory_write`）**
+- **要提议作战计划的阶段卡（`stage_plan_propose`）、提议决策（`decision_propose`）、写记忆（`memory_write`）**
 
 ⚠ **不要为了搞清参数去读 `desktop/src/main/mcp/tools.ts`。**
 本文档的「常做的几件事」就是照抄即用的配方；工具清单见「工具清单」节。
@@ -101,7 +101,7 @@ JSON-RPC 2.0 over stdio，**19 个只读工具**，直接读 `task-data/`：
 
 <!-- MCP-TOOLS:BEGIN -->
 
-> 由 `scripts/gen-skill-tools.cjs` 从 `desktop/src/main/mcp/tools.ts` 生成，共 **47** 个。
+> 由 `scripts/gen-skill-tools.cjs` 从 `desktop/src/main/mcp/tools.ts` 生成，共 **48** 个。
 > **不要手改这一段**，改工具后跑一次生成脚本。**也不用去读源码** —— 这张表就是现场。
 
 | 工具 | 干什么 |
@@ -130,6 +130,7 @@ JSON-RPC 2.0 over stdio，**19 个只读工具**，直接读 `task-data/`：
 | `plan_pending` | List plans with pending decisions |
 | `gate_list` | List all acceptance gates |
 | `decision_list` | READ-ONLY. |
+| `decision_propose` | PROPOSE a decision (决策卡). |
 | `project_charter` | READ-ONLY. |
 | `memory_search` | READ-ONLY. |
 | `memory_read` | READ-ONLY. |
@@ -169,7 +170,10 @@ JSON-RPC 2.0 over stdio，**19 个只读工具**，直接读 `task-data/`：
 > - 任务卡：agent 最多移到“待验收”；`move_status` 传“完成 / 驳回”会被**硬拒**。
 > - 执行日志：只读；连 `running / idle` 也只能用户在界面改。
 > - 收工动作 = 把关联任务移到“待验收”（`move_status`），不是给日志打标记。
-> - 决策：`decision_record` 已从 MCP 移除；拍板只在方寸界面“需求矩阵”页由用户点。
+> - 决策：**agent 只能提，不能定**。用 `decision_propose`，它**只落「待审批」**，
+>   用户在决策页点「通过」才转正（2026-11-24 起；此前 `decision_record` 整条移除过一阵）。
+>   传 `状态: 有效` 会被**明确拒**（不是悄悄改成待审批）—— 别声称"我已经把这条定下来了"。
+>   待审批的决策**不会**被喂回给你：`decision_list` 的「有效」口径里没有它。
 > 越权不是"会被批评"，是接口直接报错 —— 看到 `只能由用户` 就停手，别换条路绕。
 
 ## 常做的几件事（照抄参数，别探索）
@@ -297,6 +301,26 @@ qn_propose {
 - **同名卷不覆盖**：要改版就换个 deck 名（`…-v2`），别把用户已经答过的卷抹掉。
 - 它只**问**，不写决策、不建任务卡；用户答完并批准后，才在方寸里落决策卡。
 - 出完只说一句“问卷已放到问卷页，共 N 题等你答”，**不要**在聊天里把题目再问一遍。
+
+**①.10 用户拍板了一件事 → `decision_propose`（你只能提，不能定）**
+
+用户答完卷、或在对话里说“就这么办”，**把它记成决策**，别只留在聊天记录里（下个会话就没了）：
+
+```
+decision_propose {
+  content: "审批不走任务卡，决策有自己的审批入口",   # 一句话说清定了什么
+  source:  "问卷《方寸-决策机制三岔路》K1",          # 出处（必填：没出处的决策是谣言）
+  project: "fangcun-base",
+  scope:   "全局",
+  landing: "不做(另开决策审批入口)"                  # 落到哪了：task id / commit:xxx / 不做(理由)
+}
+```
+
+- **落下来一定是「待审批」**。用户在决策页点「通过」才生效；你不点、也点不了。
+- **传 `状态: 有效` 会被明确拒**（不是悄悄降级）—— 所以**永远不要**说"我已经把这条定下来了"。
+- 待审批的决策**不会**被喂回给你（`decision_list` 的「有效」口径里没有它）。
+  **别指望"我刚记的规矩"立刻出现在下一次开工的上下文包里**——这是设计，不是 bug。
+- 同一天同内容会被去重，返回 `deduped: true`（不会重复记两条）。
 
 **② 收工：把结果写回任务卡，再把卡移进“待验收”**
 ```

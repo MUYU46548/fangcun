@@ -52,7 +52,7 @@ import { listMcpEntries, detectMcpTargets, buildMcpSnippet, buildSelfInstallProm
 import type { McpEntryId } from './services/mcpConnect'
 // 唯一一处“方寸写别人配置文件”的能力（只写 Hermes 的 config.yaml），见 hermesLink.ts 顶部四条纪律
 import { linkHermesMcp } from './services/hermesLink'
-import { detectDshPlugin } from './services/dshPlugin'
+import { detectDshPlugin, probeDispatchConsumer } from './services/dshPlugin'
 import { guardedHandle } from './guarded-ipc'
 // 退出闸（2026-11-17 · 卡 p0-1）：「不同意并退出」要真退，必须置位与 close 钩子**同一个**状态
 import { markQuitting } from './quitGate'
@@ -94,6 +94,29 @@ function readReadmeOf(repo: string): { md: string; sourceFile: string } | null {
     } catch { /* 读不到就当没有，别因为一个坏文件炸掉整个 IPC */ }
   }
   return null
+}
+
+/**
+ * 探「派单的消费方在不在场」，**永不抛**（2026-11-24 · 暮雨第 8 条）。
+ *
+ * 派单这条路的前半段（写文件 + 签名 + 闸门）是方寸自己的事，稳的；
+ * 后半段靠 DSH 里的插件来取。探测只是个"说话准不准"的辅助信息，
+ * 它失败**绝不能**把派单本身搞失败 —— 那会让好好的功能被一句诊断拖死。
+ *
+ * `checked:false` 是明确的一等结论（= 没核实到），不是异常值：
+ * `shared/dispatchDelivery` 会据此说"没核实到"，而不是冒充"有人接"。
+ */
+async function safeProbeConsumer(): Promise<import('../shared/dispatchDelivery').DispatchConsumerProbe> {
+  try {
+    return await probeDispatchConsumer()
+  } catch (e: any) {
+    return {
+      checked: false,
+      running: false,
+      pluginInstalled: false,
+      evidence: '探测消费方时出错，没核实到 DSH 状态：' + (e?.message || String(e)),
+    }
+  }
 }
 
 export function registerIpcHandlers(): void {
@@ -846,9 +869,12 @@ export function registerIpcHandlers(): void {
   //
   // 2026-11-17 暮雨定案：「以后可以直接在 DSH 里派活**做规划**」→ 加 `kind` 参数。
   // 老调用方不传 = `work`，行为与 0.6.0 完全一致（零破坏）。
-  guardedHandle('context:dispatchDsh', (_event, projectId: string, kind?: string) => {
+  guardedHandle('context:dispatchDsh', async (_event, projectId: string, kind?: string) => {
     try {
-      return contextPack.dispatchToDsh(String(projectId || ''), kind)
+      // 2026-11-24（暮雨第 8 条）：先把"消费方在不在场"探出来，再写派单 ——
+      // 探测不做，返回的话就只能说"已排队，不知道有没有人取"。
+      const consumer = await safeProbeConsumer()
+      return contextPack.dispatchToDsh(String(projectId || ''), kind, Date.now(), consumer)
     } catch (e: any) {
       return { ok: false, error: e?.message || String(e) }
     }
@@ -857,9 +883,14 @@ export function registerIpcHandlers(): void {
   // 带任务书的派单（2026-11-20 · D-150）：文档拆卡 / 出单改成 DSH 派单，
   // 不再调方寸自己的模型（llm:docToDrafts / llm:planBatch 已删）。
   // 任务书由界面固定生成，不是 agent 传的自由文本；冷却/清理与上面同一条链路。
-  guardedHandle('context:dispatchMessage', (_event, projectId: string, kind: string, message: string) => {
+  guardedHandle('context:dispatchMessage', async (_event, projectId: string, kind: string, message: string, logId?: string) => {
     try {
-      return contextPack.dispatchMessageToDsh(String(projectId || ''), kind, String(message || ''))
+      const consumer = await safeProbeConsumer()
+      // logId 只用于「派单成功后把这条日志标进行中」（2026-11-24 暮雨第 1 条）。
+      // 老调用方不传 = 与之前逐字一致（零破坏）。
+      return contextPack.dispatchMessageToDsh(
+        String(projectId || ''), kind, String(message || ''), Date.now(), consumer, String(logId || ''),
+      )
     } catch (e: any) {
       return { ok: false, error: e?.message || String(e) }
     }

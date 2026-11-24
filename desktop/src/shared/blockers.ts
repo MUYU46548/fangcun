@@ -20,6 +20,7 @@
  * `buildBlockerQueue`：按收益排好的可执行队列 + 每行"解了会解锁谁"的名单。
  * 界面据此把"先解这个"做成主区，把完整阻塞链降级成折叠的证据。
  */
+import { CLOSED_STATUSES } from './cancelColumn'
 
 export interface BlockerSourceLike {
   id: string
@@ -39,8 +40,14 @@ export interface BlockerImpact {
   unlock: number
 }
 
-const DONE = new Set(['完成', '驳回'])
-
+/**
+ * 已判终态的状态集合。
+ *
+ * 2026-11-24：改为引用 `cancelColumn.isClosedStatus` 的口径（完成 / 驳回 / 已取消），
+ * 不再就地写一份字面量 —— 加第八个状态时漏改这里，会让一张「已取消」的卡
+ * 继续被算成"还挡着别人的活"，而界面看起来一切正常。
+ */
+const DONE = new Set(CLOSED_STATUSES)
 interface ImpactWithIds extends BlockerImpact {
   unlockedIds: string[]
   status: string

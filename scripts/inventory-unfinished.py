@@ -44,7 +44,9 @@ import tegula.core as core  # noqa: E402
 
 TZ = timezone(timedelta(hours=8))
 NOW = datetime.now(TZ)
-DONE_STATUSES = {"完成", "驳回"}
+# 已收口：完成 / 驳回 / 已取消（2026-11-24 K2 第八个状态）。
+# ⚠ 漏掉「已取消」会让"决定不做"的卡一直挂在未完成清单里 —— 而且清单照样自洽，看不出来。
+DONE_STATUSES = {"完成", "驳回", "已取消"}
 
 
 def rel(path):

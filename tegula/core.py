@@ -5,6 +5,32 @@ import argparse, difflib, os, re, json, shutil, datetime, subprocess, time, thre
 from urllib.parse import parse_qs
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+
+def _safe_console():
+    """控制台编码兜底（2026-11-24）。
+
+    真实现场：Windows 上 `print` 的编码取控制台代码页（本机 GBK/936），
+    而 CLI 到处打印 `✓` / `✗`（U+2713 / U+2717）——
+    `UnicodeEncodeError: 'gbk' codec can't encode character '\\u2713'` 当场抛穿。
+
+    后果不是"少印一个符号"，而是**整条命令中途崩掉**：
+    `tegula backup` 备份完写 zip、打印摘要时崩 → 退出码非零；
+    `verify.py` 更惨，它在第 165 行就死，"337/1" 变成"脚本跑不起来"，
+    于是 CI / 发版前置看到的都是"验证器坏了"而不是"哪条红"。
+
+    ⚠ 只改 `errors`，**不动 `encoding`**：GBK 控制台上的中文照旧正常，
+       编不出来的个别装饰符号退化成 `?` —— 装饰性符号没有资格带走整轮验证。
+    ⚠ 只动 stdout/stderr；文件写入一律显式 `encoding="utf-8"`，不受这里影响。
+    """
+    for s in (getattr(sys, "stdout", None), getattr(sys, "stderr", None)):
+        try:
+            s.reconfigure(errors="replace")
+        except Exception:
+            pass  # 被重定向成非 TextIOWrapper（管道/测试替身）时没有 reconfigure，跳过
+
+
+_safe_console()
+
 # ── 双目录分离：代码目录 vs 用户数据目录 ──
 # 支持 PyInstaller 打包（sys.frozen）和便携模式（exe 同级有 registry.yaml）
 if getattr(sys, "frozen", False):
@@ -42,7 +68,30 @@ REGISTRY_BAK = os.path.join(DATA_DIR, "registry.yaml.bak")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
 BACKUP_KEEP = 10
 ACTIVITY_LOG = os.path.join(TASK_DIR, ".activity.log")
-STATUSES = ["草稿", "待审批", "待办", "进行中", "待验收", "完成", "驳回"]
+#: 合法状态（**顺序即看板列顺序**）。
+#:
+#: 「已取消」是 2026-11-23 K2 拍的第八个状态（暮雨原话：
+#: 「在B的基础上，已取消默认隐藏，多搞一个按钮当开关，不影响当前看板已经完美的整屏全状态布局」）。
+#:
+#: 为什么它必须是**独立状态**而不是别名成「驳回」：
+#:   · 驳回 = **被否决**，要进返工台，还可能被再挖出来问一次；
+#:   · 取消 = **不做了**，是终态，谁也不该再去推它。
+#:   把两者并成一个值，等于让"否决"和"放弃"永远分不开，而这两种在复盘时结论完全相反。
+#:
+#: ⚠ 但它是**第八个、且默认隐藏**：整屏八列会把现有布局挤坏（暮雨的硬要求），
+#:   所以看板默认不显示这一列，用「显示已取消」开关打开（见 shared/cancelColumn.ts）。
+#: ⚠ 顺序放在「驳回」之后 —— 新增值一律追加在末尾，改顺序会动到既有列的语义位置。
+STATUSES = ["草稿", "待审批", "待办", "进行中", "待验收", "完成", "驳回", "已取消"]
+
+#: 终态：不再推进，也不该出现在"下一步"推荐里（2026-11-24 K2 落地时一并收口）。
+#: ⚠ 「驳回」**不在**这里：它是可以返工的，不是终态（见 shared/rework.ts 的口径）。
+TERMINAL_STATUSES = frozenset({"完成", "已取消"})
+
+#: 已收口：完成 / 驳回 / 已取消 —— "不需要再推它"的三种情况。
+#: 代码里原来有 4 处各写一遍 ("完成", "驳回") 字面量（阻塞判定 / 派活任务书 / 阻塞源过滤 / 派活前置校验），
+#: 加第八个状态时每一处漏改都会造出一个安静的错误（已取消的卡仍被算成挡着别人、仍被派活）。
+#: 所以收成一个常量；⚠ 与 TS 侧 `desktop/src/shared/cancelColumn.ts` 的 CLOSED_STATUSES 必须一致。
+_CLOSED_STATUSES = frozenset({"完成", "驳回", "已取消"})
 
 
 #: 写盘前要**归一**的已知误写（2026-10-21）。
@@ -1334,10 +1383,11 @@ def parse_natural_query(q):
     # 移除标签/项目标记后的剩余文本
     remaining = re.sub(r'[#@]\S+', '', q).strip()
 
-    # 状态关键词
+    # 状态关键词（2026-11-24 K2：补第八个状态「已取消」）
     status_map = {
         "待办": "待办", "进行中": "进行中", "待验收": "待验收",
         "完成": "完成", "驳回": "驳回", "草稿": "草稿", "待审批": "待审批",
+        "已取消": "已取消", "取消": "已取消",
     }
     # 优先级关键词
     prio_map = {"高": "高", "中": "中", "低": "低", "高优先级": "高", "中优先级": "中", "低优先级": "低"}
@@ -1393,7 +1443,7 @@ def parse_natural_query(q):
     elif special == "blocked":
         tasks = [t for t in tasks if t.get("阻塞") and any(
             b for b in t.get("阻塞", [])
-            if locate_task(b) and parse_task(locate_task(b)) and parse_task(locate_task(b)).get("状态") not in ("完成", "驳回")
+            if locate_task(b) and parse_task(locate_task(b)) and parse_task(locate_task(b)).get("状态") not in _CLOSED_STATUSES
         )]
 
     # 标题模糊匹配
@@ -1439,7 +1489,7 @@ def load_tasks(project=None, view="active"):
                     except (TypeError, ValueError):
                         d["stale"] = int(_th)
                 # 派单任务书随 payload 下发：GUI 确认弹窗展示真实指令（仅未终态任务）
-                if str(d.get("状态") or "") not in ("完成", "驳回"):
+                if str(d.get("状态") or "") not in _CLOSED_STATUSES:
                     try:
                         info_p, _errp = prepare_dispatch(d.get("id", ""))
                         d["prompt"] = (info_p or {}).get("prompt", "")
@@ -1480,7 +1530,7 @@ def blockers_of(tid):
         dd = parse_task(dep_fn) if dep_fn else None
         if dd is None:
             continue
-        if (dd.get("状态") in ("完成", "驳回")
+        if (dd.get("状态") in _CLOSED_STATUSES
                 or os.path.dirname(dep_fn) in (os.path.join(TASK_DIR, "archive"),
                                                os.path.join(TASK_DIR, ".trash"))):
             continue
@@ -1808,11 +1858,28 @@ def gate_close(gate_id, reason=""):
 #   与桌面端 desktop/src/main/data/decisions.ts 的 DECISION_STATUSES 逐字一致（判据 check-decisions.py）。
 
 DECISIONS_PATH = os.path.join(TASK_DIR, "decisions.md")
-DECISION_STATUSES = ("有效", "已撤销", "已合并")
-# 老值 → 新值（只读兼容，不写回）
+#: 决策卡的状态（**顺序有意义**：待审批排第一，因为它是唯一由 agent 落下的那一档）。
+#:
+#: 2026-11-24 加第四个值「待审批」（2026-11-23 问卷 K1 拍板）：
+#:
+#:   > 「审批就不该走任务卡，不要什么都混进任务卡里面。**决策应该有自己的审批入口。**」
+#:
+#: 背景：决策的 MCP 写口 `decision_record` 是 2026-11-03 **明确移除**的，当初留的理由是
+#: 「要开口必须先有『AI 只能落待审批』的设计，不在这一刀里顺手破」。
+#: 现在那个设计就是这个状态：
+#:   · agent 只能写「待审批」——**不能写「有效」**，转正是用户点（REV-005 边界②）；
+#:   · 待审批的决策**不进** `load_decisions` 的有效清单，agent 开工读不到它
+#:     （读不到未获批准的规矩，比读到假规矩安全）；
+#:   · 用户点「通过」→ 有效，点「驳回」→ 已撤销（留痕，不删）。
+DECISION_STATUSES = ("待审批", "有效", "已撤销", "已合并")
+#: 决策刚被 agent 提议时的那一档 —— 唯一允许 agent 直接写的值
+DECISION_PENDING = "待审批"
+#: 老值 → 新值（只读兼容，不写回）
 _LEGACY_DECISION_ALIASES = {"作数": "有效", "已作废": "已撤销", "已并入": "已合并"}
+#: agent 提交决策时**一律**被改写成这个状态（不管它想写什么）
+_DECISION_AGENT_STATUSES = frozenset({DECISION_PENDING})
 
-_DEF_DEC_HEADER = "# 决策记录（决策卡）\n\n> 定下来的事都在这——谁定的、哪天定的、还作不作数。状态：有效 / 已撤销 / 已合并。\n"
+_DEF_DEC_HEADER = "# 决策记录（决策卡）\n\n> 定下来的事都在这——谁定的、哪天定的、还作不作数。状态：待审批 / 有效 / 已撤销 / 已合并。\n"
 
 
 def _normalize_decision_status(raw):
@@ -3960,7 +4027,7 @@ def _dispatch_precheck(d, tid, force=False):
     """
     block, forceable, warn = [], [], []
     st = str(d.get("状态") or "")
-    if st in ("完成", "驳回"):
+    if st in _CLOSED_STATUSES:
         block.append(f"任务已终态（{st}），不派活")
     try:
         blk = blockers_of(tid)

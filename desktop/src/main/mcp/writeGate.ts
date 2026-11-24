@@ -60,6 +60,21 @@ const READ_TOOLS = new Set([
 /** 破坏性：删数据 / 改别人的分数 / 驳回类流转 */
 const DESTRUCTIVE_TOOLS = new Set(['delete_task', 'rice_pool_upsert'])
 
+/**
+ * 「提议」类写口（2026-11-24 加 decision_propose 时显式登记）。
+ *
+ * 它们的共同点是**写下去也改不了任何既成事实**：只能落草稿/待审批，
+ * 用户点头才转正。所以归 `write` 档（默认档就能用），而不是 `destructive` ——
+ * 把它们塞进 destructive 会让"想记一条决策"变成"必须先开破坏性权限"，
+ * 用户看到的是一条莫名其妙的错误话术。
+ *
+ * ⚠ 但登记在这里不是"放行"，只是**把它们从"未登记的按 write 算"里点出来**，
+ *   让以后新增提议口时有地方对照，不至于漏判。
+ */
+const PROPOSE_TOOLS = new Set([
+  'decision_propose', 'qn_propose', 'stage_plan_propose', 'smap_propose', 'memory_write', 'arch_generate',
+])
+
 export function tierOf(name: string, args?: any): ToolTier {
   const n = String(name || '')
   if (READ_TOOLS.has(n)) return 'read'

@@ -8,6 +8,7 @@
  *
  * 本文件不得依赖 Vue / DOM / Electron —— 保持可被 Node 直接编译执行。
  */
+import { isClosedStatus } from '../shared/cancelColumn'
 
 export interface CalTaskLike {
   id: string
@@ -81,9 +82,13 @@ export interface CalMonthResult<T = CalTaskLike, D = CalTodoLike, L = CalLogLike
 const MS_DAY = 86400000
 const pad2 = (n: number): string => String(n).padStart(2, '0')
 
-/** 终态任务不占日历（完成/驳回） */
+/**
+ * 终态任务不占日历（完成 / 驳回 / 已取消）。
+ * ⚠ 2026-11-24（K2 第八个状态）：改为引用统一口径 ——
+ *   漏掉「已取消」会让"决定不做"的卡继续出现在日历上占负担，数字全对不上。
+ */
 export function isTerminal(status?: string): boolean {
-  return status === '完成' || status === '驳回'
+  return isClosedStatus(status)
 }
 
 export function dayStart(d: Date): Date {

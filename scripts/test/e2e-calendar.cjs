@@ -32,9 +32,19 @@ function compile() {
     path.join(DESKTOP, 'node_modules', 'typescript', 'bin', 'tsc'),
     SRC, '--outDir', OUT, '--module', 'commonjs', '--target', 'ES2020',
     '--strict', 'false', '--skipLibCheck',
+    '--rootDir', path.join(DESKTOP, 'src'),
   ], { cwd: DESKTOP, stdio: 'pipe' })
-  const js = path.join(OUT, 'calendar.js')
-  if (!fs.existsSync(js)) throw new Error('编译产物不存在: ' + js)
+  // 2026-11-24：calendar.ts 现在会 import `../shared/cancelColumn`（第八个状态的口径，
+  // 终态判定不许各写一份）。带跨目录 import 时 tsc 会**保留相对目录结构**，
+  // 产物变成 `<out>/renderer/calendar.js` 而不是 `<out>/calendar.js` ——
+  // 所以这里**两处都找**：找到哪份用哪份，而不是把 rootDir 钉死成 renderer
+  // （钉死的话，将来 calendar 再 import 一层就又要改脚本）。
+  const candidates = [
+    path.join(OUT, 'calendar.js'),
+    path.join(OUT, 'renderer', 'calendar.js'),
+  ]
+  const js = candidates.find((p) => fs.existsSync(p))
+  if (!js) throw new Error('编译产物不存在: ' + candidates.join(' / '))
   return require(js)
 }
 

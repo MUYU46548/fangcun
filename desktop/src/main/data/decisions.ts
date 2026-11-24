@@ -13,9 +13,35 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { atomicWrite, getTaskDir, logActivity } from './index'
 
-export type DecisionStatus = '有效' | '已撤销' | '已合并'
+export type DecisionStatus = '待审批' | '有效' | '已撤销' | '已合并'
 
-export const DECISION_STATUSES: DecisionStatus[] = ['有效', '已撤销', '已合并']
+/**
+ * 决策卡四态（2026-11-24 加第一个「待审批」· 2026-11-23 问卷 K1 拍板）。
+ *
+ * K1 原话：「审批就不该走任务卡，不要什么都混进任务卡里面。**决策应该有自己的审批入口。**」
+ *
+ * 「待审批」这一档存在的唯一理由：让 agent 能**提议**决策而不可能让它生效。
+ * 决策的 MCP 写口 `decision_record` 是 2026-11-03 明确移除的，当时留的话是
+ * 「要开口必须先有『AI 只能落待审批』的设计」—— 现在那个设计就是这个状态。
+ *
+ * 三条硬规矩：
+ *   ① agent 提的决策**一律**落「待审批」（`AGENT_WRITABLE_DECISION_STATUSES`），
+ *      它传「有效」也不认 —— 转正是用户点的；
+ *   ② 待审批的决策**不算数**：不进 agent 开工读到的"最近有效决策"清单，
+ *      也不进决策证据链（读不到未批准的规矩，比读到假规矩安全）；
+ *   ③ 用户驳回 → 「已撤销」（留痕，不删文件）。
+ */
+export const DECISION_STATUSES: DecisionStatus[] = ['待审批', '有效', '已撤销', '已合并']
+
+/** 刚被 agent 提议时的那一档 —— 唯一允许 agent 直接写的值 */
+export const DECISION_PENDING: DecisionStatus = '待审批'
+
+/**
+ * agent 写决策时**唯一**被接受的状态。
+ * 不在这里的一律拒：不是"改成待审批"，而是**明确报错** ——
+ * 模型以为写了个有效决策、实际落了待审批，会比拒掉更坑它。
+ */
+export const AGENT_WRITABLE_DECISION_STATUSES: readonly string[] = [DECISION_PENDING]
 
 /** 老值 → 新值。**只读兼容**，不写回；与 Python core._normalize_decision_status 逐字一致。 */
 export const LEGACY_STATUS_ALIASES: Record<string, DecisionStatus> = {

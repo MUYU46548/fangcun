@@ -144,8 +144,11 @@ def scan():
         if not name.endswith('.md') or name.startswith('.') or name.startswith('_'):
             continue
         card = parse_card(os.path.join(TASK_DIR, name))
-        if not card or card['status'] in ('完成', '驳回'):
-            continue      # 终态不进体检清单（那是归档/复盘的事）
+        # 终态不进体检清单（那是归档/复盘的事）。
+        # ⚠ 2026-11-24（K2 第八个状态）：补「已取消」—— 决定不做的卡没有任何可体检的
+        #   "验收/复核/观察"义务，留在清单里只会变成噪音。
+        if not card or card['status'] in ('完成', '驳回', '已取消'):
+            continue
         text = card['title'] + '\n' + card['body']
 
         # ① 过期验收：装 X 后复核/验收/观察

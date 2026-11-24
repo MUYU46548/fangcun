@@ -17,6 +17,7 @@
  */
 
 import { parseTime } from './time'
+import { CLOSED_STATUSES as CLOSED_SET } from './cancelColumn'
 
 /** 送进判定的卡（只需要这几个字段，避免把整个 Task 拖进来） */
 export interface NeverReadInput {
@@ -54,8 +55,12 @@ export interface NeverReadResult {
   days: number
 }
 
-/** 终态：做完的、被驳回的。它们不进“没人碰”清单。 */
-const CLOSED_STATUSES = ['完成', '驳回']
+/**
+ * 终态：做完的、被驳回的、已取消的。它们不进“没人碰”清单。
+ * ⚠ 2026-11-24（K2 第八个状态）：改从 `cancelColumn` 取口径，不再就地写字面量 ——
+ *   漏掉「已取消」会让"决定不做"的卡一直挂在"没人读过"里，噪音越攒越多。
+ */
+const CLOSED_STATUSES = CLOSED_SET
 
 /** 空状态算未完成 —— 没填 ≠ 做完 */
 export function isOpenForRead(status?: string): boolean {

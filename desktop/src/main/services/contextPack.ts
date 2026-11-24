@@ -30,6 +30,8 @@ import * as logs from './logs'
 import { ensureDispatchSecret, newDispatchNonce, signDispatch } from './dispatchSign'
 import { DISPATCH_SETTINGS_DEFAULTS, checkDispatch, dispatchGateText } from '../../shared/dispatchGate'
 import { appendDispatchAudit, lastDispatchAttemptMs, readDispatchAudit, readDispatchSettings } from './dispatchConfig'
+import { describeDispatchDelivery } from '../../shared/dispatchDelivery'
+import type { DispatchConsumerProbe, DispatchDelivery } from '../../shared/dispatchDelivery'
 
 export interface ContextPack {
   ok: boolean
@@ -320,6 +322,36 @@ export interface DispatchResult {
   /** 今天还能开几个（-1 = 不限） */
   leftToday?: number
   enabled?: boolean
+  /**
+   * 这份派单**是不是真的会被消费**（2026-11-24 暮雨第 8 条）。
+   *
+   * 原话：「如果 DSH 未启动，方寸的 DSH 联动功能（各种派单类）是否会有智能的处理方式？
+   * 还是卡着骗用户已成功？」
+   *
+   * 诚实回答（改之前）：**会骗**。方寸只负责把文件写进 `.dispatch-dsh/`，
+   * 消费方是 DSH 里的插件；DSH 没开 = 没人来取 = 文件静静躺着。
+   * 而界面弹的是绿色 `已发送给 DSH：「X」的上下文包……DSH 那边会冒出一个新会话`，
+   * 用户以为派成功了，实际什么都不会发生。
+   *
+   * 现在成功路径带上这个信号，由渲染层把话说全：
+   *   · `queued`      —— 文件已落盘，**但要等 DSH 打开后由插件消费**（不是"已经开工"）；
+   *   · `sent`        —— 宿主明确回报已开（当前文件通道拿不到这个，保留值待真通道）；
+   *   · `will-consume`—— 探测到消费方在场（DSH 在跑且插件装着），8 秒内会被取走。
+   *
+   * ⚠ 判据只认**能核实的东西**（DSH 进程 / 插件装没装）。探测不到就报 `queued`，
+   *   绝不因为"探测不到"就说成功 —— 那正是这条要治的病。
+   */
+  delivery?: 'queued' | 'will-consume' | 'sent'
+  /** 给界面直接显示的一句话（delivery 的人话版；UI 不许自己另编一套） */
+  deliveryHint?: string
+  /** 消费方是否在场（探到了 = 真的有人在取；没探到 / 没核实 = false） */
+  consumerPresent?: boolean
+  /** 这条派单是从哪条日志派出去的（空 = 从项目页派的，不涉及日志） */
+  logId?: string
+  /** 那条日志现在是不是「进行中」（2026-11-24 第 1 条：派单成功后自动标） */
+  logRunning?: boolean
+  /** 没标上 / 没动它的原因（有值 ≠ 派单失败；派单文件已经落盘了） */
+  logRunningError?: string
 }
 
 /**
@@ -431,8 +463,13 @@ export function normalizeDispatchKind(raw: unknown): DispatchKind {
  * @param now 模拟时刻（只给测试/回放用）。真实调用不传 = 现在。
  *            冷却判定与文件头 `at` 都用它，测试才不用真等 10 秒。
  */
-export function dispatchToDsh(projectId: string, kindRaw?: unknown, now: number = Date.now()): DispatchResult {
-  return dispatchMessageToDsh(projectId, kindRaw, '', now)
+export function dispatchToDsh(
+  projectId: string,
+  kindRaw?: unknown,
+  now: number = Date.now(),
+  consumer?: DispatchConsumerProbe | null,
+): DispatchResult {
+  return dispatchMessageToDsh(projectId, kindRaw, '', now, consumer)
 }
 
 /**
@@ -449,11 +486,65 @@ export function dispatchToDsh(projectId: string, kindRaw?: unknown, now: number 
  *
  * @param prefix 这次要做的事（Markdown）。空串 = 与 `dispatchToDsh` 逐字一致。
  */
+/**
+ * 派单成功后把**这一条**日志标为「进行中」（2026-11-24 · 暮雨第 1 条）。
+ *
+ * 暮雨原话：「建议方寸日志派活成功后日志自动标进行中（**未测试过绑定日志全组派活**）。」
+ *
+ * 后半句是提醒，不是需求：把"绑定的一整组"一起拉起来是**另一个决定**
+ * （组里可能有几条是已经做完的，硬拉回来会毁掉它们的完成时间与保留期）。
+ * 所以这里只动传进来的那一条；全组开关仍由用户在界面上点。
+ *
+ * 三种情况都返回结构化结果而不是抛：
+ *   · 没传 logId（项目页派的单，不涉及日志）→ `{running:false}`，不是错误；
+ *   · 日志不存在 / 已被销毁 → 记一条警告，派单照常成功；
+ *   · 已经是进行中 → 幂等成功（重复派单不会出错）。
+ *
+ * ⚠ **绝不影响派单结果**：派单文件已经落盘了，那件事已经发生了。
+ *   为了"标个状态"去报派单失败，会让用户以为没派出去 —— 那是更大的谎。
+ */
+function markLogRunningAfterDispatch(logId?: string): { running: boolean; error?: string } {
+  const id = String(logId || '').trim()
+  if (!id) return { running: false }
+  try {
+    const cur = logs.getLog(id)
+    if (!cur) return { running: false, error: `日志不存在（${id}），没标进行中` }
+    // 只拉"待处理"这一格：已完成 / 已归档的日志不该被一次派单悄悄改写生命周期
+    // （它们有自己的 runningFrom 记忆机制，走 setLogRunning 的常规入口才对）。
+    if (cur.status !== 'active') {
+      return { running: false, error: `日志是「${cur.status === 'completed' ? '已完成' : '已归档'}」，没自动改回进行中` }
+    }
+    if (cur.running === true) return { running: true }
+    const r = logs.setLogRunning(id, true)
+    return r.ok ? { running: true } : { running: false, error: r.error || '标记失败' }
+  } catch (e: any) {
+    return { running: false, error: String(e?.message || e) }
+  }
+}
+
 export function dispatchMessageToDsh(
   projectId: string,
   kindRaw: unknown,
   prefix: string,
   now: number = Date.now(),
+  /** 消费方探测结果（2026-11-24）：不传 = 没核实到，措辞退回最保守的那种 */
+  consumer?: DispatchConsumerProbe | null,
+  /**
+   * 这条派单是从哪条执行日志派出去的（2026-11-24 暮雨第 1 条）。
+   *
+   * 原话：「建议方寸日志派活成功后日志自动标进行中（未测试过绑定日志全组派活）。」
+   *
+   * 为什么该自动标：日志的「进行中」是**手动开关**（2026-09-28 用户第 2 条定的：
+   * 只能手动打、可撤销）。但"从日志页点了发送给 DSH"这件事**本身就是一次开工动作** ——
+   * 用户已经用行为说明了"这条现在在跑"，再让他去点一下开关是把同一件事做两次。
+   *
+   * 三条边界（不做就越界成"替用户改状态"）：
+   *   ① **只在派单真成功之后**才标（排队成 `ok:true` 就算成功 —— 文件已落盘会被消费）；
+   *   ② **只动这条日志自己**，不碰它的附属日志（暮雨那句"未测试过绑定日志全组派活"
+   *      就是在提醒这件事：全组一起拉起来是**另一个决定**，不能顺手替他做了）；
+   *   ③ 失败不报给用户（杀不了派单），但要如实写进返回值，免得"标没标上"变成猜。
+   */
+  logId?: string,
 ): DispatchResult {
   const pid = String(projectId || '').trim()
   if (!pid) return { ok: false, error: '没给项目 id' }
@@ -560,6 +651,13 @@ export function dispatchMessageToDsh(
     fs.writeFileSync(p, body, 'utf-8')
     // 新的一落盘就清掉同项目的旧派单（同一项目同时只留一份"待消费"）。
     pruneStaleDispatches(dir, String(r.projectId), path.basename(p))
+    // 2026-11-24（暮雨第 8 条）：**落地 ≠ 有人接**。
+    // 判据在 shared/dispatchDelivery（探测结果由 IPC 层异步取好传进来；
+    // 没传 = 没核实到，措辞退回最保守的那种，绝不因为"不知道"就说成功）。
+    const verdict = describeDispatchDelivery(consumer, bodyText.length)
+    // 2026-11-24（暮雨第 1 条）：从日志派出去的活，成功后自动把**这条**日志标进行中。
+    // ⚠ 只动自己，不动 attached 全组；失败不影响派单结果，但要如实回传。
+    const logStatus = markLogRunningAfterDispatch(logId)
     return {
       ok: true,
       path: p,
@@ -568,6 +666,12 @@ export function dispatchMessageToDsh(
       missing: r.missing || [],
       at,
       kind,
+      delivery: verdict.delivery,
+      deliveryHint: verdict.hint,
+      consumerPresent: verdict.consumerPresent,
+      logId: String(logId || ''),
+      logRunning: logStatus.running,
+      logRunningError: logStatus.error,
       enabled: true,
       reason: 'ok',
       today: gate.today,

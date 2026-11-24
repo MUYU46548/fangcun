@@ -39,8 +39,13 @@ interface Decision {
 
 const emit = defineEmits<{ (e: 'notify', msg: string, type: 'success' | 'error' | 'info'): void }>()
 
-/** 筛选项就是三态 + 全部；与主进程 `DECISION_STATUSES` 同一套词（改一处要改两处） */
-const FILTERS = ['全部', '有效', '已撤销', '已合并']
+/**
+ * 筛选项 = 四态 + 全部；与主进程 `DECISION_STATUSES` 同一套词（改一处要改两处）。
+ *
+ * 2026-11-24：「待审批」排在最前（2026-11-23 问卷 K1：「决策应该有自己的审批入口」）。
+ * 排最前的理由是它**需要你动手**——有效/已撤销/已合并都已定案，只有这一列在等人签。
+ */
+const FILTERS = ['全部', '待审批', '有效', '已撤销', '已合并']
 /** “项目筛选”里代表"没填项目"的那一项；数据支持（decisions.md 的项目列），界面补上 */
 const NO_PROJECT = '（未归属）'
 const ALL_PROJECTS = '全部项目'
@@ -226,12 +231,18 @@ function splitSmart(): void {
   )
 }
 
-function badgeOf(s: string): 'ok' | 'revoked' | 'merged' | 'neutral' {
+function badgeOf(s: string): 'ok' | 'revoked' | 'merged' | 'neutral' | 'pending' {
+  // 2026-11-24：「待审批」是**唯一需要人动手**的一档，给单独的颜色档，
+  // 混进 neutral 会被当成"没填状态"，等人签的东西就沉下去了。
+  if (s === '待审批') return 'pending'
   if (s === '有效') return 'ok'
   if (s === '已撤销') return 'revoked'
   if (s === '已合并') return 'merged'
   return 'neutral'
 }
+
+/** 待审批的条数（K1：决策要有自己的审批入口 —— 这个数就是"有东西等你签"） */
+const pendingCount = computed(() => items.value.filter((d) => d.状态 === '待审批').length)
 
 async function refresh() {
   try {
@@ -601,6 +612,18 @@ onMounted(refresh)
           >
             {{ d.内容 }}
           </div>
+          <!--
+            「批准 / 驳回」两个按钮（2026-11-24 · 2026-11-23 问卷 K1：
+            「审批就不该走任务卡……决策应该有自己的审批入口」）。
+            它们只在「待审批」时出现 —— 别的档已经定案了，再摆两个按钮只会让人以为
+            还能重签。走的是与下拉同一套 setStatus（留痕/撤销条一致，不另开捷径）。
+          -->
+          <template v-if="d.状态 === '待审批'">
+            <Button variant="ghost" size="tool" :disabled="busy" data-dec="approve"
+              title="通过：状态 → 有效，从这一刻起它才算现行规矩" @click="setStatus(d, '有效')">通过</Button>
+            <Button variant="ghost" size="tool" :disabled="busy" data-dec="reject"
+              title="驳回：状态 → 已撤销（留痕不删，日后能查这条被否过）" @click="setStatus(d, '已撤销')">驳回</Button>
+          </template>
           <span class="relative flex-none">
             <select
               data-dec="status"
@@ -609,6 +632,8 @@ onMounted(refresh)
               :disabled="busy"
               @change="setStatusFromEvent(d, $event)"
             >
+              <!-- 2026-11-24：待审批排第一 —— 它是唯一"还没定"的一档，排在三档定案之前 -->
+              <option>待审批</option>
               <option>有效</option>
               <option>已撤销</option>
               <option>已合并</option>

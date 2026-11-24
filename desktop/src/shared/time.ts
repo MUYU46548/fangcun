@@ -8,6 +8,7 @@
  * 以前每个调用点自己 `new Date(x)`，写法一变就静默变成 `Invalid Date` / `NaN天前`，
  * 而且**页面上看不出来是错的**（只显示个空或乱码）。统一走这里，坏输入一律给 '—'。
  */
+import { isClosedStatus } from './cancelColumn'
 
 /** 秒级时间戳与毫秒级的分界：1e11 秒 ≈ 公元 5138 年，1e11 毫秒 ≈ 1973 年，不会误判 */
 const MS_THRESHOLD = 1e11
@@ -168,7 +169,7 @@ export function relTimeShort(v: unknown): string {
  *
  * 2026-09-26 卡 033：这里原本是 `return false` 的**空桩** —— 任务逾期从来没实现过。
  * 待办专项整修要用同一个概念，就地补齐（而不是再写一个同名函数）：
- *   · 待办看 `done`；任务看 `status`（完成/驳回不算逾期）；
+ *   · 待办看 `done`；任务看 `status`（完成/驳回/已取消不算逾期）；
  *   · 日期字段任务叫 deadline/截止，待办叫 due，都认；
  *   · 只有**严格过期**才算（今天到期不算逾期）—— 用 daysSince >= 1 判断。
  */
@@ -176,7 +177,7 @@ export function isOverdue(t: any): boolean {
   if (!t) return false
   if (t.done === true) return false
   const status = String(t.status || '')
-  if (status === '完成' || status === '驳回') return false
+  if (isClosedStatus(status)) return false
   // 2026-10-12：待办可能带**可选时间**（`dueTime`）—— 有时分时按**分钟级**判逾期
   // （21:39 过了就是过了，而不是"今天整天都算没过"）；没时间时保持老行为（按天）。
   if (t.dueTime) {

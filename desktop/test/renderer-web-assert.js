@@ -7714,8 +7714,11 @@
     check('★ 界面只说白话中文（决策页签/视图里不许再出现“拍板”“作数”“已并入”“已作废”）',
       ((($('#bar') || {}).textContent || '') + (($('.decisions-view') || {}).textContent || ''))
         .match(/拍板|作数|已并入|已作废/) === null)
-    check('★ 状态筛选是分段控件（四个 tab，且计数跟着数据走）',
-      $$('[data-dec="tab"]').map((b) => (b.textContent || '').trim()).join('|') === '全部3|有效1|已撤销1|已合并1',
+    // 2026-11-24（2026-11-23 问卷 K1：「决策应该有自己的审批入口」）：
+    // 多了「待审批」这一档，且它排在最前（只有它在等人签）。
+    // 判据仍然是"计数跟着数据走" —— 夹具里没有待审批的条目，所以它是 0。
+    check('★ 状态筛选是分段控件（五个 tab，且计数跟着数据走）',
+      $$('[data-dec="tab"]').map((b) => (b.textContent || '').trim()).join('|') === '全部3|待审批0|有效1|已撤销1|已合并1',
       $$('[data-dec="tab"]').map((b) => (b.textContent || '').trim()).join('|'))
     // ── 开发清单第 4 条：按项目筛选（数据早就支持项目列，界面前面一直缺）──
     {
@@ -7731,7 +7734,7 @@
         await sleep(250)
         check('★★ 选“司天”→ 只剩该项目的 1 张，且**计数跟着项目筛走**（不是全局数）',
           $$('[data-dec="card"]').length === 1
-          && $$('[data-dec="tab"]').map((b) => (b.textContent || '').trim()).join('|') === '全部1|有效1|已撤销0|已合并0',
+          && $$('[data-dec="tab"]').map((b) => (b.textContent || '').trim()).join('|') === '全部1|待审批0|有效1|已撤销0|已合并0',
           'cards=' + $$('[data-dec="card"]').length + ' tabs=' + $$('[data-dec="tab"]').map((b) => (b.textContent || '').trim()).join('|'))
         pj.value = '全部项目'
         pj.dispatchEvent(new Event('change', { bubbles: true }))

@@ -3,6 +3,19 @@
 # 用法：python verify.py   （只读代码层 + 临时目录写样例，不碰 task-data/）
 import os, sys, json, tempfile, time, shutil, re
 
+# 控制台编码兜底（2026-11-24）
+# 真实现场：Windows 上 Python 的 stdout 编码取控制台代码页（本机是 GBK/936），
+# 而 verify.py 里要打印 `✓`（U+2713）—— GBK 编不出来，于是
+#   UnicodeEncodeError: 'gbk' codec can't encode character '\u2713'
+# 整份验证在**第 165 行**就崩了，用户看到的不是"一条红"，是"脚本跑不起来"。
+# 只改 errors，不改 encoding：中文在 GBK 控制台上照旧正常显示，
+# 编不出来的个别符号退化成 `?`，绝不让一个装饰性符号带走整轮验证。
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(errors="replace")
+    except Exception:
+        pass
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 # 包结构：tegula.core（数据层+API） ← tegula.cli（命令行入口）
 # verify 用代理对象统一读/写；写时双写以覆盖 cli 的 from-import 绑定
@@ -1479,15 +1492,18 @@ check("★ 顶格注释之后的项目不会丢（此前 in_section 被重置 �
 check("★ 注释前后的项目都在，released 段照常解析", _ids == ["a", "b", "c"], str(_ids))
 check("注释行本身不会被当成项目（没有空 id）", all(p.get("id") for p in _ps), str(_ids))
 
-# ── 27. 状态白名单（2026-10-06 卡 008）──
+# ── 27. 状态白名单（2026-10-06 卡 008；2026-11-24 K2 扩到 8 个）──
 # 实际发生过：task-mingjian-template-20260925.md 写着 `状态: 待处理` ——
 # 那是**日志页的分区叫法**，被手写进了任务卡。后果：看板分组语义不明、
 # gen-progress 单列一类、doctor 当时也不拦。
 # 这里钉四件事：枚举两侧同源 / 判据函数行为正确 / 真实数据零非法 / doctor 真的在用它。
 print("\n---- 27. 状态白名单（doctor 拦“待处理”这类非法值）----")
 import re as _re27
-_legal27 = ["草稿", "待审批", "待办", "进行中", "待验收", "完成", "驳回"]
-check("状态枚举就是那 7 个", list(teg.STATUSES) == _legal27, str(teg.STATUSES))
+# 2026-11-24：加第八个「已取消」（2026-11-23 问卷 K2 拍板：独立状态、不映射成驳回、
+# 看板默认隐藏 + 开关）。这里刻意**写死字面量**而不是引用 teg.STATUSES ——
+# 判据要能抓到"有人往枚举里随手加了一个值"，引用自己就等于自己证明自己。
+_legal27 = ["草稿", "待审批", "待办", "进行中", "待验收", "完成", "驳回", "已取消"]
+check("状态枚举就是那 8 个", list(teg.STATUSES) == _legal27, str(teg.STATUSES))
 
 # ① 两侧同源：TS 的 STATUSES 必须逐字一致（各写各的 = 迟早分叉）
 _ts27 = open(os.path.join(ROOT, "desktop", "src", "main", "data", "index.ts"), encoding="utf-8").read()
@@ -1498,10 +1514,13 @@ check("★ TS 与 Python 的状态枚举逐字一致（两侧各写各的迟早�
 
 # ② 判据函数 core.illegal_status：非法返回它自己；合法或空返回空串
 check("illegal_status('待处理') 判为非法", teg.illegal_status("待处理") == "待处理")
-check("illegal_status 放行 7 个合法值", all(teg.illegal_status(s) == "" for s in _legal27))
+check("illegal_status 放行 8 个合法值", all(teg.illegal_status(s) == "" for s in _legal27))
 check("illegal_status 放行空值（没填 ≠ 填错）",
       teg.illegal_status("") == "" and teg.illegal_status(None) == "")
 check("illegal_status 对前后空白做归一（' 待办 ' 合法）", teg.illegal_status(" 待办 ") == "")
+# 「已取消」不能被别名表悄悄改成「驳回」—— 那正是 K2 否掉的那条路
+check("★ 「已取消」不是别名（归一后仍是「已取消」，不会变成「驳回」）",
+      teg.normalize_status("已取消") == "已取消", str(teg.normalize_status("已取消")))
 
 # ③ 真实数据零非法（用真实路径，不依赖 teg.TASK_DIR —— 前面的用例会改它）
 _real27 = os.path.join(ROOT, "task-data")

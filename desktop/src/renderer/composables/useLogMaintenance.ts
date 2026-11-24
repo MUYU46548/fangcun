@@ -70,10 +70,31 @@ export function useLogMaintenance(deps: Deps) {
     void reload()
   }
 
+  /**
+   * 批量彻底删除 —— 确认框里**逐条列出标题**（2026-11-24 暮雨第 5 条）。
+   *
+   * 单条删除的弹窗此前只写"确定销毁此日志？"，用户原话：
+   * 「不显示标题，等于白确认，我根本不知道自己有没有点歪，只能赌。」
+   * 批量更严重：只写"批量销毁 3 条"，三张卡是哪三张完全看不见。
+   *
+   * 所以：≤8 条时逐条列标题（超过就列前 8 条 + "还有 N 条"，不把弹窗撑爆），
+   * 末尾仍然写明**不可撤销**。
+   */
   async function executeBatchLogDestroy() {
     const ids = [...selectedLogBatch.value]
     if (ids.length === 0) return
-    if (!confirm(`批量销毁 ${ids.length} 条日志？文件将被永久删除。`)) return
+    const titleOf = (id: string): string => {
+      const hit = visibleLogs.value.find((l: any) => String(l?.id || '') === String(id))
+      return String(hit?.title || '').trim() || '（无标题）'
+    }
+    const LIST_MAX = 8
+    const shown = ids.slice(0, LIST_MAX).map((id) => `· ${titleOf(id)}`)
+    if (ids.length > LIST_MAX) shown.push(`· ……还有 ${ids.length - LIST_MAX} 条`)
+    if (!confirm(
+      `彻底删除这 ${ids.length} 条日志？\n\n`
+      + shown.join('\n')
+      + `\n\n⚠ 文件会被永久删除，不进回收站，也不能撤销。`,
+    )) return
     let ok = 0
     for (const id of ids) {
       try {
@@ -81,7 +102,7 @@ export function useLogMaintenance(deps: Deps) {
         if (r?.ok) ok++
       } catch { /* skip */ }
     }
-    toast(`已批量销毁 ${ok}/${ids.length} 条日志`, ok ? 'success' : 'error')
+    toast(`已批量销毁 ${ok}/${ids.length} 条日志`, ok === ids.length ? 'success' : 'error')
     selectedLogBatch.value = []
     logBatchMode.value = false
     void reload()

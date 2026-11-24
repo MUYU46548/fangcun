@@ -39,7 +39,10 @@ import { levelOfMap, riceSummary, scoreOf } from '../../shared/rice'
 //     要开口必须先有“AI 只能落待审批”的设计，不在这一刀里顺手破。
 //   · 方针的写口是 savePolicy（界面在用）；结构地图也在同一份文件里。
 // 也就是说：**读口在这一层开，写口将来从同一层接** —— 下面三个 case 是唯一入口。
-import { loadDecisions, normalizeDecisionStatus } from '../data/decisions'
+import {
+  loadDecisions, normalizeDecisionStatus, addDecision,
+  DECISION_PENDING, AGENT_WRITABLE_DECISION_STATUSES,
+} from '../data/decisions'
 import { getPolicy, savePolicy } from '../services/policies'
 import { applySmapFromTask } from '../services/smapApply'
 import { listPlanFiles, readPlan, proposeStage, parkedPlanSummary } from '../data/plans'
@@ -387,20 +390,46 @@ export const MCP_TOOLS: MCPTool[] = [
   // ⚠ 全部只读。写口将来从同一层接，但**不是这一刀**：
   //   决策的写（decision_record）2026-11-03 明确移除、只在需求矩阵页由用户点；
   //   要开 AI 写，必须先有“只落待审批”的设计，不能顺手破。
+  //
+  // 2026-11-24 补上了——那个"只落待审批"的设计就是下面这张 `decision_propose`
+  // （2026-11-23 问卷 K1 拍板：「决策应该有自己的审批入口」）：
+  //   · agent 只能写「待审批」，转正是用户点的（它传「有效」会被拒，不是被悄悄改）；
+  //   · 待审批不进 agent 开工读到的"最近有效决策"，读不到未批准的规矩比读到假规矩安全。
   {
     name: 'decision_list',
     description: 'READ-ONLY. Read 决策卡 (task-data/decisions.md): what has already been decided, '
-      + 'when, by which project, and whether it still holds (有效/已撤销/已合并). '
+      + 'when, by which project, and whether it still holds (待审批/有效/已撤销/已合并). '
       + 'Check this BEFORE proposing something that may contradict an earlier decision. '
-      + 'Decisions are made by the user in the UI — this tool cannot write one.',
+      + 'To record a NEW decision use `decision_propose` — it lands as 待审批 and only the user can approve it.',
     inputSchema: {
       type: 'object',
       properties: {
         project: { type: 'string', description: 'Filter by project id (optional)' },
-        status: { type: 'string', description: '有效 | 已撤销 | 已合并（可选，旧词会归一）' },
+        status: { type: 'string', description: '待审批 | 有效 | 已撤销 | 已合并（可选，旧词会归一）' },
         query: { type: 'string', description: 'Match 内容 / 备注 / 出处 (optional)' },
         limit: { type: 'number', description: 'Max rows, newest first (default 30)' },
       },
+    },
+  },
+  // 2026-11-24（2026-11-23 问卷 K1 拍板：「审批就不该走任务卡……决策应该有自己的审批入口」）
+  {
+    name: 'decision_propose',
+    description: 'PROPOSE a decision (决策卡). It ALWAYS lands as 状态: 待审批 — the user approves it in the '
+      + '决策 page before it counts. You cannot make a decision effective: passing 有效 is refused, not silently '
+      + 'downgraded. Pending decisions are NOT returned to agents by decision_list/context packs, because an '
+      + 'unapproved rule must never be read as a current one. One decision per call; if one already exists with '
+      + 'the same content on the same date, nothing is written (deduped).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        content: { type: 'string', description: 'What was decided, one sentence.' },
+        source: { type: 'string', description: 'Where it came from: which conversation / deck / evidence (required).' },
+        project: { type: 'string', description: 'Project id, or 全局 (optional).' },
+        scope: { type: 'string', description: '生效范围: 本卷 / 全局 / a project id (optional).' },
+        landing: { type: 'string', description: '落地: task id / commit:xxx / 不做(理由) (optional).' },
+        agent: { type: 'string', description: 'Who proposes (agent name, optional).' },
+      },
+      required: ['content', 'source'],
     },
   },
   {
@@ -1549,9 +1578,84 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
         ok: true,
         total: all.length,
         returned: rows.length,
-        readOnly: '决策只由用户在界面拍板；本工具只读。要新增，让用户在“需求矩阵”页点。',
+        readOnly: '本工具只读。要新增决策用 decision_propose（只会落「待审批」，转正在决策页点）。',
         decisions: rows,
       }, null, 2) }] }
+    }
+
+    /**
+     * 提议一条决策（2026-11-24 · 2026-11-23 问卷 K1 拍板）。
+     *
+     * 「审批就不该走任务卡……决策应该有自己的审批入口。」
+     *
+     * 这个 handler 是**唯一**的 agent 决策写口，而它只做一件事：
+     * 把内容落成「待审批」。三条硬规矩：
+     *   ① 传「有效」/「已撤销」/「已合并」**一律拒**（不是悄悄改成待审批 —— 那会让模型
+     *      以为自己已经定了一件事，而实际上只是提了个议案）；
+     *   ② 待审批的决策不进 `decision_list` 的"有效"口径、也不进上下文包
+     *      （未获批准的规矩被当成现行规矩读，比没有这条规矩更危险）；
+     *   ③ 落盘后**读回**确认状态真的是待审批，读不回/读错就报错，不靠"我写过了"。
+     */
+    case 'decision_propose': {
+      const content = String(args.content || '').trim()
+      const source = String(args.source || '').trim()
+      if (!content) return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: 'content 必填' }) }], isError: true }
+      if (!source) {
+        return {
+          content: [{ type: 'text', text: JSON.stringify({
+            ok: false,
+            error: 'source 必填（这条决策的出处：哪次对话 / 哪份问卷 / 哪条证据）—— 没有出处的决策是谣言',
+          }) }],
+          isError: true,
+        }
+      }
+      // 想自批的，明确拒，并且说清该怎么做
+      const wanted = String(args.status || args.状态 || '').trim()
+      if (wanted && !AGENT_WRITABLE_DECISION_STATUSES.includes(normalizeDecisionStatus(wanted))) {
+        return {
+          content: [{ type: 'text', text: JSON.stringify({
+            ok: false,
+            error: `agent 只能提「待审批」，不能设「${wanted}」。转正由用户在决策页点 —— 这是治理层的锁。`,
+          }) }],
+          isError: true,
+        }
+      }
+      const r = addDecision({
+        内容: content,
+        日期: new Date().toISOString().slice(0, 10),
+        状态: DECISION_PENDING,
+        项目: String(args.project || '').trim(),
+        出处: String(args.agent || '').trim() ? `${source}（agent: ${String(args.agent).trim()}）` : source,
+        生效范围: String(args.scope || '').trim(),
+        落地: String(args.landing || '').trim(),
+      })
+      if (!r.ok) {
+        // TS 窄化：`!r.ok` 之后就是失败那一支（两个成员的联合类型）
+        return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: (r as { ok: false; error: string }).error }) }], isError: true }
+      }
+      // 读回确认：状态必须真的是待审批（老文件里可能有同名条目被 dedupe 命中）
+      const back = loadDecisions().find((d) => d.id === r.id)
+      const status = back ? String(back.状态 || '') : ''
+      if (!back) {
+        return {
+          content: [{ type: 'text', text: JSON.stringify({
+            ok: false, id: r.id, error: '写进去了但读不回来 —— 不要认为它已经落好了，去决策页看一眼',
+          }) }],
+          isError: true,
+        }
+      }
+      return {
+        content: [{ type: 'text', text: JSON.stringify({
+          ok: true,
+          id: r.id,
+          status,
+          deduped: r.exists === true,
+          pending: status === DECISION_PENDING,
+          hint: status === DECISION_PENDING
+            ? '已落「待审批」—— 用户在决策页点通过之后才生效；在那之前它不算现行规矩，不要据此行动。'
+            : `⚠ 读回状态是「${status}」而不是「待审批」，请让用户确认这条决策的来源与状态。`,
+        }, null, 2) }],
+      }
     }
 
     case 'project_charter': {

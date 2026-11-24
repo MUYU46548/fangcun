@@ -38,7 +38,7 @@ if (!fs.existsSync(ART)) {
   console.log('RESULT 0 / 1')
   process.exit(1)
 }
-const { planWindowBoot, AUTOSTART_ARG } = require(ART)
+const { planWindowBoot, AUTOSTART_ARG, planSecondInstance } = require(ART)
 
 console.log('== 开机自启 · 窗口口径 ==')
 
@@ -95,6 +95,38 @@ for (const [i, h] of hits.entries()) {
   const why = i === 0 ? before.includes('bootPlan.maximizeNow') : /once\('show'/.test(before)
   check(`第 ${i + 1} 处 maximize() 在受控分支里`, why)
 }
+
+// ── ⑥ 再点一次图标（second-instance）必须把**看不见的**窗口叫出来 ────
+// 2026-11-24（暮雨第 6 条）：「电脑开机后双击桌面快捷方式，五次都无法打开，一闪而过」。
+// 真因是自启实例的窗口从没 show 过，而那里的处理器只调了 restore/focus ——
+// focus() 对隐藏窗口不生效，于是"点了没反应"。判据是**不可见时必须 show**。
+console.log('\n== 再点一次图标 · 隐藏窗口必须被叫出来 ==')
+const hiddenWin = planSecondInstance(false, false)
+check('★ 窗口不可见 → 必须先 show（focus 对隐藏窗口无效）', hiddenWin.show === true, JSON.stringify(hiddenWin))
+check('不可见但不最小化 → 不需要 restore', hiddenWin.restore === false, JSON.stringify(hiddenWin))
+check('仍然要 focus', hiddenWin.focus === true, JSON.stringify(hiddenWin))
+
+const minimizedWin = planSecondInstance(true, true)
+check('已可见但最小化 → 不 show（多余的 show 会把窗口提到别的虚拟桌面）',
+  minimizedWin.show === false, JSON.stringify(minimizedWin))
+check('已可见但最小化 → 要 restore', minimizedWin.restore === true, JSON.stringify(minimizedWin))
+
+const normalWin = planSecondInstance(true, false)
+check('已可见且不最小化 → 只 focus（不 show / 不 restore）',
+  normalWin.show === false && normalWin.restore === false && normalWin.focus === true,
+  JSON.stringify(normalWin))
+
+check('planSecondInstance 不改动入参语义（两个布尔任意组合都返回三个布尔）',
+  ['show', 'restore', 'focus'].every((k) => typeof planSecondInstance(false, true)[k] === 'boolean'))
+
+// 源码守卫：second-instance 处理器不许再回到“只 restore+focus”
+const idxSrc2 = fs.readFileSync(INDEX, 'utf8')
+const secondBlock = (idxSrc2.match(/app\.on\('second-instance'[\s\S]*?\n  \}\)/g) || []).join('\n')
+check('second-instance 处理器存在', secondBlock.length > 0)
+check("★ second-instance 里真的调了 mainWindow.show()（否则隐藏窗口点了没反应）",
+  /mainWindow\.show\(\)/.test(secondBlock), secondBlock.slice(0, 200))
+check('second-instance 走 planSecondInstance（判据只有一份，不就地写 if）',
+  /planSecondInstance\(/.test(secondBlock))
 
 console.log(`\nRESULT ${pass} / ${pass + fail}`)
 if (fail) {

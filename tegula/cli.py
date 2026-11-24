@@ -393,7 +393,7 @@ def _done_precheck(d, args):
     st = str(d.get("状态") or "").strip()
     if st in ("草稿", "待审批"):
         errors.append(f"状态是“{st}”—— 还没派工就回写完工，请先 dispatch")
-    elif st in ("完成", "驳回"):
+    elif st in ("完成", "驳回", "已取消"):
         warnings.append(f"任务已是终态“{st}”，本次只追加结果记录")
 
     blk = d.get("阻塞") or []
@@ -651,7 +651,7 @@ def claim_task(tid, who):
         d = parse_task(fn)          # ← 拿锁后重读：别用加锁前看到的那份
         if d is None:
             return False, "解析失败"
-        if str(d.get("状态") or "").strip() in ("完成", "驳回"):
+        if str(d.get("状态") or "").strip() in ("完成", "驳回", "已取消"):
             return False, f"任务已是终态“{d.get('状态')}”，不用认领"
         if not _claim_expired(d):
             return False, (f"这张卡已被“{d.get('认领人')}”认领（还剩 "

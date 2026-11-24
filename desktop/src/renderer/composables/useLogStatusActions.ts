@@ -144,14 +144,35 @@ export function useLogStatusActions(deps: Deps) {
     }
   }
 
+  /**
+   * 彻底销毁一条日志 —— **二次确认里必须写得清是哪一条**（2026-11-24 暮雨第 5 条）。
+   *
+   * 原话：「日志的彻底删除能不能在弹窗确认的时候显示日志标题？刚才想删一个测试接力日志
+   * 是否有问题的测试日志，不显示标题，等于白确认，我根本不知道自己有没有点歪，只能赌。」
+   *
+   * 所以弹窗里给三样，缺一不可：
+   *   ① **标题**（用户认的就是它）；
+   *   ② **id**（标题可能重复 —— 同一张卡今天试了三次就叫三个一样的名字）；
+   *   ③ 不可撤销的后果（不是"回收站"，是真的删文件）。
+   * ⚠ 标题取不到时明说"（无标题）"，**不许**退回 id 冒充标题 ——
+   *   那正是"白确认"的另一种形态：看到的每个字都对，就是不认识。
+   */
   async function destroyLogItem(id: string) {
-    if (!confirm('确定销毁此日志？文件将被永久删除。')) return
+    const target = logs.value.find((l: any) => String(l?.id || '') === String(id))
+    const title = String(target?.title || '').trim() || '（无标题）'
+    const when = String(target?.created || '').trim()
+    if (!confirm(
+      `彻底删除这条日志？\n\n`
+      + `标题：${title}\n`
+      + `id：${id}${when ? `\n创建：${when}` : ''}\n\n`
+      + `⚠ 文件会被永久删除，不进回收站，也不能撤销。`,
+    )) return
     const result = await window.tegula.logsDestroy(id)
     if (result.ok) {
-      showToast('已销毁', 'success')
+      showToast(`已销毁「${title}」`, 'success')
       await loadLogs()
     } else {
-      showToast(`销毁失败：${result.error || '未知原因'}`, 'error')
+      showToast(`销毁「${title}」失败：${result.error || '未知原因'}`, 'error')
     }
   }
 

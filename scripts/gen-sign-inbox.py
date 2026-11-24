@@ -253,7 +253,8 @@ def build(hashes_before):
     for c in cards:
         if "章程草稿" not in str(c.get("标题") or ""):
             continue
-        if str(c.get("状态")) in ("完成", "驳回"):
+        # 2026-11-24（K2 第八个状态）：已取消的卡不该被当成"待签收的章程草稿"。
+        if str(c.get("状态")) in ("完成", "驳回", "已取消"):
             continue
         body = c.get("_body") or ""
         project_name = projects_of(c)[0] if projects_of(c) else "未归属"

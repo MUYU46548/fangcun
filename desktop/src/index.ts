@@ -19,7 +19,7 @@ import { startIdleReminder, stopIdleReminder } from './main/services/idleReminde
 import { syncSelfRepoOnBoot } from './main/services/selfSync'
 import { autoCheckSkills } from './main/services/skillInstaller'
 import { installLogAutoClose } from './main/services/logAutoClose'
-import { planWindowBoot } from './shared/windowBoot'
+import { planWindowBoot, planSecondInstance } from './shared/windowBoot'
 import * as appLog from './main/services/appLog'
 
 // ── 入口分流的说明（2026-10-18）──────────────────────────────────────────
@@ -135,9 +135,21 @@ if (!gotLock) {
   app.quit()
 } else {
   app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      // ⚠ 2026-11-24（暮雨第 6 条「开机后双击快捷方式五次都打不开，一闪而过」）：
+      //   这里原来只有 restore() + focus()。但开机自启的实例是**隐藏窗口**（show:false），
+      //   而 focus() 对从未显示过的窗口**什么都不做** —— 于是双击快捷方式 =
+      //   第二个进程退出（"一闪"）+ 第一个进程把焦点给了一个看不见的窗口（什么都看不到）。
+      //   必须先 show（顺带触发 maximizeOnFirstShow 补最大化），再 restore / focus。
+      const plan = planSecondInstance(mainWindow.isVisible(), mainWindow.isMinimized())
+      if (plan.show) mainWindow.show()
+      if (plan.restore) mainWindow.restore()
+      if (plan.focus) mainWindow.focus()
+    } else if (app.isReady()) {
+      // 极早的第二次点击（窗口还没建好）：别静默吞掉，建出来并显示。
+      // 否则用户点完什么都不会发生 —— 与上面修的是同一类"看起来没反应"。
+      createWindow()
+      mainWindow?.show()
     }
     // 2026-11-05：升级安装包后再点一次图标时，**旧进程**会收到这个事件 ——
     // 那一刻它的 resources 目录已被新安装包覆盖，补跑一次就同步到位（见 syncSkillsSoon）。

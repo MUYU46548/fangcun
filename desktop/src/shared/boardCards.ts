@@ -16,6 +16,7 @@
  * 纪律：**空值一律不显示** —— 不是显示 0、也不是显示“—”，是这一格根本不渲染。
  * 卡面宁缺勿滥，这正是用户说的“没必要显示一堆无关紧要的信息”。
  */
+import { CLOSED_STATUSES } from './cancelColumn'
 
 export type BoardCardTone = '' | 'high' | 'mid' | 'low'
 
@@ -55,8 +56,8 @@ export interface BoardCardMeta {
   blocked: boolean
 }
 
-/** 终态：完成与驳回。与 core.STATUSES 的语义一致，只用于“还算不算被卡着”这一处判断。 */
-const DONE = new Set(['完成', '驳回'])
+/** 终态：完成 / 驳回 / 已取消（口径统一在 `cancelColumn`，此处不再写字面量）。 */
+const DONE = new Set(CLOSED_STATUSES)
 
 /**
  * “还没做完”= 状态不是终态。**空值算未完成** —— 没填 ≠ 做完了
