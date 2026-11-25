@@ -19,9 +19,21 @@ const DESKTOP = path.resolve(__dirname, '../desktop')
 
 let pass = 0
 let fail = 0
+/** 弱支持提示数（Hermes 那类：没配不算故障，不进 fail） */
+let soft = 0
 const lines = []
 function ok(name, extra = '') { pass++; lines.push(`  ✅ ${name}${extra ? '  ' + extra : ''}`) }
 function no(name, extra = '') { fail++; lines.push(`  ❌ ${name}${extra ? '  → ' + extra : ''}`) }
+/**
+ * 弱支持项：只提示，**不计失败**（2026-11-25 暮雨口径）。
+ *
+ * 「Hermes 可以接方寸，而且已经接了，以后是弱支持，偶尔维护，不保证可用性。
+ *   DSH 那条和 Hermes 完全搭不上边。」
+ *
+ * 所以 Hermes 没配好**不是故障**，不该让这条自检变红 —— 以前它走 `no()`，
+ * 于是用户看到一片 ❌ 会以为方寸坏了，其实主通道（DSH）好好的。
+ */
+function weak(name, extra = '') { soft++; lines.push(`  ⚠️ ${name}${extra ? '  ' + extra : ''}`) }
 
 /** 解析 `env:` 块（缩进大于 env 行的 `KEY: "VAL"` 行） */
 function parseEnvFrom(lines) {
@@ -282,6 +294,13 @@ async function main() {
         console.log('')
         continue
       }
+      if (name === 'Hermes') {
+        // 弱支持：已接、偶尔维护、不保证可用（2026-11-25 暮雨口径）。没配**不是故障**。
+        weak('Hermes 未配置方寸（弱支持，不算故障 —— 主通道是 DSH，两条互不相干）',
+          cfg.reason || '配置文件里找不到')
+        console.log('')
+        continue
+      }
       no(`${name} 未配置方寸`, cfg.reason || '配置文件里找不到')
       console.log('')
       continue
@@ -323,7 +342,11 @@ async function main() {
   }
 
   console.log(lines.join('\n'))
-  console.log(`\n通过 ${pass} / 失败 ${fail}`)
+  console.log(`\n通过 ${pass} / 失败 ${fail}` + (soft ? ` / 弱支持提示 ${soft}（不计失败）` : ''))
+  if (soft) {
+    console.log('⚠ Hermes 是弱支持通道（2026-11-25 口径）：已接、偶尔维护、不保证可用。'
+      + '它没配好不影响 DSH —— 两条通道互不相干。')
+  }
   process.exit(fail ? 1 : 0)
 }
 

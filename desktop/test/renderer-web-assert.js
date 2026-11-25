@@ -8625,6 +8625,35 @@
           } else {
             check('★★ 搜索框真能筛（目录变短）', false, '没有 .help-search')
           }
+          // ★★ 2026-11-25：手册此前**零处提到记忆层**（而它是 11-20 之后的主要功能之一）。
+          //   用户找不到说明 = 功能等于没有入口。这条钉住两件事：
+          //   ① 目录里真有「记忆」这一节；② 搜"记忆"能命中（keywords 里写了才会命中）。
+          {
+            const mi = $('.help-view .help-search')
+            if (mi) {
+              mi.value = '记忆'
+              mi.dispatchEvent(new Event('input', { bubbles: true }))
+              mi.dispatchEvent(new Event('change', { bubbles: true }))
+              const hit = await waitFor(() => $$('.help-view .help-toc-item')
+                .some((b) => (b.textContent || '').indexOf('记忆') >= 0), 2000, 'help memory section')
+              check('★★ 手册有「记忆」这一节，且搜"记忆"能命中（keywords 写了才算）', hit,
+                $$('.help-view .help-toc-item').map((b) => (b.textContent || '').trim()).join('/').slice(0, 160))
+              const mtoc = $$('.help-view .help-toc-item').find((b) => (b.textContent || '').indexOf('记忆') >= 0)
+              if (mtoc) mtoc.click()
+              const mbody = (($('.help-view .help-content') || {}).textContent) || ''
+              // ⚠ 2026-11-25：这条第一版写成 `/待审批/.test(mbody)` —— **太松**：
+              //   记忆节里「三态：有效/待审批/已撤销」本来就含这三个字，
+              //   于是把「AI 起草的一律落待审批」那句改掉，它**照样绿**（反例当场抓出）。
+              //   现在钉的是**那句规则本身**：起草的东西必须落到「待审批」等人工点头。
+              check('★★ 记忆那节写清了「AI 起草只落待审批」（不是只列了个状态名）',
+                /起草[^。]{0,40}待审批|待审批[^。]{0,20}才生效/.test(mbody) && /证据|原文/.test(mbody),
+                mbody.replace(/\s+/g, ' ').slice(0, 140))
+              mi.value = ''
+              mi.dispatchEvent(new Event('input', { bubbles: true }))
+              mi.dispatchEvent(new Event('change', { bubbles: true }))
+              await waitFor(() => $$('.help-view .help-toc-item').length === 13, 2000, 'toc back')
+            }
+          }
         }
         // ⚠ 2026-11-16：改成分两步验，因为两栏结构下**默认只渲染当前一节**。
         //   原版断言「.help-view 的全文含 due:」在平铺 10 节时成立，现在必然不成立
