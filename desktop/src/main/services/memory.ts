@@ -23,7 +23,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { getDataDir, atomicWrite, loadTasks } from '../data'
 import { getPref, getPrefs } from './prefs'
-import { hitsMap, recordMemoryUsage } from './memoryUsage'
+import { readMemoryUsage, recordMemoryUsage } from './memoryUsage'
 import { listLogs } from './logs'
 import {
   MEMORY_BUDGETS, RankableMemory, rankMemories, renderCore, findDuplicate, similarity,
@@ -137,6 +137,8 @@ export interface MemoryEntry extends RankableMemory {
   score?: number
   relevance?: number
   hits30d?: number
+  /** 上次被召回（ISO）；R2=A：新鲜度锚 */
+  lastAccessed?: string
 }
 
 /**
@@ -455,6 +457,20 @@ export interface MemoryQuery {
  * ⚠ 与 v1 的差别：v1 是"过滤后按时间切片"，v2 是"按相关度 × 可信度 × 重要度 ×
  * 新鲜度 × 使用强度 × 权重排序"。搜 `kill` 第一条必须是 D5，而不是 D1。
  */
+/**
+ * 使用强度 + 上次召回（R2=A：新鲜度锚=上次被召回）。
+ * 只算 recall（search/read/briefing），core 注入留在 usage.jsonl 但不进这里（D3=B）。
+ */
+function withUsage<T extends { id: string }>(rows: T[], days = 30): Array<T & { hits30d?: number; lastAccessed?: string }> {
+  let counts: Map<string, number> = new Map()
+  let lastAt: Map<string, string> = new Map()
+  try {
+    const u = readMemoryUsage(days, Date.now(), { recallOnly: true })
+    counts = u.counts
+    lastAt = u.lastAt
+  } catch { /* 没有计量就当没有 */ }
+  return rows.map((r) => ({ ...r, hits30d: counts.get(r.id), lastAccessed: lastAt.get(r.id) }))
+}
 export function searchMemory(q: MemoryQuery = {}): {
   rows: MemoryEntry[]
   total: number
@@ -482,11 +498,9 @@ export function searchMemory(q: MemoryQuery = {}): {
   // 空数组 = 不过滤（不是"只留 world"）—— 没有上下文时退化为全库检索。
   const active = activeScopes(q.scopes || [])
   if (active.length) hit = filterByScopes(hit, active)
-  // 使用强度（2026-11-24）：规划 §4.3 的 usage 因子一直空跑 —— 因为 hits30d 从来没人填。
-  // 现在从 memory/usage.jsonl 读近 30 天召回次数；读不到就是空 Map（不假装 0 次）。
-  let hits: Map<string, number> = new Map()
-  try { hits = hitsMap(30) } catch { hits = new Map() }
-  const withHits = hit.map((r) => (hits.has(r.id) ? { ...r, hits30d: hits.get(r.id) } : r))
+  // 使用强度 + 上次召回（R2=A：新鲜度锚=上次被召回，不是发生时间）。
+  // 只算 recall（search/read/briefing）；core 注入留在 usage.jsonl 但不进这里（D3=B）。
+  const withHits = withUsage(hit)
   const ranked = rankMemories(withHits, {
     q: q.q,
     project: q.project,
@@ -828,11 +842,11 @@ export function memoryBriefing(project: string, limit = 5): {
   items: MemoryBriefingItem[]
 } {
   const p = String(project || '').trim()
-  const all = scanEntries().filter((r) => {
+  const all = withUsage(scanEntries().filter((r) => {
     if (r.status !== '有效') return false
     const cross = r.project === '跨项目' || String(r.scope || '').includes('跨项目')
     return cross || (!!p && r.project === p)
-  })
+  }))
   const ranked = rankMemories(all, {
     project: p,
     projectFirst: true,

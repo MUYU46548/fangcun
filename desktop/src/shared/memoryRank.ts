@@ -45,6 +45,8 @@ export interface RankableMemory {
   pinned?: boolean
   /** 近 30 天被召回次数（没有计量时缺省 0） */
   hits30d?: number
+  /** 上次被召回的时刻（ISO）；R2=A：新鲜度锚=上次被召回，没有才退回 time */
+  lastAccessed?: string
   tags?: string[]
   /** 证据正文，只用于"只在证据里命中"的低权匹配 */
   evidence?: string
@@ -131,6 +133,12 @@ export function freshnessOf(time: string, halfLife: any, now = Date.now()): numb
   if (!Number.isFinite(t)) return 0.7
   const ageDays = Math.max(0, (now - t) / 86400000)
   return Math.pow(0.5, ageDays / hl)
+}
+
+/** 新鲜度锚：上次被召回优先，其次发生时间；lastAccessed 认不出就退回 time。 */
+export function freshnessAnchor(time: string, lastAccessed?: string): string {
+  const t = Date.parse(String(lastAccessed || ''))
+  return Number.isFinite(t) ? String(lastAccessed) : String(time || '')
 }
 
 export function usageFactor(hits30d: any): number {
@@ -322,7 +330,7 @@ export function rankMemories<T extends RankableMemory>(
       relevance,
       confidence: confidenceOf(m.confidence),
       importance: importanceFactor(m.importance),
-      freshness: freshnessOf(String(m.time || ''), m.halfLife, now),
+      freshness: freshnessOf(freshnessAnchor(String(m.time || ''), m.lastAccessed), m.halfLife, now),
       usage: usageFactor(m.hits30d),
       weight: weightOf(m.weight),
     })

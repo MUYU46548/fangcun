@@ -66,7 +66,19 @@ check('★ 预算常量是 v3 口径（2026-11-25 问卷 R4）',
   R.MEMORY_BUDGETS.core === 3000 && R.MEMORY_BUDGETS.briefing === 6000
   && R.MEMORY_BUDGETS.search === 3000 && R.MEMORY_BUDGETS.claimHard === 200,
   JSON.stringify(R.MEMORY_BUDGETS))
-
+check('★★ 新鲜度锚 = 上次被召回（R2=A）',
+  R.freshnessAnchor('2026-01-01T00:00:00+08:00', '2026-06-01T00:00:00+08:00') === '2026-06-01T00:00:00+08:00',
+  R.freshnessAnchor('2026-01-01T00:00:00+08:00', '2026-06-01T00:00:00+08:00'))
+check('★ lastAccessed 认不出 → 退回 time',
+  R.freshnessAnchor('2026-01-01T00:00:00+08:00', 'bad') === '2026-01-01T00:00:00+08:00')
+check('★ lastAccessed 为空 → 退回 time',
+  R.freshnessAnchor('2026-01-01T00:00:00+08:00', undefined) === '2026-01-01T00:00:00+08:00')
+const pulled = R.rankMemories([
+  { id: 'old', claim: '旧事', time: '2024-01-01T00:00:00+08:00', halfLife: 365, importance: 3, confidence: 0.7, project: 'p' },
+  { id: 'old-recalled', claim: '旧事', time: '2024-01-01T00:00:00+08:00', halfLife: 365, importance: 3, confidence: 0.7, project: 'p', lastAccessed: '2026-11-20T00:00:00+08:00' },
+], { project: 'p' })
+check('★★ 上次召回把老条目的新鲜度拉回来（排到前面）', pulled.rows[0] && pulled.rows[0].item.id === 'old-recalled',
+  JSON.stringify(pulled.rows.map((x) => x.item.id)))
 // ── ③ 排序 ────────────────────────────────────────────────────────
 const items = [
   {
