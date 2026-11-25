@@ -62,9 +62,9 @@ check('★ 重要度 1→0.40、5→1.00',
   Math.abs(R.importanceFactor(1) - 0.4) < 1e-9 && Math.abs(R.importanceFactor(5) - 1) < 1e-9)
 check('★ 可信度夹到 0–1', R.confidenceOf(2) === 1 && R.confidenceOf(-1) === 0)
 check('★ 召回权重夹到 0.5–2', R.weightOf(9) === 2 && R.weightOf(0) === 0.5)
-check('★ 预算常量是 v2 口径',
-  R.MEMORY_BUDGETS.core === 800 && R.MEMORY_BUDGETS.briefing === 800
-  && R.MEMORY_BUDGETS.search === 1500 && R.MEMORY_BUDGETS.claimHard === 200,
+check('★ 预算常量是 v3 口径（2026-11-25 问卷 R4）',
+  R.MEMORY_BUDGETS.core === 3000 && R.MEMORY_BUDGETS.briefing === 6000
+  && R.MEMORY_BUDGETS.search === 3000 && R.MEMORY_BUDGETS.claimHard === 200,
   JSON.stringify(R.MEMORY_BUDGETS))
 
 // ── ③ 排序 ────────────────────────────────────────────────────────

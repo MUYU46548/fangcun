@@ -180,9 +180,9 @@ PREFS.memoryEnabled = true
 console.log('\n-- ⑦ core 预算可调（不是写死）--')
 {
   const before = PREFS.memoryCoreBudget
-  check('★ 没有 memoryCoreBudget 键时用默认 800', (() => {
+  check('★ 没有 memoryCoreBudget 键时用默认 3000', (() => {
     delete PREFS.memoryCoreBudget
-    return mem.coreBudget() === 800
+    return mem.coreBudget() === 3000
   })(), String(mem.coreBudget()))
   check('★★ 调到 1000 真的生效（不是写死的 800）', (() => {
     PREFS.memoryCoreBudget = 1000
@@ -198,7 +198,7 @@ console.log('\n-- ⑦ core 预算可调（不是写死）--')
   })(), String(mem.coreBudget()))
   check('★ 坏值回落默认（不是 0，也不是 NaN）', (() => {
     PREFS.memoryCoreBudget = 'abc'
-    return mem.coreBudget() === 800
+    return mem.coreBudget() === 3000
   })(), String(mem.coreBudget()))
   check('★★ 上限常量在（界面/文档要能引用同一区间）',
     mem.CORE_BUDGET_MIN === 200 && mem.CORE_BUDGET_MAX === 4000,
@@ -238,7 +238,7 @@ console.log('\n-- ⑦b 预算不可信 → 不写盘 --')
   const src = mem.coreBudgetSource()
   check('★★ 读不到 prefs 时 trusted=false（不许把"读不到"当成"用户设了默认值"）',
     src.trusted === false, JSON.stringify(src))
-  check('★★ 此时仍给出默认值 800 用于显示', src.value === 800, String(src.value))
+  check('★★ 此时仍给出默认值 3000 用于显示', src.value === 3000, String(src.value))
   prefs.getPrefs = origGetPrefs
   prefs.getPref = origGetPref
 }

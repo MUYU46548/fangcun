@@ -18,7 +18,7 @@ const memoryEnabled = ref(true)
 const memoryInjectCore = ref(true)
 const memoryBriefing = ref(true)
 // 常读记忆的字数上限（用户可调；键不存在 = 800）
-const memoryCoreBudget = ref(800)
+const memoryCoreBudget = ref(3000)
 // 勾了「自动注入」但预算偏小时，明说会被丢 —— 不许静默
 const budgetNote = computed(() => {
   if (!memoryEnabled.value || !memoryInjectCore.value) return ''
@@ -34,7 +34,7 @@ async function loadMemoryPrefs(): Promise<void> {
     memoryInjectCore.value = p?.memoryInjectCore !== false
     memoryBriefing.value = p?.memoryBriefing !== false
   const b = Number(p?.memoryCoreBudget)
-  memoryCoreBudget.value = Number.isFinite(b) && b > 0 ? b : 800
+  memoryCoreBudget.value = Number.isFinite(b) && b > 0 ? b : 3000
   } catch { /* 读不到偏好按开处理；不挡设置页 */ }
 }
 

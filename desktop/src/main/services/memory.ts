@@ -524,7 +524,7 @@ export const CORE_BUDGET_MIN = 200
 export const CORE_BUDGET_MAX = 4000
 
 /**
- * 读当前 core 预算：prefs 的 `memoryCoreBudget`；键不存在用 800。
+ * 读当前 core 预算：prefs 的 `memoryCoreBudget`；键不存在用 3000。
  * 认不出 / 越界一律**钳到区间**，不抛错（预算是锦上添花，不能因为它让记忆读不出来）。
  */
 export function coreBudget(): number {

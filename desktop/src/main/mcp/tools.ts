@@ -538,7 +538,7 @@ export const MCP_TOOLS: MCPTool[] = [
   {
     name: 'memory_core',
     description: 'READ-ONLY. Fixed core memory (memory/core.md): the small, generated block of pinned claims '
-      + 'that is safe to inject into every session (hard cap 800 chars). Full evidence is NEVER injected; use '
+      + 'that is safe to inject into every session (default cap 3000 chars, user-adjustable). Full evidence is NEVER injected; use '
       + 'memory_search / memory_read on demand. This is the only memory content fangcun_context auto-injects — '
       + 'a generated core, not a dynamic top-N of all memories. If the memory switch is off, it returns '
       + 'enabled:false with a clear hint instead of pretending the core is missing.',
@@ -591,7 +591,7 @@ export const MCP_TOOLS: MCPTool[] = [
       + '`项目` is that project or 跨项目, ranked by importance / freshness / usage. Pending agent proposals '
       + 'and revoked entries are excluded. Returns one-line claims + metadata only — use memory_read for the '
       + 'verbatim evidence. Call it before starting work on a project; it is how past incidents/lessons enter '
-      + 'the current context (default 5 claims, ≤800 chars).',
+      + 'the current context (default 5 claims, ≤6000 chars).',
     inputSchema: {
       type: 'object',
       properties: {

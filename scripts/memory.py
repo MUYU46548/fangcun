@@ -38,7 +38,7 @@ FM_RE = re.compile(r'^---\s*$', re.M)
 # `memory.py --check` 仍按 800 算，天天报「core.md 907 字，超过预算 800」这条**假红**。
 # 还真是那次抖动手故的同一个根因：产品侧 `coreBudget()` 已经会读 prefs 并带可信度标记，
 # 脚本侧却各算各的 —— 一份设置、两处口径。现在统一读同一份 prefs。
-CORE_BUDGET = 800
+CORE_BUDGET = 3000
 CORE_BUDGET_MIN, CORE_BUDGET_MAX = 200, 4000
 CLAIM_HARD = 200
 
@@ -408,6 +408,10 @@ def check(rows):
             # 读不到 prefs 时**明确说"按默认算"**，不假装这就是用户设的值。
             budget, trusted = core_budget()
             n_chars = len(body.strip())
+            if not trusted:
+                # 2026-11-25：预算默认值升到 3000 后，core 907 字不再超默认，
+                # 但"读不到 prefs"这件事仍要说出来 —— 不能因为这次没超预算就装作用户设的值。
+                print('注意：没读到 prefs，core 按默认 %d 字算；你在设置页设的值可能更高。' % budget)
             if n_chars > budget:
                 if trusted:
                     issues.append('core.md %d 字，超过预算 %d（改预算：设置页 → 记忆）' % (n_chars, budget))

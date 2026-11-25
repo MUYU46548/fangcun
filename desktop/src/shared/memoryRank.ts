@@ -11,11 +11,11 @@
 
 export const MEMORY_BUDGETS = {
   /** 固定核心注入上限（字符） */
-  core: 800,
+  core: 3000,
   /** 开工简报上限（字符） */
-  briefing: 800,
+  briefing: 6000,
   /** 单次检索返回上限（字符） */
-  search: 1500,
+  search: 3000,
   /** memory_read 默认上限（字符） */
   read: 8000,
   /** claim 建议长度；超过它提示，超过 hard 直接拒 */
