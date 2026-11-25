@@ -30,6 +30,7 @@ import {
   clamp, numOr, confidenceOf, importanceOf, weightOf,
 } from '../../shared/memoryRank'
 import { activeScopes, filterByScopes, formatScope, scopeOfEntry } from '../../shared/memoryV3'
+import { clusterEntries, mergeCluster, planMerges, type MergeEntry } from '../../shared/memoryMerge'
 
 /** 记忆根目录（数据根下的 `memory/`，与 task-data/ 平级但**永不混用**） */
 export function memoryDir(): string {
@@ -1787,4 +1788,127 @@ export function organizeMemories(
     ...sources.map((s) => `\n[source: ${s.id}] 项目: ${s.project || '跨项目'} 标题: ${s.title}\n${s.text}`),
   ].join('\n')
   return { ok: true, mode: 'handoff', prompt, sources, count: sources.length }
+}
+
+// ── 合并有根（2026-11-25 · P16.3）────────────────────────────────────────
+//
+// 用户 2026-11-25 定：抄 dsh-memory 的「只许合并、不许新增」+「有根校验」。
+// 这里的权力边界：**合并会撤销已批准的记忆**，所以只给界面（用户点「合并」），
+// 不给 agent 开 MCP 写口 —— agent 不能替用户撤销一条已批准的记忆。
+
+/** `memory/merged.jsonl`：每次合并追加一行（原文 id / 幸存者 / 合并句），不删文件 */
+export function mergedJsonlPath(): string {
+  return path.join(memoryDir(), 'merged.jsonl')
+}
+
+export interface MemoryMergeCandidate {
+  ids: string[]
+  claim: string
+  scope: string
+  kind: string
+  /** 合并句对原句的 token 覆盖率（1 = 原句） */
+  share: number
+}
+
+export interface MemoryMergeResult extends MemoryWriteResult {
+  /** 被合并掉的 id（不含幸存者） */
+  merged?: string[]
+}
+
+/**
+ * 只读：算一遍「可能重复」的簇。有效条目、同类型 + 同作用域、覆盖比 ≥45%。
+ * 不写盘、不改状态；界面拿它显示候选，用户点「合并」才走 mergeMemories。
+ */
+export function mergeCandidates(): { ok: boolean; clusters: MemoryMergeCandidate[]; error?: string } {
+  try {
+    const rows = scanEntries().filter((r) => r.status === '有效' && !r.legacy)
+    const entries: MergeEntry[] = rows.map((r) => ({
+      id: r.id, scope: r.scopeV3, kind: r.type, claim: r.claim, evidence: r.evidence,
+    }))
+    const plan = planMerges(entries)
+    return {
+      ok: true,
+      clusters: plan.merges.map((m) => ({
+        ids: m.ids, claim: m.claim, scope: m.scope, kind: m.kind, share: m.share,
+      })),
+    }
+  } catch (e: any) {
+    return { ok: false, clusters: [], error: String(e?.message || e) }
+  }
+}
+
+/**
+ * 合并一组重复条目：**保留最长的一句原话**（不生成新句子），其余标「已撤销 + 被合并」，
+ * 合并记录追加进 `memory/merged.jsonl`。文件一个都不删。
+ *
+ * 拒绝条件（说清楚，不许静默）：不足 2 条 / id 不存在 / 不是有效 / 类型或作用域不同 /
+ * 覆盖比不够 45%（不构成重复簇）/ 合并句没有根。
+ */
+export function mergeMemories(ids: string[], opts: { note?: string } = {}): MemoryMergeResult {
+  const want = [...new Set((Array.isArray(ids) ? ids : []).map((x) => String(x || '').trim()).filter(Boolean))]
+  if (want.length < 2) return { ok: false, error: '合并至少要选两条' }
+
+  const all = scanEntries()
+  const picked = want.map((id) => all.find((r) => r.id === id))
+  if (picked.some((r) => !r)) return { ok: false, error: '有 id 不存在（可能已被删或被合并）' }
+  const rows = picked as MemoryEntry[]
+  if (rows.some((r) => r.status !== '有效')) return { ok: false, error: '只能合并「有效」条目（待审批 / 已撤销不行）' }
+
+  const kind = rows[0].type
+  const scope = rows[0].scopeV3
+  if (rows.some((r) => r.type !== kind || r.scopeV3 !== scope)) {
+    return { ok: false, error: '只能合并同类型、同作用域的条目（不串味）' }
+  }
+
+  const entries: MergeEntry[] = rows.map((r) => ({
+    id: r.id, scope: r.scopeV3, kind: r.type, claim: r.claim, evidence: r.evidence,
+  }))
+  const cluster = clusterEntries(entries).find((c) => want.every((id) => c.ids.includes(id)))
+  if (!cluster) return { ok: false, error: '这几条不构成重复簇（覆盖比不够 45%），拒绝合并' }
+  const plan = mergeCluster(cluster)
+  if (!plan) return { ok: false, error: '合并计划不成立（合并句没有根）' }
+
+  // 幸存者 = 最长的那句原话（plan.claim 就是它；claim 相同则取第一条）
+  const survivor = rows.find((r) => r.claim === plan.claim)
+    || rows.slice().sort((a, b) => b.claim.length - a.claim.length)[0]
+  const mergedIds = want.filter((id) => id !== survivor.id)
+  const done: string[] = []
+  for (const id of mergedIds) {
+    const row = rows.find((r) => r.id === id)!
+    const note = `被合并进 ${survivor.id}` + (opts.note ? `：${opts.note}` : '')
+    const w = writeStatus(row.file, '已撤销', note, { 被合并: survivor.id })
+    if (!w.ok) {
+      return {
+        ok: false,
+        file: survivor.file,
+        id: survivor.id,
+        merged: done,
+        error: `已改 ${done.length} 条后失败：${w.error || '未知错误'}`,
+      }
+    }
+    done.push(id)
+  }
+
+  try {
+    fs.appendFileSync(mergedJsonlPath(), JSON.stringify({
+      at: localIso(new Date()),
+      ids: want,
+      survivor: survivor.id,
+      claim: plan.claim,
+      scope: plan.scope,
+      kind: plan.kind,
+      share: plan.share,
+      note: opts.note || '',
+    }) + '\n', 'utf-8')
+  } catch (e: any) {
+    return {
+      ok: false,
+      file: survivor.file,
+      id: survivor.id,
+      merged: done,
+      error: `状态已改，但 merged.jsonl 没写成：${e?.message || e}`,
+    }
+  }
+
+  return { ok: true, file: survivor.file, id: survivor.id, claim: survivor.claim, merged: mergedIds }
 }

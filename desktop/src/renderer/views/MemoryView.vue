@@ -118,6 +118,26 @@
         </span>
       </div>
 
+      <!-- 重复候选（P16.3 合并有根）：只给候选，点合并才动；合并句必须是原句之一 -->
+      <div v-if="mergeCandidates.length" class="mem-merge">
+        <div class="mem-merge-h">
+          <b>发现 {{ mergeCandidates.length }} 组可能重复</b>
+          <span>合并只留最长的一句原话；其余标「已撤销 + 被合并」，文件不删。</span>
+        </div>
+        <div v-for="c in mergeCandidates" :key="c.ids.join(',')" class="mem-merge-row">
+          <div class="mem-merge-txt">
+            <div class="mem-merge-claim">{{ c.claim }}</div>
+            <div class="mem-merge-ids">{{ c.ids.join(' / ') }} · 重合 {{ Math.round((c.share || 0) * 100) }}%</div>
+          </div>
+          <template v-if="mergeAsk === c.ids.join(',')">
+            <span class="mem-merge-confirm">确认合并 {{ c.ids.length }} 条？</span>
+            <Button size="tool" variant="primary" :disabled="mergeBusy" @click="doMerge(c)">确认合并</Button>
+            <Button size="tool" variant="ghost" :disabled="mergeBusy" @click="mergeAsk = ''">取消</Button>
+          </template>
+          <Button v-else size="tool" variant="ghost" @click="mergeAsk = c.ids.join(',')">合并</Button>
+        </div>
+      </div>
+
       <!-- 空态：必须分清"还没录"与"筛出来没有" -->
       <div class="mem-empty" v-if="!rows.length && !busy">
         <template v-if="overview && overview.total === 0">
@@ -383,6 +403,10 @@ const typeFilter = ref('')
 const includeRevoked = ref(false)
 const includePending = ref(false)
 const busy = ref(false)
+// 合并有根（P16.3）：候选只读；用户点「合并」才撤销被并条目（文件不删）
+const mergeCandidates = ref<any[]>([])
+const mergeAsk = ref('')
+const mergeBusy = ref(false)
 const opened = ref('')
 const openedText = ref('')
 /** v2：详情里先给人看的一句话，再给原文；不直接把整份 frontmatter 甩出来 */
@@ -670,6 +694,25 @@ async function saveEdit(approve = false): Promise<void> {
   }
 }
 
+/** 合并一组重复条目（P16.3）：只保留最长的一句原话，其余标「已撤销 + 被合并」，文件不删 */
+async function doMerge(c: any): Promise<void> {
+  mergeBusy.value = true
+  try {
+    const r: any = await (window as any).tegula.memoryMerge(c.ids || [])
+    if (!r?.ok) {
+      alert('没合并：' + (r?.error || '未知原因'))
+      return
+    }
+    notice.value = `已合并 ${r.merged ? r.merged.length : 0} 条进「${r.claim || r.id}」；合并记录写进 memory/merged.jsonl。`
+    mergeAsk.value = ''
+    await load()
+  } catch (e: any) {
+    alert('合并失败：' + (e?.message || e))
+  } finally {
+    mergeBusy.value = false
+  }
+}
+
 /** 撤销 / 恢复：只改状态，文件不动（撤销≠删除，所以能恢复） */
 async function setStatus(r: any, status: string): Promise<void> {
   // 驳回待审批：先让他写一句理由（不再用原生 prompt 打断），再统一走 reject 弹窗
@@ -724,6 +767,12 @@ async function load() {
     })
     rows.value = r?.rows || []
     overview.value = r?.overview || null
+    // 合并候选（P16.3）：只读计算；老 preload 没有这口时静默跳过，不影响列表
+    mergeCandidates.value = []
+    try {
+      const mc: any = await (window as any).tegula.memoryMergeCandidates()
+      if (mc?.ok) mergeCandidates.value = mc.clusters || []
+    } catch { /* ignore */ }
     if (overview.value?.byType) {
       const keys = Object.keys(overview.value.byType)
       if (keys.length) types.value = keys

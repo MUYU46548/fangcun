@@ -4789,6 +4789,23 @@ button[data-cost]::after {
   font-size: 11px; color: var(--muted);
 }
 
+/* 合并候选（P16.3）：只给候选，点合并才动 */
+.mem-merge {
+  margin-top: 12px; padding: 8px 12px;
+  border: 1px dashed var(--line-2); border-radius: 8px;
+  font-size: 12.5px; color: var(--muted);
+}
+.mem-merge-h { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.mem-merge-h b { color: var(--ink); }
+.mem-merge-row {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between;
+  margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line-2);
+}
+.mem-merge-txt { flex: 1; min-width: 240px; }
+.mem-merge-claim { color: var(--ink); }
+.mem-merge-ids { font-size: 11.5px; color: var(--muted); }
+.mem-merge-confirm { color: var(--danger-text); font-size: 12px; }
+
 .mem-empty {
   margin-top: 18px; padding: 22px 18px; text-align: center;
   font-size: 13px; line-height: 1.8; color: var(--muted);

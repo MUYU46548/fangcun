@@ -210,6 +210,14 @@ export function registerIpcHandlers(): void {
     return r
   })
 
+  // 合并有根（P16.3）：候选只读；合并是用户点的，会撤销被并条目 —— 不删文件。
+  guardedHandle('memoryMergeCandidates', () => memoryService.mergeCandidates())
+  guardedHandle('memoryMerge', (_event, ids: any) => {
+    const r = memoryService.mergeMemories(Array.isArray(ids) ? ids.map((x: any) => String(x)) : [])
+    if (r.ok) { try { memoryService.rebuildIndex() } catch { /* 同上 */ } }
+    return r
+  })
+
   // 有新记忆待审批 → 通知中心 + 系统通知（渲染层轮询到 pending 增加时调）。
   // 主进程自己算 count/latest，不信渲染层传的数字。
   guardedHandle('memoryNotifyPending', () => {

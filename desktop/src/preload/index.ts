@@ -31,6 +31,9 @@ contextBridge.exposeInMainWorld('tegula', {
   memoryOrganize: (input: any) => ipcRenderer.invoke('memoryOrganize', input),
   /** 批量改分类/标签/参数（不碰正文与状态） */
   memoryBatchUpdate: (files: string[], patch: any) => ipcRenderer.invoke('memoryBatchUpdate', files, patch),
+  /** 合并有根：候选只读；合并由用户点（会撤销被并条目，不删文件） */
+  memoryMergeCandidates: () => ipcRenderer.invoke('memoryMergeCandidates'),
+  memoryMerge: (ids: string[]) => ipcRenderer.invoke('memoryMerge', ids),
   /** 有新待审批 → 通知中心/系统通知（主进程自己算 count，不信渲染层） */
   memoryNotifyPending: () => ipcRenderer.invoke('memoryNotifyPending'),
   
