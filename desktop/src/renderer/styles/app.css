@@ -2325,17 +2325,15 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .plan-how-toggle:hover { color: var(--ink); }
 .plan-how-more { margin-left: auto; font-size: 10.5px; color: var(--accent); }
 .plan-how-body { padding: 0 10px 8px; }
-/* 草案按项目分组（2026-11-12）：每组一行摘要，点开才摊开。 */
-.pd-group { margin: 6px 0 2px; }
-.pd-group-head {
-  width: 100%; display: flex; align-items: baseline; gap: 8px; cursor: pointer;
-  font: inherit; font-size: 12.5px; text-align: left; padding: 6px 8px;
-  background: var(--tint); border: 1px solid var(--border); border-radius: 8px; color: var(--ink);
+/* 草案行（2026-11-25 改）：**一份草案一行、全部平铺**。
+   原来按项目分组（.pd-group 那一套），暮雨 2026-11-19 反馈「fangcun-base 那一组
+   太难找了，三分钟才打开」—— 分组让他要先猜项目再展开。现在行内直接给
+   文件名 / 格数 / 项目 / 可不可提，`.pd-group*` 那一组规则已无引用（保留只为不误删历史）。 */
+.pd-proj {
+  font-size: 10.5px; color: var(--muted);
+  padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--tint); white-space: nowrap;
 }
-.pd-group-head:hover { filter: brightness(.98); }
-.pd-group-head b { font-weight: 700; }
-.pd-g-arrow { color: var(--muted); font-size: 10px; width: 10px; }
-.pd-g-meta { margin-left: auto; font-size: 10.5px; color: var(--muted); }
 /* 裁决回执（2026-11-03）：点完“通过”没反馈的修复 —— 顶部常驻一条 + 卡片闪一下 */
 .plan-recent { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   margin: 0 0 12px; padding: 7px 10px; border-radius: 8px; font-size: 12px;

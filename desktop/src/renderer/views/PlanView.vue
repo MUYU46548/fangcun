@@ -85,18 +85,20 @@
       <!-- ⚠ 2026-11-12 暮雨：「一坨文字」——此前 8 份草案**全部平铺**，每份再摊开 5 格，
            进门就是几十行。现在按项目分组、**每组默认收起**，只留一行摘要；
            展开哪组看哪组。判据不是"少显示"，而是"一眼能数清有几组、每组几格等着"。 -->
-      <div v-for="g in draftGroups" :key="g.project" class="pd-group" :data-pd-group="g.project">
-        <button class="pd-group-head" @click="toggleDraftGroup(g.project)">
-          <span class="pd-g-arrow">{{ draftOpen[g.project] ? '▾' : '▸' }}</span>
-          <b>{{ g.project }}</b>
-          <span class="pd-g-meta">{{ g.items.length }} 份草案 · {{ g.stageCount }} 格待提成</span>
-        </button>
-        <template v-if="draftOpen[g.project]">
-          <div v-for="d in g.items" :key="d.file" class="pd-card">
+      <div v-for="d in draftRows" :key="d.file" class="pd-card" :data-pd-row="d.file">
             <div class="pd-head">
               <b>{{ d.file }}</b>
-              <span class="pd-meta">{{ d.stages.length }} 格 · 宪法 {{ d.constitution.length }} 行 · 待问 {{ d.asks.length }} 条</span>
+              <span class="pd-meta">{{ d.stages.length }} 格 · 齐 {{ pdReadyCount(d) }} 格 · 宪法 {{ d.constitution.length }} 行 · 待问 {{ d.asks.length }} 条</span>
+              <span class="pd-proj">{{ d.project }}</span>
+              <span v-if="pdReadyCount(d) > 0" class="pd-ok">可提成 {{ pdReadyCount(d) }} 格</span>
+              <span v-else class="pd-miss">暂不可提（缺判据）</span>
+              <Button variant="ghost" size="tool" @click="toggleDraftFile(d.file)">
+                {{ draftFileOpen[d.file] ? '收起' : '展开阶段' }}</Button>
+              <Button v-if="pdReadyCount(d) > 0" variant="ghost" size="tool" :disabled="draftBusy"
+                :title="'把这份草案里三块齐全的 ' + pdReadyCount(d) + ' 格一次提成「待裁决」阶段卡（逐格仍走同一条闸）'"
+                @click="proposeReadyStages(d)">提成齐的 {{ pdReadyCount(d) }} 格 →</Button>
             </div>
+            <template v-if="draftFileOpen[d.file]">
             <div v-for="s in d.stages" :key="s.id" class="pd-stage" :data-pd-stage="s.id">
               <span class="pd-sid">{{ s.id }}</span>
               <span class="pd-title">{{ s.title }}</span>
@@ -134,8 +136,7 @@
             <Button variant="ghost" size="sm" @click="toggleDraftEdit(d, s)">收起</Button>
           </div>
           </div>
-          </div>
-        </template>
+            </template>
       </div>
       <div v-if="draftMsg" class="pd-msg">{{ draftMsg }}</div>
       <div v-if="draftBroken.length" class="pd-broken">
@@ -573,24 +574,40 @@ const draftMsg = ref('')
 const howOpen = ref(false)
 
 /**
- * 草案按项目分组（2026-11-12 暮雨：「项目页一坨文字还是没修」）。
+ * 草案行：**一份草案一行、全部平铺**（2026-11-25 改，卡 `a399b8e2`）。
  *
- * 此前 8 份草案全部平铺、每份再摊 5 格 —— 单是首屏就滚不完。
- * 分组只是**换个摆法**，不改任何数据：每组的 items/stageCount 都是现算的。
+ * ## 为什么要改掉「按项目分组」
+ *
+ * 暮雨 2026-11-19：「fangcun-base 那一组**太难找了，三分钟才打开**（而且样式很丑）」。
+ * 分组版的实际路径是：项目页 → 作战计划 → 顶部草案区 → **猜是哪一组** → 展开组 → 才看见文件。
+ * 一次找一份草案要 3 层，而**组名本身还要先猜对** —— 那份草案叫
+ * `fangcun-base-2026-11-15.md`，但它在「fangcun-base」组里这件事并不直观。
+ *
+ * ## 为什么不是简单"退回平铺"（2026-11-12 那次挨过骂）
+ *
+ * 那次是**每份草案连 5 格一起摊开**，进门几十行 → 「一坨文字」。
+ * 这次平铺的是**行**：一份草案只占一行（文件名 / 格数 / 项目 / 可不可提 / 两个按钮），
+ * 阶段仍然要点「展开阶段」才展开。所以"不再分组"不等于"又变一坨"。
+ *
+ * 判据（卡里写的）：找指定草案所需展开层级 > 1 的用例数 == 0；
+ * 草案行缺「文件名 / 阶段数 / 可提成按钮」的条数 == 0。
  */
-const draftOpen = ref<Record<string, boolean>>({})
-const draftGroups = computed(() => {
-  const map: Record<string, { project: string; items: any[]; stageCount: number }> = {}
-  for (const d of drafts.value) {
-    const p = String(d.project || '(未知项目)')
-    if (!map[p]) map[p] = { project: p, items: [], stageCount: 0 }
-    map[p].items.push(d)
-    map[p].stageCount += Array.isArray(d.stages) ? d.stages.length : 0
-  }
-  return Object.values(map).sort((a, b) => b.stageCount - a.stageCount)
+const draftFileOpen = ref<Record<string, boolean>>({})
+const draftRows = computed(() => {
+  // 排序：可提成的在前（那是要动手的），再按格数多的在前，最后按文件名稳定排序。
+  // 不用"按项目分组"是因为**分组没有让任何一份草案更容易被找到** —— 见上面的注释。
+  return drafts.value.slice().sort((a: any, b: any) => {
+    const ra = pdReadyCount(a)
+    const rb = pdReadyCount(b)
+    if (ra !== rb) return rb - ra
+    const sa = Array.isArray(a.stages) ? a.stages.length : 0
+    const sb = Array.isArray(b.stages) ? b.stages.length : 0
+    if (sa !== sb) return sb - sa
+    return String(a.file || '').localeCompare(String(b.file || ''))
+  })
 })
-function toggleDraftGroup(p: string): void {
-  draftOpen.value = { ...draftOpen.value, [p]: !draftOpen.value[p] }
+function toggleDraftFile(file: string): void {
+  draftFileOpen.value = { ...draftFileOpen.value, [file]: !draftFileOpen.value[file] }
 }
 
 /**
@@ -633,6 +650,66 @@ function pdMerged(s: any, buf: EditBuf): { approach: string[]; copyRows: string[
 }
 function pdMissing(d: any, s: any): string[] {
   return missingOf(pdMerged(s, bufOf(d, s)))
+}
+
+/**
+ * 这份草案里有几格是**三块齐全、现在就能提成**的。
+ *
+ * 为什么行要显示它：卡 `a399b8e2` 的判据之一是
+ * 「草案行缺『文件名 / 阶段数 / 可提成按钮』三项的条数 == 0」。
+ * 只在展开之后才看到"哪格能提"，等于把"要不要处理这份"的判断推后了一次点击。
+ * 显示在行上 = 一眼能决定先动哪份（`draftRows` 也按它排序）。
+ *
+ * ⚠ 用 `pdMissing`（合并编辑框后的结果）而不是草案原文 —— 就地改过的内容要当场算数，
+ *   否则会出现「框里补齐了、行上还写着不可提」这种自相矛盾。
+ */
+function pdReadyCount(d: any): number {
+  const stages: any[] = Array.isArray(d?.stages) ? d.stages : []
+  return stages.filter((s: any) => pdMissing(d, s).length === 0).length
+}
+
+/**
+ * 一次提成这份草案里**所有**三块齐全的格。
+ *
+ * 为什么要有它：暮雨抱怨的是"找一份草案要 3 分钟"，而真正花时间的是
+ * **一份草案 5 格要一格一格点 5 次**。逐格仍走同一条闸（`proposeDraft`），
+ * 这里只负责按顺序跑完并把成败如实报出来 —— **不许把失败静默吞掉**。
+ */
+async function proposeReadyStages(d: any): Promise<void> {
+  if (draftBusy.value) return
+  const stages: any[] = Array.isArray(d?.stages) ? d.stages : []
+  const ready = stages.filter((s: any) => pdMissing(d, s).length === 0)
+  if (!ready.length) return
+  draftBusy.value = true
+  draftMsg.value = ''
+  const okIds: string[] = []
+  const failed: string[] = []
+  try {
+    for (const s of ready) {
+      try {
+        // 逐格走同一个通道（同一套签名/闸门），不另造一条批量捷径
+        const patch = toPlain(pdPatch(d, s))
+        const r: any = await (window as any).tegula.plansProposeFromDraft({
+          draft: String(d?.file || ''), stageId: String(s?.id || ''), deck: draftDeck.value, patch,
+        })
+        if (r?.ok) okIds.push(String(s.id))
+        else failed.push(`${s.id}（${r?.error || '未知原因'}）`)
+      } catch (e: any) {
+        failed.push(`${s.id}（${e?.message || e}）`)
+      }
+    }
+  } finally {
+    draftBusy.value = false
+  }
+  const parts = [`已提成 ${okIds.length} 格`]
+  if (okIds.length) parts[0] += `：${okIds.join(' / ')}`
+  if (failed.length) parts.push(`没提成 ${failed.length} 格 —— ${failed.join('；')}`)
+  draftMsg.value = parts.join('；')
+  msg.value = draftMsg.value
+  msgType.value = failed.length ? 'bad' : 'ok'
+  editingKey.value = ''
+  await load()
+  await loadDrafts()
 }
 
 /** 改了哪几块（与主进程 `diffStage` 同一口径：逐项比对，改了才叫改） */

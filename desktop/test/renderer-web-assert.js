@@ -3092,24 +3092,46 @@
       {
         check('★★ 作战计划页有「草案」块（此前草案只在文件里，界面看不见）',
           !!(await waitFor(() => !!$('#board.pv .plan-drafts'), 4000, 'plan-drafts')))
-        // ⚠ 2026-11-12 暮雨：「项目页一坨文字还是没修」——草案改成**按项目分组、默认收起**。
-        //   所以下面的断言必须先点开那一组，否则"没有格子"会被误判成"功能坏了"。
-        //   这条断言同时钉住新行为：默认必须是收起的（否则"一坨"又回来了）。
-        check('★★ 草案按项目分组，且**默认收起**（8 份平铺就是"一坨"的来源）',
-          $$('#board.pv .pd-group').length >= 1 && $$('#board.pv .pd-group .pd-card').length === 0,
-          'groups=' + $$('#board.pv .pd-group').length + ' cards=' + $$('#board.pv .pd-group .pd-card').length)
-        const grpHead = $('#board.pv .pd-group-head')
-        if (grpHead) grpHead.click()
-        check('★ 点组头展开后草案卡才出现',
-          !!(await waitFor(() => $$('#board.pv .pd-group .pd-card').length >= 1, 3000, '草案展开')),
-          'cards=' + $$('#board.pv .pd-group .pd-card').length)
+        // ⚠ 2026-11-25 **改判**（卡 `a399b8e2`）：此前是「按项目分组、默认收起」
+        //   —— 那是 2026-11-12 为治"一坨文字"做的。但暮雨 11-19 反过来了：
+        //   「fangcun-base 那一组**太难找了，三分钟才打开**」—— 分组逼他先猜项目、再展开组，
+        //   找一份指定草案要 3 层。现在改成**一份草案一行、全部平铺**（阶段仍在行内折叠）。
+        //   ⚠ 但 11-12 那条的**本意必须继续钉住**：阶段默认收起。
+        //     平铺的是"行"，不是"每份摊 5 格" —— 否则"一坨文字"会原样回来。
+        //     （换摆法时最容易丢的就是旧约束，所以这条单独留着。）
+        check('★★ 草案一份一行、全部平铺（不用先猜项目、也不用展开组）',
+          $$('#board.pv [data-pd-row]').length >= 1 && $$('#board.pv .pd-group').length === 0,
+          'rows=' + $$('#board.pv [data-pd-row]').length + ' 旧分组结构=' + $$('#board.pv .pd-group').length)
+        check('★★ 阶段仍默认收起（平铺的是"行"，不是"每份摊 5 格"）',
+          $$('#board.pv .pd-stage').length === 0,
+          'stages=' + $$('#board.pv .pd-stage').length)
+        check('★★ 每行自带「文件名 / 格数 / 可不可提」三项（少了就等于没入口）',
+          $$('#board.pv [data-pd-row]').length > 0
+          && $$('#board.pv [data-pd-row]').every((r) => !!r.querySelector('.pd-head b')
+            && /\d+ 格/.test(((r.querySelector('.pd-meta') || {}).textContent) || '')
+            && !!(r.querySelector('.pd-ok') || r.querySelector('.pd-miss'))),
+          $$('#board.pv [data-pd-row]').map((r) => ((r.querySelector('.pd-head') || {}).textContent || '').trim()).join(' | ').slice(0, 200))
+        check('★ 可提成的那一行露出「提成齐的 N 格」批量入口（5 格不该点 5 次）',
+          $$('#board.pv [data-pd-row]').some((r) => /提成齐的 \d+ 格/.test(r.textContent || '')),
+          $$('#board.pv [data-pd-row]').map((r) => (r.textContent || '').replace(/\s+/g, ' ').trim()).join(' | ').slice(0, 200))
+        // 一行一个开关：把每一行的阶段都展开（原来只点一个组头）
+        for (const b of $$('#board.pv [data-pd-row] button')) {
+          if (/展开阶段/.test((b.textContent || '').trim())) b.click()
+        }
+        check('★ 点「展开阶段」后阶段行才出现',
+          !!(await waitFor(() => $$('#board.pv .pd-stage').length >= 1, 3000, '草案展开')),
+          'stages=' + $$('#board.pv .pd-stage').length)
         const stageRow = (id) => $$('#board.pv .pd-stage').find(
           (x) => ((x.querySelector('.pd-sid') || {}).textContent || '').trim() === id)
         const rowBtns = (id) => Array.prototype.slice.call((stageRow(id) || { querySelectorAll: () => [] }).querySelectorAll('button'))
         const rowBtn = (id, re) => rowBtns(id).find((b) => re.test((b.textContent || '').trim()))
         // 按钮数按“格子”数，不按总数：每格恒有「✎ 改一下」，另加「提成」与否才是判据
+        // ⚠ 2026-11-25：原来这里断言 `.pd-stage === 2` —— 那是**旧 DOM 的形状假设**
+        //   （"点开一个项目组，里面正好两格"）。平铺之后阶段总数取决于夹具里有几份草案，
+        //   拿总数当判据会让"多一份草案"看起来像回归。真正要判的是
+        //   **齐全那格有按钮、缺块那格没有**，所以改成点名 P12 / P13 两行。
         check('★★ 齐全那格给「提成阶段卡」按钮，缺块那格**不给**（缺块提进去也冻结不了）',
-          $$('#board.pv .pd-stage').length === 2
+          !!stageRow('P12') && !!stageRow('P13')
           && !!rowBtn('P12', /提成阶段卡/) && !rowBtn('P13', /提成阶段卡/),
           'stages=' + $$('#board.pv .pd-stage').length
           + ' P12=' + rowBtns('P12').map((b) => (b.textContent || '').trim()).join(',')
