@@ -33,8 +33,63 @@ INDEX = os.path.join(MEM_DIR, 'index.jsonl')
 LEDGER_INDEX = os.path.join(MEM_DIR, 'index-ledgers.jsonl')
 
 FM_RE = re.compile(r'^---\s*$', re.M)
+# core 预算默认值。⚠ 它只是**默认**，用户可以在界面改（prefs `memoryCoreBudget`，200–4000）。
+# 2026-11-24 修：这里原来写死 800 且**从不读 prefs** —— 于是暮雨在设置页把预算调到 4000 之后，
+# `memory.py --check` 仍按 800 算，天天报「core.md 907 字，超过预算 800」这条**假红**。
+# 还真是那次抖动手故的同一个根因：产品侧 `coreBudget()` 已经会读 prefs 并带可信度标记，
+# 脚本侧却各算各的 —— 一份设置、两处口径。现在统一读同一份 prefs。
 CORE_BUDGET = 800
+CORE_BUDGET_MIN, CORE_BUDGET_MAX = 200, 4000
 CLAIM_HARD = 200
+
+
+def _prefs_paths():
+    """prefs.json 的候选路径（与桌面侧 app.getPath('userData') 对齐）。
+
+    ⚠ 设了 `FC_TEST_USERDATA` 就**只用它**，不再回落到真实 prefs ——
+    否则测试里想验"读不到 prefs"时，会悄悄读到用户真设的 4000 而假绿
+    （这条是写完反例当场被抓到的：第③条明明该说"不确定"，结果 PASS 了）。
+    """
+    ov = os.environ.get('FC_TEST_USERDATA')
+    if ov:
+        return [os.path.join(ov, 'prefs.json')]
+    candidates = []
+    appdata = os.environ.get('APPDATA')
+    if appdata:
+        candidates.append(os.path.join(appdata, 'fangcun-desktop', 'prefs.json'))
+        candidates.append(os.path.join(appdata, 'fangcun', 'prefs.json'))
+    return candidates
+
+
+def core_budget():
+    """读 core 预算 → (值, 是否可信)。
+
+    ⚠ **不可信时不许写盘**（本条与桌面侧 `coreBudgetSource()` 同一判据）：
+    判据不能是"读文件抛没抛错" —— 读不到时多数实现会静默返回 {}，
+    那和"用户没设过"长得一模一样。真正要问的是 **prefs 文件读到没有**。
+    """
+    for p in _prefs_paths():
+        if not os.path.exists(p):
+            continue
+        try:
+            with open(p, 'r', encoding='utf-8-sig') as f:
+                data = json.load(f)
+        except Exception:
+            continue
+        if not isinstance(data, dict) or not data:
+            continue
+        v = data.get('memoryCoreBudget')
+        if v is None or v == '':
+            return CORE_BUDGET, True          # 文件读到了、但没设过 → 用默认，可信
+        try:
+            n = int(float(v))
+        except (TypeError, ValueError):
+            return CORE_BUDGET, False         # 设了但认不出 → 不可信，别写盘
+        if n <= 0:
+            return CORE_BUDGET, False
+        return max(CORE_BUDGET_MIN, min(CORE_BUDGET_MAX, n)), True
+    return CORE_BUDGET, False                 # 一个 prefs 都没读到 → 不可信
+
 
 
 def parse_frontmatter(text):
@@ -349,8 +404,16 @@ def check(rows):
         try:
             with open(core, 'r', encoding='utf-8-sig') as f:
                 _fm, body = parse_frontmatter(f.read())
-            if len(body.strip()) > CORE_BUDGET:
-                issues.append('core.md %d 字，超过预算 %d' % (len(body.strip()), CORE_BUDGET))
+            # 2026-11-24：预算读 prefs（用户可在界面改到 4000），不再写死 800。
+            # 读不到 prefs 时**明确说"按默认算"**，不假装这就是用户设的值。
+            budget, trusted = core_budget()
+            n_chars = len(body.strip())
+            if n_chars > budget:
+                if trusted:
+                    issues.append('core.md %d 字，超过预算 %d（改预算：设置页 → 记忆）' % (n_chars, budget))
+                else:
+                    issues.append('core.md %d 字，超过**默认**预算 %d —— 但没读到 prefs，'
+                                  '你设的值可能更高，这条不一定算数' % (n_chars, budget))
         except OSError as e:
             issues.append('core.md 读不到：%s' % e)
     return issues

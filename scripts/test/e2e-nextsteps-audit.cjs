@@ -386,6 +386,42 @@ const G8 = mkFixture({ log_one: logFile('壬', '只有一条诉求，没有列�
     r.out.trim().split('\n').slice(-4).join(' | '))
 }
 
+// ── 2026-11-24：`## 下一步` 带后缀的写法，以前**整份被静默跳过** ──────────
+// 暮雨：「该写任务的不写」—— 查这条时发现清点自己漏了真欠账：
+// 真实日志里 `## 下一步` 常带后缀（`（卡 task-xxx）` / `（要暮雨定）` / `：先修这个`），
+// 而旧正则要求标题后**立刻换行** → 这些日志被当成"没有下一步"，在清点里**完全不存在**。
+// 实测代价：4 条日志里的 7 条真欠账从没被数到过。
+console.log('\n-- `## 下一步` 带后缀（真实形态）--')
+{
+  const withSuffix = (title, heading, nextStep) => [
+    '---', 'type: execution-log', 'title: ' + title, 'status: active', '---',
+    '# ' + title, '', '## 执行内容', '做了点事。', '', heading, nextStep,
+  ].join('\n')
+
+  const G10 = mkFixture({
+    log_suffix_card: withSuffix('子', '## 下一步（卡 task-20261106-001）', '1. 装 0.6.4，从托盘真退再启\n2. 接 Hermes 的 MCP'),
+    log_suffix_ask: withSuffix('丑', '## 下一步（要暮雨定）', '1. 三条路选一条'),
+    log_suffix_colon: withSuffix('寅', '## 下一步：先修这个', '1. 把 X 改成 Y'),
+  })
+
+  for (const [id, want] of [['log_suffix_card', 2], ['log_suffix_ask', 1], ['log_suffix_colon', 1]]) {
+    const r = run(G10, ['--items', id])
+    const got = (r.out.match(/^\s*\[\d+\]/gm) || []).length
+    check(`★★ 带后缀的「下一步」也能分条 —— ${id} 应 ${want} 条，实得 ${got}`,
+      got === want, r.out.trim().split('\n').slice(0, 4).join(' | '))
+  }
+
+  const st = run(G10, ['--stats'])
+  check('★★ 带后缀的三份都进清点了（总数 4 条，不是 0）',
+    /「下一步」条目总数:\s*4/.test(st.out), st.out.split('\n').filter((x) => x.includes('条目总数')).join(' | '))
+
+  // 反例方向：裸标题的老写法**不许**因此退化
+  const G11 = mkFixture({ log_plain: logFile('卯', '1. 裸标题下的第一条') })
+  const r2 = run(G11, ['--items', 'log_plain'])
+  check('★ 反例：裸 `## 下一步`（无后缀）仍然正常分条（修后缀不许把老形态弄坏）',
+    /^\s*\[1\]/m.test(r2.out), r2.out.trim().split('\n').slice(0, 3).join(' | '))
+}
+
 // 清理临时目录
 for (const g of [G1, G2, G3, G4, G5, G5b, G6]) {
   try { fs.rmSync(g, { recursive: true, force: true }) } catch { /* 忽略 */ }

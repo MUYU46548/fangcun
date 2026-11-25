@@ -35,6 +35,26 @@ const ROOT = path.resolve(__dirname, '..', '..')
 const PY = process.env.FC_PYTHON || 'python'
 const OUT = path.join(ROOT, 'memory', 'index-ledgers.jsonl')
 
+// ⚠ 2026-11-24：core 预算现在**从 prefs 读**（用户可调 200–4000），
+// 所以这里必须给出一个确定的 prefs，否则 `prefs.ts` 的 `app` 拿不到 →
+// `getPrefs()` 静默返回 {} → 预算永远 800 → 真数据 907 字当场"超预算"。
+// 这不是产品缺陷（产品里 app 一定在），是这套测试缺了 electron 桩。
+// 顺序要求：先设 FC_TEST_USERDATA → 再重定向 electron → 最后 require 产品模块。
+{
+  const ud = path.join(require('os').tmpdir(), 'fc-e2e-ledgerbudget-' + process.pid)
+  fs.mkdirSync(ud, { recursive: true })
+  fs.writeFileSync(path.join(ud, 'prefs.json'), JSON.stringify({ memoryCoreBudget: 4000 }), 'utf-8')
+  process.env.FC_TEST_USERDATA = ud
+
+  const STUB = path.join(__dirname, 'electron-stub.cjs')
+  const Module = require('module')
+  const origResolve = Module._resolveFilename
+  Module._resolveFilename = function (request, ...args) {
+    if (request === 'electron') return STUB
+    return origResolve.call(this, request, ...args)
+  }
+}
+
 let pass = 0
 let fail = 0
 const failures = []
@@ -199,8 +219,12 @@ try {
     const hits = hitMarks(core.text)
     check('★★ core.md（每次会话自动注入）不含台账字段', hits.length === 0,
       hits.length ? '命中：' + hits.join(',') : `chars=${core.chars}`)
-    check('★★ core.md 体量守住预算（≤800 字，这是"什么都不干就带的"那部分）',
-      core.chars <= core.budget && core.budget <= 800, `chars=${core.chars} budget=${core.budget}`)
+    // ⚠ 2026-11-24：原来钉的是「≤800」，那把**默认值**当成了契约。
+    //   core 预算已按暮雨要求做成用户可调（prefs 200–4000），他为 11 条干了 4000。
+    //   判据改成「守住**用户设的那个**预算」，并把区间一起钉住（防有人把它改回写死）。
+    check('★★ core.md 体量守住用户设的预算（这是"什么都不干就带的"那部分）',
+      core.chars <= core.budget && core.budget >= 200 && core.budget <= 4000,
+      `chars=${core.chars} budget=${core.budget}`)
   }
 
   if (brief) {
@@ -208,6 +232,7 @@ try {
     const hits = hitMarks(blob)
     check('★★ briefing（开工简报）不含台账字段', hits.length === 0,
       hits.length ? '命中：' + hits.join(',') : `items=${(brief.items || []).length} chars=${brief.chars}`)
+    // 简报预算是独立的（固定 800，不跟 core 走）—— 这个是**契约**，保留写死
     check('★★ briefing 体量守住预算（≤800 字）', brief.chars <= 800, `chars=${brief.chars}`)
   }
 

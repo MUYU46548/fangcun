@@ -17,6 +17,31 @@ const REPO = path.resolve(__dirname, '..', '..')
 const DIST = path.join(REPO, 'desktop', 'dist', 'main')
 const DATA = REPO // 本机数据根就是仓库根
 
+// ⚠ 必须在 require 任何产品模块**之前**做两件事，否则 core 预算读的是错的：
+//
+//   ① 把 `electron` 重定向到测试桩 —— 这套测试跑的是**真数据根**，
+//      而 `prefs.ts` 里 `import { app } from 'electron'`；没有重定向时
+//      `app` 是 undefined（真 electron 包在纯 Node 下拿不到 app），
+//      `getPrefs()` 静默返回 `{}` → 预算永远 800（本机用户设的是 4000）。
+//      **这不是产品缺陷**：产品里 app 一定存在。是测试缺了桩。
+//   ② 造一份带预算的 prefs，位置就是桩的 userData ——
+//      `FC_TEST_USERDATA` 是在**桩被 require 那一刻**读进常量的，
+//      所以顺序必须是「先设环境变量 → 再 require 桩 → 最后 require 产品模块」。
+{
+  const ud = path.join(require('os').tmpdir(), 'fc-e2e-membudget-' + process.pid)
+  fs.mkdirSync(ud, { recursive: true })
+  fs.writeFileSync(path.join(ud, 'prefs.json'), JSON.stringify({ memoryCoreBudget: 4000 }), 'utf-8')
+  process.env.FC_TEST_USERDATA = ud
+
+  const STUB = path.join(__dirname, 'electron-stub.cjs')
+  const Module = require('module')
+  const origResolve = Module._resolveFilename
+  Module._resolveFilename = function (request, ...args) {
+    if (request === 'electron') return STUB
+    return origResolve.call(this, request, ...args)
+  }
+}
+
 let pass = 0, fail = 0
 const failures = []
 function check(name, cond, detail = '') {
@@ -94,8 +119,14 @@ check('★ 迁移后 claim 至少 30 条、证据 14 篇、钉住 8 条（下限
 
 // ── 固定核心 vs 归档（2026-11-19 抄 Letta core / Claude just-in-time）──
 const core = mem.memoryCore()
-check('★★ 固定核心存在、非空、≤800 字（这是唯一自动注入的记忆内容）',
-  core.ok === true && core.missing === false && core.text.includes('D1') && core.chars <= core.budget,
+// ⚠ 2026-11-24：这里原来写「≤800 字」和 `budget === 800` —— 把**默认值**当成了**契约**。
+//   暮雨要求「预算应该用户可调，不要写死代码」（已落 prefs，区间 200–4000）。
+//   写死 800 的后果：他调到 4000 之后，这条断言变成**常红**，而产品完全正确。
+//   判据应该是「按用户设的预算守住」，不是「等于某个数字」。
+check('★★ 固定核心存在、非空、按用户预算守住（这是唯一自动注入的记忆内容）',
+  core.ok === true && core.missing === false && core.text.includes('D1')
+    && core.chars <= core.budget
+    && core.budget >= 200 && core.budget <= 4000,
   JSON.stringify({ ok: core.ok, missing: core.missing, chars: core.chars, budget: core.budget }))
 check('★★ core.md 不被当成归档条目（不参与检索/计数）',
   !mem.searchMemory({}).rows.some((r) => /(^|\/)core\.md$/.test(String(r.file || '')))
@@ -114,7 +145,8 @@ try {
 }
 check('★★ MCP memory_core 真返回固定核心（有 text/chars/budget，不塞归档）',
   mcpCore.ok === true && String(mcpCore.text || '').includes('D1')
-    && Number(mcpCore.budget) === 800 && Number(mcpCore.archived) >= 0,
+    && Number(mcpCore.budget) >= 200 && Number(mcpCore.budget) <= 4000
+    && Number(mcpCore.archived) >= 0,
   JSON.stringify({ ok: mcpCore.ok, chars: mcpCore.chars, budget: mcpCore.budget, archived: mcpCore.archived }))
 
 // ── ② 撤销语义 ───────────────────────────────────────────────────
