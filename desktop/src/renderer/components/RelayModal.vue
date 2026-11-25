@@ -10,7 +10,17 @@
 -->
 <template>
   <div id="relay-overlay" class="overlay" v-if="relay_" @mousedown.self="closeRelay">
-    <div id="relay-modal">
+    <!-- 2026-11-25（暮雨：「接力日志还是不能拖动导入附件……两次都变成用 VS Code 打开，
+         又逼我先创建再重新改一次」）：整块接住拖放 + Ctrl+V 粘图。
+         ⚠ `@dragover.prevent` **不能省** —— 不拦默认行为时，把文件拖到弹窗上
+         Electron 会当成"打开这个文件"，于是变成用系统默认程序（他那里是 VS Code）打开，
+         而不是变成附件。这就是"拖了反而把文件打开"的根因。 -->
+    <div id="relay-modal" :class="{ 'drop-on': ctl.logAttachDragOver }"
+      @paste="ctl.onLogPaste($event)"
+      @dragenter.prevent="ctl.onLogAttachDragEnter()"
+      @dragover.prevent
+      @dragleave="ctl.onLogAttachDragLeave()"
+      @drop.prevent="ctl.onLogAttachDrop($event)">
       <h3>⏭ 接力 · 从这里继续</h3>
       <div class="hint">一次动作做完四件事：出清旧的、继承上下文、建立新日志、可以立刻开跑。</div>
       <div class="relay-src">
@@ -54,6 +64,32 @@
         </label>
       </div>
       <div v-else class="hint">源日志没有关联任务 —— 新日志先不挂任务</div>
+      <!-- 附件（2026-11-25）：与「编辑日志」同一套入口，不必"先创建再回来改"。
+           拖进来 / Ctrl+V 粘图都行；文件会在**点下面按钮建好这条日志时一起挂上**。 -->
+      <div class="attach-block" data-relay-attach-block>
+        <div class="attach-head">
+          <label class="attach-lbl">附件</label>
+          <span class="attach-head-r">
+            <span class="attach-paste-hint" title="在弹窗任意位置按 Ctrl+V 粘贴截图，直接变成这条日志的附件">Ctrl+V 粘图</span>
+            <Button class="attach-add" variant="ghost" size="sm"
+              title="从本机选文件；文件会复制进数据目录（随日志一起备份），源文件不动"
+              @click="ctl.attachPickOrAdd()">＋ 添加文件…</Button>
+          </span>
+        </div>
+        <div v-if="ctl.logPendingCount" class="attach-pending">
+          <span class="attach-pending-lbl">待挂 {{ ctl.logPendingCount }} 个</span>
+          <span class="attach-pending-item" v-for="(p, i) in ctl.logPendingPaths" :key="'rpp' + i">
+            📄 {{ ctl.pendingBaseName(p) }}
+            <button class="attach-x" title="不挂了" @click="ctl.logPendingPaths.splice(i, 1)">✕</button>
+          </span>
+          <span class="attach-pending-item" v-for="(p, i) in ctl.logPendingData" :key="'rpd' + i">
+            🖼 {{ p.name }}
+            <button class="attach-x" title="不挂了" @click="ctl.logPendingData.splice(i, 1)">✕</button>
+          </span>
+          <span class="attach-pending-tip">建这条日志时会一起挂上</span>
+        </div>
+        <div v-else class="attach-empty">把文件拖到这上面、或点「＋ 添加文件…」、或直接 Ctrl+V 粘截图 —— 建日志时一起挂上，不用先建再改</div>
+      </div>
       <!-- 2026-10-03 用户反馈1（卡 task-20261003-001，用户拍板拆两字段）：
            此前一个“执行 Agent”字段承担两种含义（编辑框还把它标成“上次执行 Agent”），
            用户原话“接力只能填执行 Agent，不能填上次的执行 Agent，明明上次更重要”。

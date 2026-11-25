@@ -6295,6 +6295,13 @@ async function executeRelay(startRunning: boolean): Promise<void> {
     }
     const newId = created.data?.id || ''
     const problems: string[] = []
+    // 2026-11-25：把拖入 / 粘贴进来的待挂附件挂到**新日志**上。
+    //   顺序不能反：日志还不存在时挂不上（这也是"逼我先创建再改一次"的那条路的由来）。
+    //   ⚠ 没全挂上要**如实说**，且清单不能静默丢 —— 留在待挂里，再点一次还能挂。
+    if (newId && logPendingCount.value > 0) {
+      const allAttached = await flushPendingAttach(newId)
+      if (!allAttached) problems.push(`附件没全挂上（待挂清单还在，可再点一次挂）`)
+    }
     if (r.archiveSource) {
       const a: any = await window.tegula.logsArchive(src.id)
       if (!a?.ok) problems.push(`源日志归档失败：${a?.error || '未知原因'}`)
@@ -7963,6 +7970,13 @@ const logPreviewCtl = reactive({
 const relayCtl = reactive({
   relay_, relayDiscard_, relayDirtyHint, projects, agentPresets,
   closeRelay, bringSourceNextSteps, bringSourceSessionId, discardRelay, executeRelay,
+  // 2026-11-25（暮雨：「接力日志还是不能拖动导入附件……两次都变成用 VS Code 打开，
+  //   又逼我先创建再重新改一次」）：接力弹窗此前**完全没有附件入口** ——
+  //   编辑日志那个弹窗早就能"先选/拖/粘，保存时一起挂上"，接力这条却只能先建再改。
+  //   这里把同一套 `useLogAttachments` 接过去（不另写一份拖放）。
+  logPendingPaths, logPendingData, logPendingCount, logAttachDragOver,
+  isImageRel, attachName, attachSrc, attachPickOrAdd, pendingBaseName,
+  onLogAttachDragEnter, onLogAttachDragLeave, onLogAttachDrop, onLogPaste,
 })
 
 /**
@@ -8359,6 +8373,34 @@ provide('fc-settings', {
 })
 
 onMounted(() => {
+  /**
+   * 全局兜住"误落的文件"（2026-11-25 · 暮雨：「接力日志还是不能拖动导入附件，
+   *   **两次都变成用 VS Code 打开**，又逼我先创建再重新改一次」）。
+   *
+   * 根因是一条链，不止一处：
+   *   ① 把文件拖到**没有 drop 处理**的地方 → 浏览器默认行为是"导航到这个文件"；
+   *   ② 主进程 `will-navigate` 拦下（对的，否则界面被换掉变白屏）；
+   *   ③ 但它拦下后**交给系统打开**（`openTargetExternally` → `shell.openPath`）——
+   *      于是 .md 被系统默认程序（他那里是 VS Code）打开。
+   *
+   * ②③ 那两步是为"点了外链"设计的，对**拖放**来说方向就错了：拖错地方应该什么都不发生。
+   * 所以这里在最外层把 dragover / drop 的默认行为掐掉。
+   *
+   * ⚠ 只掐"默认行为"，不拦事件传递 —— 各处的真拖放（日历拖任务、视图布局、附件区）
+   *   都在自己的元素上 `@drop.prevent` 并处理，照旧工作。
+   * ⚠ 例外：`<input type=file>` 的原生拖放要用默认行为，放过它。
+   */
+  const isFileInput = (t: EventTarget | null): boolean => {
+    const el = t as HTMLElement | null
+    return !!el && el.tagName === 'INPUT' && String((el as HTMLInputElement).type).toLowerCase() === 'file'
+  }
+  const guard = (e: DragEvent): void => {
+    if (isFileInput(e.target)) return
+    e.preventDefault()
+  }
+  window.addEventListener('dragover', guard, false)
+  window.addEventListener('drop', guard, false)
+
   // 派单总闸（2026-11-21）：启动就拉一次。默认关时按钮必须已经置灰 ——
   // 不能等用户点开设置页才去问主进程（那中间他看到的是一排能点的按钮）。
   void refreshDispatchGate()

@@ -4299,6 +4299,33 @@
     check('★ 源摘要条显示源日志 ID',
       !!$('.rs-id') && $('.rs-id').textContent.trim() === 'log-relay-a',
       $('.rs-id') ? $('.rs-id').textContent : 'no .rs-id')
+
+    // ── 2026-11-25 暮雨：「接力日志**还是不能拖动导入附件**，两次都变成用 VS Code 打开，
+    //    又逼我先创建再重新改一次。」────────────────────────────────────
+    // 根因是两处，缺一条都还会复发：
+    //   ① 接力弹窗**根本没有附件区**（编辑日志那个早有）→ 只能先建再改；
+    //   ② 拖到没有 drop 处理的区域 → 浏览器默认"导航到这个文件" → 主进程 will-navigate
+    //      拦下后**交给系统打开**（`openTargetExternally`）→ 于是 VS Code 打开了它。
+    //      那两道闸是为"点外链"设计的，对拖放来说方向错了：拖错地方应该什么都不发生。
+    check('★★ 接力对话框里有附件区（不用"先创建再回来改一次"）',
+      !!$('#relay-modal .attach-block'),
+      $('#relay-modal') ? ($('#relay-modal').textContent || '').replace(/\s+/g, ' ').slice(-80) : 'no modal')
+    check('★★★ 拖到接力对话框上会被**接住**（dragover 默认行为被拦，不会变成"打开这个文件"）',
+      (() => {
+        const m = $('#relay-modal')
+        if (!m) return false
+        const ev = new Event('dragover', { bubbles: true, cancelable: true })
+        m.dispatchEvent(ev)
+        return ev.defaultPrevented
+      })())
+    check('★★★ 拖到页面任意空白处也不会"打开文件"（全局掐掉 dragover / drop 的默认行为）',
+      (() => {
+        const over = new Event('dragover', { bubbles: true, cancelable: true })
+        document.body.dispatchEvent(over)
+        const drop = new Event('drop', { bubbles: true, cancelable: true })
+        document.body.dispatchEvent(drop)
+        return over.defaultPrevented && drop.defaultPrevented
+      })())
     // ── 2026-10-03 反馈1/2（卡 task-20261003-001/002）──
     check('★★ 标题不再沿用源（反馈2）：“新日志标题”默认留空，每个日志创建新标题',
       (() => {
