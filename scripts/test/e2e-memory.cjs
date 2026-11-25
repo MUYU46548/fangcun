@@ -245,52 +245,77 @@ console.log('\n=== ⑥ 写入：建 / 改 / 撤销（临时数据根）===')
       (fs.readdirSync(path.join(tmpRoot, path.dirname(made.file))).filter((f) => f.endsWith('.md')).length) === 1,
       String(fs.readdirSync(path.join(tmpRoot, path.dirname(made.file)))))
 
-    // ③ 改
+    // ③ 写入即只读（2026-11-25 · P16.3）：已批准的记忆不许原地改
     const upd = mem.updateMemory(made.file, {
       type: '事故', title: '改过的标题', body: '改过之后的原文', source: 'e2e-memory',
     })
-    check('★★ 能改一条（改写成功）', upd.ok === true, upd.error || '')
-    const text2 = fs.readFileSync(path.join(tmpRoot, made.file), 'utf-8')
-    check('★★ 改完正文真变了，且**同一条文件**（不新增一条）',
-      text2.includes('改过之后的原文') && ov1.total === 1, text2.slice(0, 100))
-    check('★ 改完 id 不变（改内容不改身份）',
-      (mem.parseFrontmatter(text2).fm || {}).id === mem.parseFrontmatter(text1).fm.id,
-      String(mem.parseFrontmatter(text2).fm.id))
-    const emptyBody = mem.updateMemory(made.file, { type: '事故', title: 'x', body: '', source: 's' })
-    check('★★ 改成空正文 → 拒绝（"改着改着变空条目"比不改更糟）',
-      emptyBody.ok === false && /原文/.test(emptyBody.error), emptyBody.error)
-    check('  且被拒之后原文还在（拒绝不能留下半截）',
-      fs.readFileSync(path.join(tmpRoot, made.file), 'utf-8').includes('改过之后的原文'))
+    check('★★ 改已批准的记忆 → 拒绝（写入即只读）',
+      upd.ok === false && upd.code === 'memory-immutable' && /不能原地改/.test(String(upd.error)),
+      (upd.code || '') + ' ' + (upd.error || 'ok'))
+    const textAfterReject = fs.readFileSync(path.join(tmpRoot, made.file), 'utf-8')
+    check('★★ 被拒后原文一字不动（不是"改了一半"）',
+      textAfterReject === text1, textAfterReject.slice(0, 80))
 
-    // ④ 撤销 / 恢复：撤销≠删除
-    // ⚠ 搜索词必须是**真在标题里**的那个（'改过的标题'）。第一版我写成 '改过之后的标题' ——
-    //   它既不在标题里也不在正文里，于是下面几条 `total === 0` 全部**假绿**
-    //   （撤销/恢复两条根本验不到东西）。这是自己写出来的假绿，记在这儿防下次再犯。
+    // 改动 = 另存新版本（取代）→ 待审批；通过后旧版自动撤销
+    const fork = mem.createMemory({
+      type: '事故', claim: '改过的标题', evidence: '改过之后的原文', source: 'e2e-memory',
+      supersedes: made.id,
+    }, { pending: true })
+    check('★★ 另存新版本（取代）→ 落待审批', fork.ok === true
+      && /^状态: 待审批$/m.test(fs.readFileSync(path.join(tmpRoot, fork.file), 'utf-8')),
+      fork.error || String(fork.file))
+    const passFork = mem.setMemoryStatus(fork.file, '有效')
+    check('★★ 通过新版本 → 旧版自动撤销 + 被取代（不删文件）', passFork.ok === true
+      && /^状态: 已撤销$/m.test(fs.readFileSync(path.join(tmpRoot, made.file), 'utf-8'))
+      && new RegExp('^被取代: ' + fork.id + '$', 'm').test(fs.readFileSync(path.join(tmpRoot, made.file), 'utf-8')),
+      passFork.error || '')
+    check('★★ 新版本变有效、正文是改后的',
+      /^状态: 有效$/m.test(fs.readFileSync(path.join(tmpRoot, fork.file), 'utf-8'))
+      && fs.readFileSync(path.join(tmpRoot, fork.file), 'utf-8').includes('改过之后的原文'))
+
+    // 只改证据、claim 原句不变 —— 不能被"旧版自己"判成重复
+    const sameFork = mem.createMemory({
+      type: '教训', claim: '临时根里的一条', evidence: '只改证据，不动原句',
+      source: 'e2e-memory', supersedes: made.id,
+    }, { pending: true })
+    check('★★ 原句不变、只改证据也能另存新版本（不被旧版判重复）',
+      sameFork.ok === true, sameFork.error || '')
+    mem.setMemoryStatus(sameFork.file, '已撤销', '测试清理')
+
+    // 待审批条目可以改（还没批准，改稿是正常的）
+    const draft = mem.createMemory({ type: '教训', title: '待审批可改', body: '原稿', source: 'e2e-memory' }, { pending: true })
+    const draftUpd = mem.updateMemory(draft.file, { type: '教训', title: '待审批改完', body: '改稿', source: 'e2e-memory' })
+    check('★★ 待审批条目能原地改（批准前改稿不算违约）',
+      draftUpd.ok === true && fs.readFileSync(path.join(tmpRoot, draft.file), 'utf-8').includes('改稿'),
+      draftUpd.error || '')
+    const draftEmpty = mem.updateMemory(draft.file, { type: '教训', title: 'x', body: '', source: 's' })
+    check('★★ 改成空正文 → 拒绝（"改着改着变空条目"比不改更糟）',
+      draftEmpty.ok === false && /原文/.test(String(draftEmpty.error)), draftEmpty.error)
+    check('  且被拒之后原文还在（拒绝不能留下半截）',
+      fs.readFileSync(path.join(tmpRoot, draft.file), 'utf-8').includes('改稿'))
+    mem.setMemoryStatus(draft.file, '已撤销', '测试清理') // 别让它影响后面的计数
+
+    // ④ 撤销 / 恢复：撤销≠删除（作用在**新版本**上；旧版已被取代）
     const TITLE_Q = '改过的标题'
-    // ⚠ 前置必须放在**撤销之前**量：放到后面去量，被撤销的那条本来就该是 0，
-    //   "前置能命中"就永远不成立（这条我第一版就放错了位置，当场变红抓出来）。
     check('★ 前置：撤销前这个搜索词能命中（否则后面 total===0 是假绿）',
       mem.searchMemory({ q: TITLE_Q }).total === 1, 'hit=' + mem.searchMemory({ q: TITLE_Q }).total)
-    const rev = mem.setMemoryStatus(made.file, '已撤销')
+    const rev = mem.setMemoryStatus(fork.file, '已撤销')
     check('★★ 能撤销（改状态而不是删文件）',
-      rev.ok === true && fs.existsSync(path.join(tmpRoot, made.file)), rev.error || '')
+      rev.ok === true && fs.existsSync(path.join(tmpRoot, fork.file)), rev.error || '')
     check('★★ 撤销后**文件还在**、正文一个字没动',
-      fs.readFileSync(path.join(tmpRoot, made.file), 'utf-8').includes('改过之后的原文'))
-    // ⚠ 搜索词必须是**真在标题里**的那个（'改过的标题'）。第一版我写成 '改过之后的标题' ——
-    //   它既不在标题里也不在正文里，于是下面三条 `total === 0` 全部**假绿**
-    //   （撤销/恢复两条根本验不到东西）。这是自己写出来的假绿，记在这儿防下次再犯。
+      fs.readFileSync(path.join(tmpRoot, fork.file), 'utf-8').includes('改过之后的原文'))
     check('★★ 撤销后默认检索排除它（口径生效）',
       mem.searchMemory({ q: TITLE_Q }).total === 0, 'hit=' + mem.searchMemory({ q: TITLE_Q }).total)
     check('★ 勾上"含已撤销"能找回它（撤销≠消失）',
       mem.searchMemory({ q: TITLE_Q, includeRevoked: true }).total === 1,
       'hit=' + mem.searchMemory({ q: TITLE_Q, includeRevoked: true }).total)
-    const back = mem.setMemoryStatus(made.file, '有效')
+    const back = mem.setMemoryStatus(fork.file, '有效')
     check('★ 能恢复成有效（所以界面上给的是"撤销/恢复"而不是"删除"）',
       back.ok === true && mem.searchMemory({ q: TITLE_Q }).total === 1,
       (back.error || '') + ' hit=' + mem.searchMemory({ q: TITLE_Q }).total)
-    const badSt = mem.setMemoryStatus(made.file, '删了吧')
+    const badSt = mem.setMemoryStatus(fork.file, '删了吧')
     check('★★ 非法状态值 → 拒绝（不许凭空造第四种状态）',
-      badSt.ok === false && /状态/.test(badSt.error), badSt.error)
+      badSt.ok === false && /状态/.test(String(badSt.error)), badSt.error)
 
     // ⑤ 写入侧的路径硬闸
     check('★★ 改 memory/ 之外的路径 → 拒绝',

@@ -445,6 +445,7 @@ const editBusy = ref(false)
 const editErr = ref('')
 /** 正在改的那条；空 = 新建 */
 const formFile = ref('')
+const formId = ref('')
 /** 正在改的那条原本的状态：待审批时给「保存并通过」 */
 const formStatus = ref('')
 const form = ref({
@@ -571,6 +572,7 @@ async function openEdit(r: any): Promise<void> {
     const text = String(res.text || '')
     const isV2 = !r.legacy && String(res.claim || '').trim()
     formFile.value = r.file
+    formId.value = String(r.id || '')
     formStatus.value = String(r.status || '')
     form.value = {
       type: r.type || types.value[0] || '教训',
@@ -593,6 +595,7 @@ function cancelEdit(): void {
   editing.value = false
   editErr.value = ''
   formFile.value = ''
+  formId.value = ''
   formStatus.value = ''
 }
 
@@ -616,17 +619,40 @@ async function saveEdit(approve = false): Promise<void> {
   editErr.value = ''
   try {
     const api: any = (window as any).tegula
-    const r: any = file
-      ? await api.memoryUpdate(file, { ...f })
-      : await api.memoryCreate({ ...f })
-    if (!r?.ok) {
-      editErr.value = '没存进去：' + (r?.error || '未知原因')
-        + (r?.duplicate ? `（已有：${r.duplicate.claim}）` : '')
-      return
+    // 已批准 = 只读（2026-11-25 · P16.3）：不原地改，另存新版本（待审批）；
+    // 通过后 setMemoryStatus 会把「取代」指向的旧版自动撤销。
+    const approved = !!file && formStatus.value === '有效' && !!formId.value
+    let targetFile = file
+    if (approved) {
+      const made: any = await api.memoryCreate({ ...f, supersedes: formId.value })
+      if (!made?.ok) {
+        editErr.value = '没存进去：' + (made?.error || '未知原因')
+          + (made?.duplicate ? `（已有：${made.duplicate.claim}）` : '')
+        return
+      }
+      targetFile = made.file
+      if (!approve) {
+        notice.value = '已批准的记忆不能原地改：已另存为新版本（待审批），通过后旧版自动撤销。'
+      }
+    } else if (file) {
+      const r: any = await api.memoryUpdate(file, { ...f })
+      if (!r?.ok) {
+        editErr.value = '没存进去：' + (r?.error || '未知原因')
+          + (r?.duplicate ? `（已有：${r.duplicate.claim}）` : '')
+        return
+      }
+    } else {
+      const r: any = await api.memoryCreate({ ...f })
+      if (!r?.ok) {
+        editErr.value = '没存进去：' + (r?.error || '未知原因')
+          + (r?.duplicate ? `（已有：${r.duplicate.claim}）` : '')
+        return
+      }
     }
-    // 编辑待审批条目：存完顺手转正（一次点击完成「改 + 通过」）
-    if (approve && file) {
-      const s: any = await api.memorySetStatus(file, '有效', '编辑后通过')
+    // 编辑待审批条目：存完顺手转正（一次点击完成「改 + 通过」）；
+    // 已批准条目的新版本也一样 —— 通过的是新文件，旧版随之撤销。
+    if (approve && targetFile) {
+      const s: any = await api.memorySetStatus(targetFile, '有效', '编辑后通过')
       if (!s?.ok) {
         editErr.value = '改动已保存，但转正失败：' + (s?.error || '未知原因')
         return
@@ -634,6 +660,7 @@ async function saveEdit(approve = false): Promise<void> {
     }
     editing.value = false
     formFile.value = ''
+    formId.value = ''
     formStatus.value = ''
     await load()
   } catch (e: any) {

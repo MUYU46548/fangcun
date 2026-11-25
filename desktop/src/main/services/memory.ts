@@ -1097,6 +1097,8 @@ export interface MemoryInput {
 export interface MemoryWriteResult {
   ok: boolean
   error?: string
+  /** 机器可读的拒绝原因（如 memory-immutable），界面据此换话术 */
+  code?: string
   file?: string
   id?: string
   claim?: string
@@ -1232,9 +1234,17 @@ export function createMemory(raw: MemoryInput, opts: MemoryWriteOptions = {}): M
   const evidenceErr = validateEvidencePath(String(raw?.evidencePath || ''))
   if (evidenceErr) return { ok: false, error: evidenceErr }
 
-  // 查重：agent 不能 force；用户界面在"仍然要记"时才传 force
+  // 取代的 id 必须存在；否则落一条悬空链
+  const supersedes = String(raw?.supersedes || '').trim()
+  if (supersedes && !scanEntries().some((r) => r.id === supersedes)) {
+    return { ok: false, error: `取代的 id 不存在：${supersedes}` }
+  }
+
+  // 查重：agent 不能 force；用户界面在"仍然要记"时才传 force。
+  // ⚠ 2026-11-25：`supersedes` 指向的旧条**要排除** —— 否则"另存新版本"会被
+  //   自己的旧版判成重复，取代链永远建不起来（写入即只读的出口就堵死了）。
   if (!opts.force) {
-    const dup = findDuplicate(claim, scanEntries().filter((r) => r.status !== '已撤销'))
+    const dup = findDuplicate(claim, scanEntries().filter((r) => r.status !== '已撤销' && r.id !== supersedes))
     if (dup) {
       return {
         ok: false,
@@ -1242,12 +1252,6 @@ export function createMemory(raw: MemoryInput, opts: MemoryWriteOptions = {}): M
         duplicate: { id: dup.item.id, claim: dup.item.claim, file: dup.item.file, similarity: dup.similarity },
       }
     }
-  }
-
-  // 取代的 id 必须存在；否则落一条悬空链
-  const supersedes = String(raw?.supersedes || '').trim()
-  if (supersedes && !scanEntries().some((r) => r.id === supersedes)) {
-    return { ok: false, error: `取代的 id 不存在：${supersedes}` }
   }
 
   const status = opts.pending ? '待审批' : '有效'
@@ -1335,6 +1339,40 @@ export function updateMemory(file: string, raw: MemoryInput): MemoryWriteResult 
   if (!evidence) return { ok: false, error: '证据/原文不能空 —— 改着改着变成空条目，比不改更糟' }
   const source = String(raw?.source !== undefined ? raw.source : (fm['来源'] || '')).trim()
   if (!source) return { ok: false, error: '来源不能空' }
+
+  // 写入即只读（2026-11-25 · P16.3）：已批准的记忆不许原地改。
+  // 改动 = 另存新版本（createMemory + supersedes），通过后旧版由 setMemoryStatus 自动撤销。
+  // 只放行“用户旋钮”：钉住 / 复核 / 召回权重 / 审批备注 / 编号（不改变记忆内容）。
+  if (String(fm['状态'] || '有效') === '有效') {
+    const rawTags = Array.isArray(raw?.tags) ? raw.tags.map((x) => String(x)).filter(Boolean) : null
+    const fmTags = Array.isArray(fm['tags']) ? fm['tags'].map((x: any) => String(x)) : []
+    const changed =
+      type !== String(fm['类型'] || '')
+      || claim !== oldClaim
+      || evidence !== oldEvidence
+      || source !== String(fm['来源'] || '')
+      || (raw?.project !== undefined && String(raw.project) !== String(fm['项目'] || ''))
+      || (raw?.scope !== undefined && String(raw.scope) !== String(fm['适用范围'] || ''))
+      || (raw?.time !== undefined && String(raw.time) !== String(fm['时间'] || ''))
+      || (raw?.confidence !== undefined
+        && Math.round(numOr(raw.confidence, 0.7) * 100) !== Math.round(numOr(fm['可信度'], 0.7) * 100))
+      || (raw?.importance !== undefined
+        && importanceOf(raw.importance) !== importanceOf(fm['重要度'] || inferImportance(fm['影响'])))
+      || (raw?.halfLife !== undefined
+        && numOr(raw.halfLife, defaultHalfLife(type)) !== numOr(fm['半衰期'], defaultHalfLife(type)))
+      || (raw?.supersedes !== undefined && String(raw.supersedes) !== String(fm['取代'] || ''))
+      || (raw?.evidencePath !== undefined && String(raw.evidencePath) !== String(fm['证据'] || ''))
+      || (raw?.evidenceAnchor !== undefined && String(raw.evidenceAnchor) !== String(fm['证据锚点'] || ''))
+      || (raw?.status !== undefined && String(raw.status) !== String(fm['状态'] || ''))
+      || (rawTags !== null && rawTags.join('\u0000') !== fmTags.join('\u0000'))
+    if (changed) {
+      return {
+        ok: false,
+        code: 'memory-immutable',
+        error: '已批准的记忆不能原地改 —— 请另存为新版本（取代），通过后旧版自动撤销',
+      }
+    }
+  }
 
   const evidencePath = raw.evidencePath !== undefined ? String(raw.evidencePath) : String(fm['证据'] || '')
   const evidenceErr = validateEvidencePath(evidencePath)
