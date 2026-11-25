@@ -202,7 +202,8 @@ python scripts/memory.py --check            # 校验索引 + v2 格式（非零�
 
 ## 九、当前条目（2026-11-25 v3 后）
 
-- **45 条 claim**，**11 条钉住**；作用域：`world` 40 / `topic:dsh-fangcun` 3 / `topic:rosa-chuangzuo` 2。
+- **48 条 claim**，**12 条钉住**；作用域：`world` 43 / `topic:dsh-fangcun` 3 / `topic:rosa-chuangzuo` 2
+  （2026-11-25 晚新增 3 条：GitHub token 事实 / 发布说明公众口径 / 长程任务不许自动杀）。
 - 来源：v1 的 14 篇长文档拆成 D1–D18 + W1 + I1–I11；旧文件只加 `格式: 证据`，正文逐字未动。
 - v3 迁移：`scripts/memory-migrate-v3.py --apply` 逐条行级加 `作用域` + `格式: 3`，改前备份在
   `memory/.backup/v3-apply-20261125-192545/`；`--self-test` / `--self-test-apply` 自证不改 claim/证据。
