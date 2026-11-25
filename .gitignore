@@ -122,9 +122,9 @@ config/license_ack.json
 
 # 架构图生成的上次结果（运行期产物，2026-11-23）：每次生成都会写，不入库。
 arch-last.json
-
-# �ύ��Ϣ��ʱ�ļ������� write �������ɣ�����⣩
+# 提交信息临时文件（agent 用 write 工具生成，别入库）
 .git-msg*.txt
+.git-commit-msg.tmp
 
-# ��ʱ̽��ű������� write �������ɣ�����⣩
+# 临时探针脚本（agent 用 write 工具生成，别入库）
 .tmp-*.cjs
