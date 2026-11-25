@@ -243,6 +243,89 @@ console.log('\n== ⑥ 源码守卫 ==')
     /scanDeckAskback\(\)/.test(src) && /scanDeckUndelivered\(\)/.test(src) && /scanSkillDrift\(\)/.test(src))
 }
 
+console.log('\n== ⑧ 「该谁做」：AI 自己的活不许再弹给人（2026-11-24）==')
+// 暮雨原话：「这种弹出来让人什么都做不了的通知有什么意义？本来就是 AI 自己的问题，
+//            要弹也是去弹给 AI 看」。
+//
+// 判据四条：
+//   ① 那四类（卷批准没落卡 / 草案没提成 / 技能副本落后 / 反问待重出题）必须标 owner=agent；
+//   ② 人真的能动手的那些（等你拍板 / 备份失败 / 解析失败 / 问卷待答 / 记忆待审批）**必须仍是 user**
+//      —— 这条是反例方向：把“该人拍板”的也归给 agent = 把人该看的静音掉，比噪音更糟；
+//   ③ agent 的活**不许从库里消失**（它要进派单任务书，删了就等于没人知道）；
+//   ④ 派单任务书里必须真有那一节（否则“弹给 AI 看”就是空话）。
+{
+  const AGENT_OWNED = ['deck-undelivered', 'deck-askback', 'plan-draft', 'skill-drift']
+  const USER_OWNED = ['task-review', 'backup-failed', 'parse-error', 'questionnaire-pending', 'memory-pending', 'task-deadline']
+
+  // 重新造一批 agent 的活（上一节已把卷作废消解掉了）
+  const Q2 = path.join(QDIR, 'demo-owner.answers.json')
+  fs.writeFileSync(Q2, JSON.stringify({
+    deck: 'demo-owner',
+    answers: { A1: { kind: 'askback', text: '这题问错了' } },
+    approvedAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+    updatedAt: new Date().toISOString(), voidedAt: '', audits: {}, deliveries: {},
+  }), 'utf-8')
+  notifier.scanOnce(new Date())
+
+  const all = notifications.listNotifications()
+  const agentRows = all.filter((n) => AGENT_OWNED.includes(n.type))
+  check('★★ 四类「AI 的活」都标了 owner=agent（卷批准未落卡 / 反问 / 草案 / 技能副本）',
+    agentRows.length > 0 && agentRows.every((n) => n.owner === 'agent'),
+    agentRows.map((n) => n.type + '=' + n.owner).join(','))
+
+  // 反例方向：这些人必须做的事，绝不能被归给 agent
+  const userPushed = all.filter((n) => USER_OWNED.includes(n.type))
+  check('★★ 反例：该「人」拍板/处理的类型没有被误标成 agent（误标 = 把人该看的静音掉）',
+    userPushed.every((n) => n.owner !== 'agent'),
+    userPushed.map((n) => n.type + '=' + n.owner).join(','))
+
+  check('★★ 缺省 owner 是 user（老类型/新代码忘了标，也不会被悄悄折起）',
+    all.filter((n) => n.owner === undefined || n.owner === 'user').length > 0
+    && notifications.listNotifications().every((n) => n.owner === 'user' || n.owner === 'agent'),
+    JSON.stringify([...new Set(all.map((n) => n.owner))]))
+
+  check('★★ agent 的活仍在库里（折起 ≠ 删除：它要进派单任务书，也要能随时看全）',
+    agentRows.length > 0, String(agentRows.length))
+
+  // 派单任务书里必须有那一节 —— 否则“弹给 AI 看”是空话
+  const cp = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/main/services/contextPack.ts'), 'utf-8')
+  check('★★ 派单任务书带上了「该 AI 做、还没人做」那一节（弹给 AI 看的真管子）',
+    /## 6b\. 方寸手上挂着/.test(cp) && /owner === 'agent'/.test(cp))
+
+  // 界面侧：默认折起 + 有开关（折起而没有开关 = 条目被藏死）
+  const ui2 = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/renderer/composables/useNotifications.ts'), 'utf-8')
+  const nc2 = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/renderer/components/NotificationCenter.vue'), 'utf-8')
+  check('★★ 界面默认只列「你能动手」的（owner=agent 默认不进列表）',
+    /ncShowAgent\.value\s*\|\|\s*!isAgentOwned\(n\)/.test(ui2)
+    && /if \(!ncShowAgent\.value && isAgentOwned\(n\)\) return false/.test(ui2))
+  check('★★ 折叠有唯一出口（面板上有开关，不是把它们藏死）',
+    /ncShowAgent/.test(nc2) && /也看 AI 的活/.test(nc2))
+  check('★★ 折起的条目**不计未读**（否则角标照样天天红）',
+    /countsUnread/.test(ui2) && /ncShowAgent\.value \|\| !isAgentOwned\(n\)/.test(ui2))
+}
+
+console.log('\n== ⑨ 重复扫描不许把旧通知顶成“刚刚”（2026-11-24）==')
+// 现场：一条 createdAt=11-12 的通知，updatedAt 是 11-24 —— 因为 pushNotification
+// 对已存在的条目**无条件**刷 updatedAt，60 秒一轮扫描把它们一起顶到列表最前面。
+// 用户看到的就是“没用的通知天天挂着”。
+{
+  const before = notifier.scanOnce(new Date())
+  const snap = notifications.listNotifications().map((n) => ({ id: n.id, u: n.updatedAt, c: n.createdAt }))
+  notifier.scanOnce(new Date())
+  notifier.scanOnce(new Date())
+  const after = notifications.listNotifications()
+  const moved = after.filter((n) => {
+    const b = snap.find((x) => x.id === n.id)
+    return b && b.u !== n.updatedAt
+  })
+  check('★★ 连扫两轮，没有任何一条的 updatedAt 被刷（内容没变就不该变“刚刚”）',
+    moved.length === 0, moved.map((n) => n.type + '=' + n.title).join(','))
+
+  check('★★ 排序锚仍在（列表按 updatedAt 倒序，未读/已读分区不受影响）',
+    after.length === 0 || after.every((n, i) => i === 0 || after[i - 1].updatedAt >= n.updatedAt),
+    JSON.stringify(after.slice(0, 3).map((n) => n.updatedAt)))
+}
+
 console.log('\n== ⑦ 界面侧：新类型必须有标签、有落点（否则面板显示裸 type 名 / 点了没反应）==')
 {
   const ui = fs.readFileSync(path.resolve(__dirname, '../../desktop/src/renderer/composables/useNotifications.ts'), 'utf-8')

@@ -410,6 +410,9 @@ function scanPlanDrafts(): { created: number; resolved: number } {
       readyFiles.add(d.file)
       if (push({
         type: 'plan-draft', level: 'info', osNotify: false,
+        // 2026-11-24：提成阶段卡是 agent 的活（它有 plan_submit / stage_plan_propose），
+        // 用户在这一步只是“要不要提”，不是“去填”。归 agent，用派单带走。
+        owner: 'agent',
         title: `草案等你提成：${d.file}`,
         body: `${ready.length} 格三块齐全（共 ${d.stages.length} 格）—— 到「项目页 → 作战计划」点“提成阶段卡”；提完它才是待裁决的卡`,
         sourceId: d.file,
@@ -478,6 +481,9 @@ function scanDeckAskback(): { created: number; resolved: number } {
       decks.add(deck)
       if (push({
         type: 'deck-askback', level: 'warning', osNotify: false,
+        // 2026-11-24：反问 = “这题问错了，要重出题”，重出题是 agent 的活（qn_propose 在它手里）。
+        // 用户能做的是“把它交给 AI”，所以归 agent。
+        owner: 'agent',
         title: `问卷有反问待处理：${deck}`,
         body: `${back.length} 题被反问（${back.slice(0, 3).join(' / ')}）—— 到问卷页把「打包成补代价」复制给 agent 重出这几题`,
         sourceId: deck, key: `v1:${back.join(',')}`,
@@ -517,6 +523,10 @@ function scanDeckUndelivered(): { created: number; resolved: number } {
       idle.add(deck)
       if (push({
         type: 'deck-undelivered', level: 'info', osNotify: false,
+        // 2026-11-24 暮雨：“本来就是 AI 自己的问题，要弹也是去弹给 AI 看”。
+        // 「卷批准了没落卡」的下一步动作是**派一单让 AI 去落卡**，用户自己点不动 ——
+        // 归 agent，默认不打扰人，但下次派单会带进任务书（contextPack §6b）。
+        owner: 'agent',
         title: `卷已批准 ${Math.floor((Date.now() - at) / 86400000)} 天，还没有卡引用它`,
         body: `《${deck}》的答案已进决策台账，但没有一张卡带着它的验收线 —— 决策要变成活，得落成卡`,
         sourceId: deck, key: `v1:${String(a.approvedAt).slice(0, 10)}`,
@@ -556,6 +566,8 @@ function scanSkillDrift(): { created: number; resolved: number } {
     if (rows.length) {
       if (push({
         type: 'skill-drift', level: 'info', osNotify: false,
+        // 2026-11-24：“重新安装技能副本”是纯机械动作，agent 跑一条命令就能做 —— 归 agent。
+        owner: 'agent',
         title: `${drifted} 个技能副本跟真源不一致`,
         body: rows.map((r) => `${r.name}：${r.which.slice(0, 4).join('、')}`).join('；')
           + ' —— 到设置页 → 技能，点“重新安装”让别的 agent 读到的是新规矩',

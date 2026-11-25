@@ -44,6 +44,16 @@
         <Button class="nc-sub-toggle" variant="ghost" size="sm" :class="{ on: ncSubOpen }" title="选择要接收哪些类型的通知" @click="ncSubOpen = !ncSubOpen">
           订阅<span v-if="ncHidden.length" class="n">{{ ncHidden.length }}</span>
         </Button>
+        <!--
+          2026-11-24（暮雨：“本来就是 AI 自己的问题，要弹也是去弹给 AI 看”）
+          默认只列「你能动手」的通知；agent 自己的活折起来。这条开关是**折叠的唯一出口**
+          —— 没有它，那些条目就等于被藏死（那是另一种“什么都做不了”）。
+        -->
+        <Button class="nc-agent-toggle" variant="ghost" size="sm" :class="{ on: ncShowAgent }"
+          :title="ncShowAgent ? '收起 AI 自己的活（默认不看）' : 'AI 自己的活默认折起 —— 点开看全（派单任务书里也会带上）'"
+          @click="ncShowAgent = !ncShowAgent">
+          {{ ncShowAgent ? '只看该我做' : (ncAgentOwnedCount ? `也看 AI 的活（${ncAgentOwnedCount}）` : '也看 AI 的活') }}
+        </Button>
       </div>
 
       <div v-if="ncSubOpen" class="nc-sub-panel">
@@ -162,6 +172,9 @@ const ncVisible = toRef(ctl, 'ncVisible')
 const ncMuted = toRef(ctl, 'ncMuted')
 const ncStatus = toRef(ctl, 'ncStatus')
 const ncStatusText = toRef(ctl, 'ncStatusText')
+// 2026-11-24：AI 自己的活默认折起（见 useNotifications 里 ncShowAgent 的注释）
+const ncShowAgent = toRef(ctl, 'ncShowAgent')
+const ncAgentOwnedCount = toRef(ctl, 'ncAgentOwnedCount')
 
 // ── 动作 ────────────────────────────────────────────────────────────────
 const {

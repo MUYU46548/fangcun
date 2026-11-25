@@ -24,6 +24,17 @@ export interface Notification {
   key?: string
   /** 所属项目（2026-11-21 按项目订阅）：能归到项目的事件才带；全局事件留空 */
   project?: string
+  /**
+   * 这条提醒**该谁去做**（2026-11-24 暮雨：“这种弹出来让人什么都做不了的通知有什么意义？
+   * 本来就是 AI 自己的问题，要弹也是去弹给 AI 看”）。
+   *
+   * - `user`   = 只有人能做的动作（签字/批准/确认/插 U 盘…），必须给人看；
+   * - `agent`  = **agent 的活**：卷批准了没落卡、草案没提成、技能副本落后、有反问待重出题。
+   *              这些的下一步动作是“派一单让 AI 去做”，用户自己点不动，所以默认不打扰人。
+   *
+   * 缺省 `user`（宁可多提醒一条，也不许把该人拍板的静音掉）。
+   */
+  owner?: 'user' | 'agent'
   createdAt: string
   updatedAt: string
   read: boolean
@@ -37,6 +48,8 @@ export interface PushInput {
   sourceId?: string
   key?: string
   project?: string
+  /** 该谁做（见 Notification.owner）。缺省 = user。 */
+  owner?: 'user' | 'agent'
   osNotify?: boolean
 }
 
@@ -78,6 +91,7 @@ function normalize(raw: any): Notification {
     sourceId: raw?.sourceId === undefined ? undefined : String(raw.sourceId),
     key: raw?.key === undefined ? undefined : String(raw.key),
     project: raw?.project === undefined ? undefined : String(raw.project),
+    owner: raw?.owner === 'agent' ? 'agent' : 'user',
     createdAt: String(raw?.createdAt ?? ''),
     updatedAt: String(raw?.updatedAt ?? ''),
     read: !!raw?.read,
@@ -182,11 +196,24 @@ export function pushNotification(input: PushInput): { notification: Notification
   const now = new Date().toISOString()
   const existing = list.find(n => dedupKey(n) === dk)
   if (existing) {
+    // ⚠ 2026-11-24 修：这里原本**无条件**把 updatedAt 刷成现在 ——
+    //   于是每 60s 一轮扫描，所有“事件仍在”的通知（已批准未落卡、草案待提成、日志可清理…）
+    //   会被一起顶到列表最前面，看起来像“刚刚又弹了一条”。
+    //   实测：一条 createdAt=11-12 的通知，updatedAt 是 11-24 —— 挂了 12 天还在最上面。
+    //   暮雨的原话：“没用的通知天天挂着很烦”。
+    //   现在只在**内容真的变了**（标题/正文/级别/归属）时才更新 updatedAt。
+    const changed =
+      existing.title !== input.title
+      || (existing.body ?? '') !== (input.body ?? '')
+      || (input.level !== undefined && existing.level !== input.level)
+      || (input.project !== undefined && existing.project !== input.project)
+      || (input.owner !== undefined && existing.owner !== input.owner)
     existing.title = input.title
     existing.body = input.body
     existing.level = input.level ?? existing.level
     if (input.project !== undefined) existing.project = input.project
-    existing.updatedAt = now
+    if (input.owner !== undefined) existing.owner = input.owner
+    if (changed) existing.updatedAt = now
     saveAll(list)
     notifyChanged()
     return { notification: existing, created: false }
@@ -200,6 +227,7 @@ export function pushNotification(input: PushInput): { notification: Notification
     sourceId: input.sourceId,
     key: input.key,
     project: input.project,
+    owner: input.owner === 'agent' ? 'agent' : 'user',
     createdAt: now,
     updatedAt: now,
     read: false,

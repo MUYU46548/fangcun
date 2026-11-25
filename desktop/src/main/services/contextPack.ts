@@ -27,6 +27,8 @@ import { buildProjectAlias, decisionMatchesProject } from '../../shared/decision
 import { getPolicy } from './policies'
 import { readContractFile, repoOfProject } from './tripBoard'
 import * as logs from './logs'
+// 2026-11-24：把「该 AI 干的活」从用户通知面板搬进派单任务书（见 §6b）
+import * as notificationsSvc from './notifications'
 import { ensureDispatchSecret, newDispatchNonce, signDispatch } from './dispatchSign'
 import { DISPATCH_SETTINGS_DEFAULTS, checkDispatch, dispatchGateText } from '../../shared/dispatchGate'
 import { appendDispatchAudit, lastDispatchAttemptMs, readDispatchAudit, readDispatchSettings } from './dispatchConfig'
@@ -393,6 +395,35 @@ export function buildContextPack(projectId: string, opts: { maxTasks?: number; m
     missing.push('执行日志')
   }
   out.push('')
+
+  // ── ⑥b 方寸手上「该 AI 干、还挂着」的事（2026-11-24）────────────────
+  //
+  // 暮雨原话：「这种弹出来让人什么都做不了的通知有什么意义？本来就是 AI 自己的问题，
+  // 要弹也是去弹给 AI 看」。
+  //
+  // 「卷批准了没落卡」「草案没提成」「技能副本落后」「有反问待重出题」这四类的下一步动作
+  // 全在 agent 手里（它有 create_task / stage_plan_propose / qn_propose / 装技能），
+  // 用户自己点不动。所以它们从**用户的通知面板**移到**派单任务书**里来 ——
+  // 这一节就是那根管子：有过期未处理的 agent 活，就在这里点名，没有就一个字节都不加。
+  //
+  // 口径：只列 `owner==='agent'` 且**未读**的（已读 = 用户看过了/派过了），
+  // 最多 8 条，超出只说还有几条 —— 任务书不该变成第二块通知墙。
+  try {
+    const agentOwned = notificationsSvc.listNotifications()
+      .filter((n: any) => n.owner === 'agent' && !n.read)
+      .slice(0, 8)
+    if (agentOwned.length) {
+      out.push('## 6b. 方寸手上挂着「该 AI 做、还没人做」的事')
+      out.push('下面是方寸扫描到的、**下一步动作在 agent 手里**的活（用户点的通知里已不再打扰他）。')
+      out.push('开工前先看一眼：与本次任务相关的顺手做掉；不相关的在交回时说一句“没做，因为…”。')
+      for (const n of agentOwned) {
+        out.push(`- 【${n.type}】${String(n.title || '')}${n.sourceId ? `（${String(n.sourceId)}）` : ''}`)
+      }
+      const total = notificationsSvc.listNotifications().filter((n: any) => n.owner === 'agent' && !n.read).length
+      if (total > agentOwned.length) out.push(`- …… 另有 ${total - agentOwned.length} 条，到通知中心筛「该我做」看全`)
+      out.push('')
+    }
+  } catch { /* 读不到通知不该让整份任务书挂掉 */ }
 
   // ── ⑦ 干活时的硬约束 ────────────────────────────────────────────
   //

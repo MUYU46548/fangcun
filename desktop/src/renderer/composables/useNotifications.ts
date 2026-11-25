@@ -69,6 +69,21 @@ export function useNotifications(ctx: UseNotificationsOptions) {
   const ncUnreadRaw = ref(0)
   const ncItems = ref<any[]>([])
   const ncFilter = ref<'all' | 'unread' | 'read'>('unread')
+  /**
+   * 「该谁做」视图（2026-11-24）
+   *
+   * 暮雨：「这种弹出来让人什么都做不了的通知有什么意义？本来就是 AI 自己的问题，
+   * 要弹也是去弹给 AI 看」。
+   *
+   * 所以默认只显示 **`owner==='user'`（真的需要你动手）** 的那些；
+   * agent 自己的活（卷批准没落卡 / 草案没提成 / 技能副本落后 / 反问待重出题）
+   * 默认折起来、**不计未读**，但**不删**——这里给一个开关随时看全，
+   * 而且真正的去处是「派一单让 AI 去做」（任务书 §6b 已带上）。
+   *
+   * 实测价值：本机 55 条通知里 38 条是 agent 的活，默认把它们折起来之后
+   * 面板从「一堆你点不动的条目」变成 17 条真的能动手的。
+   */
+  const ncShowAgent = ref(false)
   // 2026-11-21：按类型筛（“没用的通知一堆”的最小出口）。空串 = 全部类型。
   const ncType = ref('')
   // 2026-11-21：分类订阅 —— 关掉的类型不进未读计数，历史仍保留，可随时恢复。
@@ -83,17 +98,33 @@ export function useNotifications(ctx: UseNotificationsOptions) {
   const isHidden = (n: any): boolean =>
     ncHidden.value.includes(n.type)
     || (!!n.project && ncHiddenProjects.value.includes(String(n.project)))
+  /** agent 自己的活：默认不进「你的待办」视图（见 ncShowAgent 的注释） */
+  const isAgentOwned = (n: any): boolean => n?.owner === 'agent'
+  /**
+   * 一条通知是否**计入未读角标**。
+   *
+   * 口径（三层叠加，任一挡掉就不计数）：
+   *   ① 订阅关掉的类型 / 项目；
+   *   ② `owner==='agent'` 且用户没打开「我也看 AI 的活」—— 这是 2026-11-24 新增的那层。
+   *
+   * ⚠ 默认折叠 agent 的活**不等于**它们消失了：条目仍在库里（`owner` 字段），
+   * 面板里有开关、「该我做/都看」两个分段能看到，派单任务书 §6b 也会带上。
+   */
+  const countsUnread = (n: any): boolean => !isHidden(n) && (ncShowAgent.value || !isAgentOwned(n))
   const ncCounts = computed(() => {
     const active = ncItems.value.filter(n => !isHidden(n))
-    const unread = active.filter(n => !n.read).length
+    const unread = active.filter(n => !n.read && (ncShowAgent.value || !isAgentOwned(n))).length
     const hidden = ncItems.value.length - active.length
     return { all: active.length, unread, read: active.length - unread, hidden }
   })
   /** 未读数：订阅关掉的类型/项目不算 —— 否则“关了还在角标上”等于没关 */
   const ncUnread = computed(() => {
-    const hiddenUnread = ncItems.value.filter(n => !n.read && isHidden(n)).length
+    const hiddenUnread = ncItems.value.filter(n => !n.read && !countsUnread(n)).length
     return Math.max(0, ncUnreadRaw.value - hiddenUnread)
   })
+  /** 面板里躺着多少条「agent 的活」—— 给折叠提示用（0 时不显示那行） */
+  const ncAgentOwnedCount = computed(() =>
+    ncItems.value.filter(n => isAgentOwned(n) && !isHidden(n) && (!n.read || ncFilter.value !== 'unread')).length)
   /** 订阅清单：所有已知类型（没有的也列出来，用户可以先关掉以后再出现的类型） */
   const ncAllTypes = computed(() => {
     const m = new Map<string, number>()
@@ -113,15 +144,20 @@ export function useNotifications(ctx: UseNotificationsOptions) {
   const ncVisible = computed(() => {
     return ncItems.value.filter(n => {
       if (isHidden(n)) return false
+      // 2026-11-24：默认只列「你能动手」的；agent 的活要点一下「也看 AI 的活」才出来
+      if (!ncShowAgent.value && isAgentOwned(n)) return false
       if (ncFilter.value === 'unread' && n.read) return false
       if (ncFilter.value === 'read' && !n.read) return false
       if (ncType.value && n.type !== ncType.value) return false
       return true
     })
   })
-  const ncHeadSub = computed(() => ncUnread.value
-    ? `你有 ${ncUnread.value} 条未读通知`
-    : '全部通知均已读')
+  const ncHeadSub = computed(() => {
+    if (!ncUnread.value) return '全部通知均已读'
+    const folded = ncItems.value.filter(n => !n.read && isAgentOwned(n) && !isHidden(n)).length
+    return `你有 ${ncUnread.value} 条未读通知`
+      + (folded && !ncShowAgent.value ? `（另有 ${folded} 条是 AI 自己的活，已折起）` : '')
+  })
 
   function ncRelTime(iso: string): string {
     return relTimeShort(iso)
@@ -458,6 +494,6 @@ export function useNotifications(ctx: UseNotificationsOptions) {
   })
 
   return {
-    NC_TYPE_META, ncOpen, ncReady, ncLoading, ncUnread, ncItems, ncFilter, ncType, ncTypes, ncHidden, ncHiddenProjects, ncProjects, ncSubOpen, ncAllTypes, ncCounts, ncVisible, ncHeadSub, ncRelTime, ncStatus, ncMuted, ncStatusText, ncLoad, ncUnmuteAll, ncRefresh, ncToggle, closePanel, ncSetFilter, ncSetType, ncToggleType, ncToggleProject, ncResetSubs, ncLoadHidden, ncTargetOf, ncJump, ncClickItem, ncToggleRead, ncMarkAllRead, ncDelete, ncClearAll, ncInit
+    NC_TYPE_META, ncOpen, ncReady, ncLoading, ncUnread, ncItems, ncFilter, ncType, ncTypes, ncHidden, ncHiddenProjects, ncProjects, ncSubOpen, ncAllTypes, ncCounts, ncVisible, ncHeadSub, ncRelTime, ncStatus, ncMuted, ncStatusText, ncLoad, ncUnmuteAll, ncRefresh, ncToggle, closePanel, ncSetFilter, ncSetType, ncToggleType, ncToggleProject, ncResetSubs, ncLoadHidden, ncTargetOf, ncJump, ncClickItem, ncToggleRead, ncMarkAllRead, ncDelete, ncClearAll, ncInit, ncShowAgent, ncAgentOwnedCount, isAgentOwned
   }
 }

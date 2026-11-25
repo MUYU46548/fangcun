@@ -121,8 +121,19 @@ for (const { name: f, full, label } of CTL_COMPONENTS) {
   for (const m of tpl.matchAll(/(?::|@|v-if=|v-else-if=|v-show=|v-model[.\w]*=)[\w.:-]*="([^"]*)"/g)) exprs.push(m[1])
   for (const m of tpl.matchAll(/\{\{([\s\S]*?)\}\}/g)) exprs.push(m[1])
   // 字符串字面量里的词不是标识符（'fresh' / "import" / 'Python' 这些），单双引号都要抹
+  //
+  // ⚠ 2026-11-24 补：**反引号模板串**同样要抹 —— 这块此前只抹了单/双引号。
+  //   代价是真实误报：通知中心按钮文案 `` `也看 AI 的活（${ncAgentOwnedCount}）` ``
+  //   里的中文「AI」被当成裸变量名，守卫报「未定义：AI」。
+  //   而这条文案是出现在**合法模板串**里的纯文本，不是 bug —— 守卫红了，产品却是好的。
+  //   （按"改文案绕过守卫"处理是错的：那条文案没有任何问题，问题在守卫漏了一类字面量。）
+  //   模板串里允许嵌套 `${...}`，这里连插值一起抹掉 —— 插值里的名字由上面对 exprs 的
+  //   常规扫描覆盖不到，但它们本来就只能引用 declared 里的东西，抹掉不会放宽判定。
   for (let i = 0; i < exprs.length; i++) {
-    exprs[i] = exprs[i].replace(/'(?:[^'\\]|\\.)*'/g, "''").replace(/"(?:[^"\\]|\\.)*"/g, '""')
+    exprs[i] = exprs[i]
+      .replace(/'(?:[^'\\]|\\.)*'/g, "''")
+      .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+      .replace(/`(?:[^`\\]|\\.)*`/g, '``')
   }
 
   const unknown = new Set()
