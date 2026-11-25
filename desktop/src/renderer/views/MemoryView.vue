@@ -53,7 +53,7 @@
         <Button size="tool" variant="ghost" :disabled="busy" @click="rebuild()" title="重新读一遍记忆文件；改了磁盘上的文件后点这里">刷新列表</Button>
         <Button size="tool" variant="ghost" :disabled="busy" @click="openImport()">导入</Button>
         <Button size="tool" variant="ghost" :disabled="busy" @click="organizeAsk = true"
-          title="用你在设置里配的模型，从最近日志和已完成任务里提炼待审批草稿">一键整理</Button>
+          title="从最近日志和已完成任务生成一份给 DSH 的整理包（不调模型、不写盘）；由 DSH 用 memory_write 起草，全部落待审批">生成整理包</Button>
         <Button size="tool" variant="primary" @click="openNew()">＋ 记一条</Button>
       </div>
 
@@ -81,8 +81,8 @@
 
       <div v-if="organizeAsk" class="mem-organize">
         <div>
-          <b>一键整理</b>
-          <span>不调模型、不花 key：生成一份给 DSH 的整理包，复制给 DSH 后由它用 memory_write 起草，全部落「待审批」。</span>
+          <b>生成整理包（给 DSH）</b>
+          <span>方寸不调模型、不写记忆：只把最近日志和已完成任务拼成一份整理包；复制给 DSH 后由它用 memory_write 起草，全部落「待审批」，你点通过才生效。</span>
         </div>
         <Button size="tool" variant="primary" :disabled="organizeBusy" @click="runOrganize">{{ organizeBusy ? '生成中…' : '生成整理包' }}</Button>
         <Button size="tool" variant="ghost" :disabled="organizeBusy" @click="organizeAsk = false">取消</Button>
