@@ -165,7 +165,8 @@ export const MCP_TOOLS: MCPTool[] = [
   },
   {
     name: 'create_task',
-    description: 'Create a new task',
+    description: 'Create a new task. 干完活要写的是任务卡 —— 不是执行日志（日志对 agent 只读，2026-11-19 起写口已移除）。'
+      + '日志「下一步」里的真欠账也用它落成卡，再在日志该条末尾标 `处置：@序号 已转卡 <卡id>`。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -319,7 +320,8 @@ export const MCP_TOOLS: MCPTool[] = [
   },
   {
     name: 'update_task',
-    description: 'Update a task',
+    description: 'Update a task. **收工回写就走这里**：body 写「做了什么 / 判据 / 没做到的」，'
+      + '状态改动用 move_status。不要改 task-data/ 下的文件，也不要往执行日志里写成果。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -331,7 +333,8 @@ export const MCP_TOOLS: MCPTool[] = [
   },
   {
     name: 'move_status',
-    description: 'Move a task to a different status',
+    description: 'Move a task to a different status. 最多到「待验收」——「完成」与「驳回」是用户的签字，会被硬拒，'
+      + '不要试图替用户验收。',
     inputSchema: {
       type: 'object',
       properties: {

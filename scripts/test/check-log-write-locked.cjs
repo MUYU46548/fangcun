@@ -119,6 +119,44 @@ for (const ch of ['logs:create', 'logs:update', 'logs:complete', 'logs:archive',
 const webSrc = fs.readFileSync(path.join(ROOT, 'tegula', 'web.py'), 'utf8')
 check('Python HTTP（web.py）没有日志写 API', !/api_log_(create|update|complete|archive|destroy)/.test(webSrc))
 
+// ── F. 光关写口不够，还得**教会 agent 该写哪里** ────────────────────
+// 2026-11-24 暮雨：「该写任务的不写，跑去写日志污染我。方寸应该自己教会 AI 怎么用」。
+//
+// 现场：那 4 条 11-06 的日志是 Python CLI `tegula log create` 写的；
+// 写口 11-20 关掉之后确实没再出现一条 agent 写的新日志 —— **但"没写口"≠"知道该写卡"**。
+// 技能卡里写着规矩，可它要 agent 主动加载才看得到；**直接调 MCP 的 agent 只读得到握手那句
+// `instructions` 和每个工具的 description**。门关上了，却没说该走哪扇门 —— 它就只能凭直觉。
+//
+// 所以这里钉的是"教导在场"：
+//   ① 握手 instructions 必须讲清「日志只读 / 写卡 / 日志欠账要转卡」；
+//   ② create_task / update_task / move_status 的描述里必须有指向（工具是它选路时唯一读得到的东西）。
+{
+  const handlerSrc = fs.readFileSync(path.join(ROOT, 'desktop', 'src', 'main', 'mcp', 'handler.ts'), 'utf8')
+  // 只取 initialize 那段里的 instructions 文本（别把整个文件算进去，否则任何地方提一句就算绿）
+  const instr = (handlerSrc.match(/instructions:\s*\n?\s*`[\s\S]*?技能卡 `fangcun-bridge`/) || [''])[0]
+  check('★ 握手 instructions 里写了「执行日志对 agent 只读」（门关上要说出来）',
+    /执行日志对 agent 只读/.test(instr), instr ? instr.slice(0, 120) : '（拼接文案与预期不符，可能被改写）')
+  check('★★ 握手 instructions 里写了「干完活要写的是任务卡」（不是只说"别写日志"）',
+    /干完活要写的是任务卡/.test(instr) && /待验收/.test(instr))
+  check('★★ 握手 instructions 里写了「日志欠账 → 落成卡 + 标 处置：@序号」（否则知道了也没用）',
+    /处置：@<序号> 已转卡/.test(instr))
+
+  const toolsSrc = fs.readFileSync(path.join(ROOT, 'desktop', 'src', 'main', 'mcp', 'tools.ts'), 'utf8')
+  const descOf = (name) => {
+    const i = toolsSrc.indexOf(`name: '${name}'`)
+    if (i < 0) return ''
+    const tail = toolsSrc.slice(i, i + 900)
+    const m = tail.match(/description:([\s\S]*?)inputSchema/)
+    return m ? m[1] : ''
+  }
+  check('★★ create_task 的描述里点明「写卡不写日志」（agent 选工具时只读得到这一句）',
+    /日志/.test(descOf('create_task')) && /任务卡/.test(descOf('create_task')), descOf('create_task').slice(0, 100))
+  check('★★ update_task 的描述里说明「收工回写走这里」',
+    /收工回写/.test(descOf('update_task')), descOf('update_task').slice(0, 100))
+  check('★★ move_status 的描述里说明「完成/驳回是用户签字、会被拒」',
+    /签字/.test(descOf('move_status')) && /拒/.test(descOf('move_status')), descOf('move_status').slice(0, 100))
+}
+
 console.log(`\n日志写口守卫：${pass} 通过 / ${fail} 失败`)
 if (fail) {
   console.log('\n失败项：')

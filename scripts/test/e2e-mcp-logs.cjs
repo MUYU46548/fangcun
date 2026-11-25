@@ -1,22 +1,27 @@
 #!/usr/bin/env node
 /**
- * MCP 日志写口 + 附件绝对路径（2026-10-29 暮雨第 6 / 7 / 9 条②）
+ * MCP 日志「只读」契约（2026-11-24 重写）
  *
- * 三条被真机反馈打出来的事实，这个套件就是钉住它们：
- *   ① **MCP 此前只有读日志三件**（list/search/get）—— agent 说"我改不了状态，只能你在界面上点"
- *      是对的。现在补 create_log / update_log / set_log_status / attach_log_files。
- *   ② `get_log` 只回正文，日志里的 `![](…)` 对 agent 就是一行相对路径文本 ——
- *      "贴了一堆图"被读成"只有文字"。现在回 attachments[].abs（绝对路径）+ 一句人话提示。
- *   ③ 真实用法长出来的需求：**主日志带多条副日志一起进开工单**（inject_logs）——
- *      只灌主日志，并行的另一半就丢了。
+ * ⚠ 这个文件前一版（2026-10-29 写的）验的是「MCP **有** 日志写口」——
+ *   create_log / update_log / set_log_status / attach_log_files 都在。
+ *   而那四个口 **2026-11-19 就按暮雨拍板整体移除了**（日志是他的私人笔记本，
+ *   AI 不写）。于是这一套从此**一直是红的（16/31）**，却没人知道它红着 ——
+ *   一个永远红的测试等于没有测试，还会让后来的人以为"产品坏了"。
  *
- * ⚠ 真跑编译产物 dist/main（不是源码字符串比对），临时数据目录，不碰真实 task-data。
+ *   现在改成钉**现行契约**：写口必须**没有**，而且必须**教会 agent 该写哪里**。
+ *   暮雨 2026-11-24 原话：「该写任务的不写，跑去写日志污染我。
+ *   方寸应该自己教会 AI 怎么用，而不是给我瞎搞」。
+ *
+ * 判据分三层：
+ *   ① **门关着**：四个写工具一个都不许在工具表里；调用必须失败且不落盘；
+ *   ② **说了走哪扇门**：握手 instructions 与工具描述里必须写清「写卡不写日志」；
+ *   ③ **读口与合并口仍在**：list/get/search/inject 不许被一并砍掉。
+ *
+ * 真跑编译产物 dist/main（不是源码字符串比对），临时数据目录，不碰真实任务卡。
  */
-
 const { spawnSync } = require('child_process')
 const fs = require('fs')
-const { mkTmp, mkTmpPath } = require('./_tmp.cjs')
-const os = require('os')
+const { mkTmp } = require('./_tmp.cjs')
 const path = require('path')
 
 const REPO = path.resolve(__dirname, '..', '..')
@@ -25,17 +30,15 @@ const DATA = path.join(TMP, 'data')
 fs.mkdirSync(path.join(DATA, 'task-data'), { recursive: true })
 fs.writeFileSync(path.join(DATA, 'registry.yaml'),
   'members: []\nprojects:\n  - id: fm-demo\n    name: 契约演示\nreleased: []\n', 'utf-8')
-// 一张真 PNG（8 字节签名足够验"文件真在盘上"）
-const SHOT = path.join(TMP, '截图契约.png')
-fs.writeFileSync(SHOT, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
 
 const DRIVER = `
 const D = ${JSON.stringify(path.join(REPO, 'desktop'))}
 const out = []
-const check = (name, cond, detail) => out.push({ name, pass: !!cond, detail: String(detail || '').slice(0, 260) })
+const check = (name, cond, detail) => out.push({ name, pass: !!cond, detail: String(detail || '').slice(0, 300) })
 const fs = require('fs')
 
 const tools = require(D + '/dist/main/mcp/tools.js')
+const handler = require(D + '/dist/main/mcp/handler.js')
 const data = require(D + '/dist/main/data/index.js')
 const DATA_DIR = ${JSON.stringify(DATA)}
 data.setDataDir(DATA_DIR)
@@ -46,193 +49,113 @@ const call = (name, args) => {
   const txt = r && r.content && r.content[0] && r.content[0].text
   try { return JSON.parse(txt) } catch (e) { return { __raw: txt, __err: String(e).slice(0, 160) } }
 }
-
-// ── 工具表里有这五件（对外契约） ─────────────────────────────────────
 const names = (tools.MCP_TOOLS || []).map(t => t.name)
-check('★★ MCP 有了日志写口（create_log / update_log / set_log_status / attach_log_files）',
-  ['create_log', 'update_log', 'set_log_status', 'attach_log_files'].every(n => names.includes(n)),
-  names.join(','))
-check('★★ 有多日志合并入口 inject_logs（主日志带副日志一起灌）',
-  names.includes('inject_logs'), names.join(','))
-check('★★ decision_record 已从 MCP 移除（决策只能用户在界面拍板，AI 不代表决）',
-  !names.includes('decision_record'), names.join(','))
+const LOGDIR = DATA_DIR + '/docs/执行日志'
 
-// ── 任务终态：agent 最多到“待验收”（2026-10-30 用户拍板）──────────────
+// ══ ① 门关着：四个写口一个都不许在 ══════════════════════════════════
+check('★★★ MCP 没有任何日志写工具（create_log / update_log / set_log_status / attach_log_files 全没有）',
+  !['create_log', 'update_log', 'set_log_status', 'attach_log_files'].some(n => names.includes(n)),
+  names.join(','))
+
+// 真调一次：必须失败，且**一个文件都不许多**
+const before = fs.existsSync(LOGDIR) ? fs.readdirSync(LOGDIR).length : 0
+for (const [n, a] of [
+  ['create_log', { userAsked: true, title: '不该存在的日志', project: 'fm-demo', content: 'X' }],
+  ['update_log', { id: 'log_any', nextSteps: 'X' }],
+  ['set_log_status', { id: 'log_any', action: 'archive' }],
+  ['attach_log_files', { id: 'log_any', paths: ['C:/nope.png'] }],
+]) {
+  const r = callRaw(n, a)
+  check('★★ 调用 ' + n + ' 真的失败（不是悄悄成功）', !!r && r.isError === true,
+    JSON.stringify(r).slice(0, 160))
+}
+const after = fs.existsSync(LOGDIR) ? fs.readdirSync(LOGDIR).length : 0
+check('★★★ 四个写口被拒之后，日志目录**一个文件都没多**（不许报了错还偷偷落盘）',
+  after === before, 'before=' + before + ' after=' + after)
+
+// ══ ② 说了走哪扇门（2026-11-24 新增：光关门不教 = 它只能凭直觉）════════
+{
+  const resp = handler.handleMCPRequest(
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05' } }, {})
+  const instr = String((resp && resp.result && resp.result.instructions) || '')
+  check('★ 握手 instructions 说得出来（拿不到就等于没教）', instr.length > 200, instr.slice(0, 100))
+  check('★★★ 握手 instructions 里写明「执行日志对 agent 只读」', /执行日志对 agent 只读/.test(instr),
+    instr.slice(0, 160))
+  check('★★★ 握手 instructions 里写明「干完活要写的是任务卡」（不是只说"别写日志"）',
+    /干完活要写的是任务卡/.test(instr) && /待验收/.test(instr))
+  check('★★ 握手 instructions 里写明「日志欠账 → 落成卡 + 标 处置：@序号」',
+    /处置：@<序号> 已转卡/.test(instr))
+}
+
+// 工具描述：agent 选路时读的是这个，不是 instructions
+const descOf = (name) => {
+  const t = (tools.MCP_TOOLS || []).find(x => x.name === name)
+  return t ? String(t.description || '') : ''
+}
+check('★★ create_task 的描述点明「写卡不写日志」',
+  /日志/.test(descOf('create_task')) && /任务卡/.test(descOf('create_task')), descOf('create_task').slice(0, 120))
+check('★★ update_task 的描述说明「收工回写走这里」',
+  /收工回写/.test(descOf('update_task')), descOf('update_task').slice(0, 120))
+check('★★ move_status 的描述说明「完成/驳回是用户签字、会被拒」',
+  /签字/.test(descOf('move_status')) && /拒/.test(descOf('move_status')), descOf('move_status').slice(0, 120))
+
+// ══ ③ 读口与合并口不许被一并砍掉 ══════════════════════════════════════
+check('★★ 日志读口仍在（list_logs / search_logs / get_log / inject_logs）',
+  ['list_logs', 'search_logs', 'get_log', 'inject_logs'].every(n => names.includes(n)), names.join(','))
+{
+  // 造一条真日志（走界面那套 services/logs，不走 MCP —— 这正是"只有界面能写"的口径）
+  const logsSvc = require(D + '/dist/main/services/logs.js')
+  const mk = logsSvc.createLog('契约夹具主日志', 'fm-demo', '主日志正文 MAIN', undefined,
+    { nextSteps: '下一步 FIRST' })
+  check('  前置：用界面那套 API 造出了日志（三条读口的夹具）', mk.ok === true && /^log_/.test(String(mk.data && mk.data.id)),
+    JSON.stringify(mk).slice(0, 160))
+  const mainId = String((mk.data && mk.data.id) || '')
+
+  const got = call('get_log', { id: mainId })
+  check('★★ get_log 读到正文（读口没被连带弄坏）', /MAIN/.test(JSON.stringify(got)), JSON.stringify(got).slice(0, 200))
+
+  const lst = call('list_logs', { project: 'fm-demo' })
+  check('★★ list_logs 列得到它', JSON.stringify(lst).indexOf(mainId) >= 0, JSON.stringify(lst).slice(0, 200))
+
+  const raw = callRaw('inject_logs', { ids: [mainId] })
+  const bundle = String((raw.content && raw.content[0] && raw.content[0].text) || '')
+  check('★★ inject_logs 仍能把日志拼成开工单（主日志在前）', bundle.indexOf('MAIN') >= 0, bundle.slice(0, 200))
+
+  const miss = callRaw('inject_logs', { ids: ['log_nope_x'] })
+  check('★ 一条都不存在时明确报错（不许回空串假装成功）', miss.isError === true)
+
+  // 拼接口只有一处实现（界面「开工单」与 MCP 共用）
+  const r2 = logsSvc.injectLogs([mainId, 'log_nope_y'])
+  check('★★ services/logs.injectLogs 是唯一拼接实现（found/missing 都如实回）',
+    r2 && r2.found.length === 1 && r2.missing.length === 1, JSON.stringify({ f: r2 && r2.found, m: r2 && r2.missing }))
+}
+
+// ══ ④ 任务侧的正确出口还在（写口没了，总得有地方写）═════════════════════
 {
   const nt = call('create_task', { title: '收口权限测试卡', project: 'fm-demo', status: '待办' })
   const tid = String(nt.id || '')
+  check('  前置：任务建得出来（写口关了，写卡这条路必须通）', !!tid, JSON.stringify(nt).slice(0, 160))
   const mvDone = call('move_status', { id: tid, status: '完成' })
-  check('★★ move_status → 完成 被拒（完成是用户验收签字）',
+  check('★★★ move_status → 完成 被拒（完成是用户验收签字）',
     mvDone.ok === false && /只能由用户/.test(String(mvDone.error || '')) && mvDone.suggested === '待验收',
     JSON.stringify(mvDone).slice(0, 200))
-  const mvReject = call('move_status', { id: tid, status: '驳回' })
-  check('★ move_status → 驳回 也被拒', mvReject.ok === false && /只能由用户/.test(String(mvReject.error || '')),
-    JSON.stringify(mvReject).slice(0, 160))
   const mvReview = call('move_status', { id: tid, status: '待验收' })
-  check('★ move_status → 待验收 允许（agent 的正确出口）', mvReview.ok === true,
+  check('★★ move_status → 待验收 允许（agent 的唯一正确出口）', mvReview.ok === true,
     JSON.stringify(mvReview).slice(0, 160))
 }
 
-// ── AI 不再擅自写日志（2026-11-08 暮雨第 3 条）────────────────────────
-// “为什么 AI 还在未经我同意的情况下擅自写日志（那些内容本来应该写任务）？”
-// 口径早就写在技能卡里，但工具在、模型就会用 —— 所以改成接口硬拦。
+// ══ ⑤ 源码守卫 ═══════════════════════════════════════════════════════
 {
-  const denied = call('create_log', { title: '没经用户同意写的日志', project: 'fm-demo', content: '不该存在' })
-  check('★★★ 不带 userAsked 的 create_log 被硬拒（不是靠卡上一句话）',
-    denied.ok === false && /私人笔记/.test(String(denied.error || '')), JSON.stringify(denied).slice(0, 260))
-  check('★★ 拒绝信息指向正确出口（update_task / 待验收），不是只说"不行"',
-    /update_task/.test(String(denied.howTo || '')) && /待验收/.test(String(denied.howTo || '')),
-    JSON.stringify(denied.howTo || '').slice(0, 200))
-  const after = call('list_logs', { project: 'fm-demo' })
-  const titles = JSON.stringify(after)
-  check('  被拒之后真的没落盘（不许报了错还偷偷写一条）',
-    titles.indexOf('没经用户同意写的日志') < 0, titles.slice(0, 160))
+  const src = fs.readFileSync(D + '/src/main/mcp/tools.ts', 'utf-8')
+  check('★★ 源码守卫：四个日志写口的分支确实已删（不是只在工具表里藏起来）',
+    !/case 'create_log'|case 'update_log'|case 'set_log_status'|case 'attach_log_files'/.test(src))
+  check('★★ 源码守卫：MCP inject_logs 走 services（不在 tools 里另拼一份）', (() => {
+    const i = src.indexOf("case 'inject_logs'")
+    return i >= 0 && src.slice(i, i + 500).indexOf('logs.injectLogs(') >= 0
+  })(), 'not found')
+  check('★ 源码守卫：get_log 的附件回绝对路径（调 resolveAttachment）',
+    /case 'get_log'[\\s\\S]{0,1200}?resolveAttachment\\(/.test(src))
 }
-
-// ── 建主日志 ────────────────────────────────────────────────────────
-const created = call('create_log', {
-  userAsked: true,
-  title: '契约夹具主日志', project: 'fm-demo',
-  content: '主日志正文 MAIN', nextSteps: '下一步 FIRST', priority: '高', agentName: '契约测试',
-})
-check('★★ create_log 真的建了日志并回 id', created.ok === true && /^log_/.test(String(created.id || '')),
-  JSON.stringify(created).slice(0, 200))
-const mainId = String(created.id || '')
-
-const control = callRaw('get_log', { id: mainId })
-check('  新建的日志能被 get_log 读回来（同一套落盘路径）', !control.isError)
-
-// ── 挂附件 → 绝对路径 ───────────────────────────────────────────────
-const att = call('attach_log_files', { id: mainId, paths: [${JSON.stringify(SHOT)}] })
-check('★★ attach_log_files 挂上了（文件复制进数据目录，源文件不动）',
-  att.ok === true && Number(att.count) === 1, JSON.stringify(att).slice(0, 220))
-check('  回传的 abs 指向真文件', att.attachments && att.attachments[0] && fs.existsSync(att.attachments[0].abs),
-  JSON.stringify(att.attachments || []).slice(0, 200))
-check('  源文件还在原处（复制不是剪切）', fs.existsSync(${JSON.stringify(SHOT)}))
-
-const got = call('get_log', { id: mainId })
-const a0 = (got.attachments || [])[0] || {}
-check('★★ get_log 回 attachments[].abs **绝对路径**（修复前：只有正文，agent 只看到一行相对路径文本）',
-  String(a0.abs || '').indexOf(':') > 0 && fs.existsSync(a0.abs),
-  JSON.stringify(a0).slice(0, 200))
-check('  标了 kind=image（agent 才知道这是图、该用看图工具读）', a0.kind === 'image', JSON.stringify(a0).slice(0, 160))
-check('★★ 有一句人话说明“N 个附件没随文本返回”', /1 个附件/.test(String(got.attachmentsHint || '')),
-  JSON.stringify(String(got.attachmentsHint || '')).slice(0, 200))
-check('  没有 base64 内联（token 会爆）', !/base64,[A-Za-z0-9+/]{40}/.test(JSON.stringify(got)))
-
-// ── 改正文 ──────────────────────────────────────────────────────────
-const upd = call('update_log', { id: mainId, nextSteps: '下一步 SECOND' })
-check('★ update_log 改得动（此前 agent 完全改不了日志）', upd.ok === true, JSON.stringify(upd).slice(0, 200))
-check('  改完 get_log 读回新值', /SECOND/.test(String(call('get_log', { id: mainId }).nextSteps || '')))
-
-// ── 并行副日志 + 合并注入 ───────────────────────────────────────────
-const side = call('create_log', { userAsked: true, title: '并行副日志', project: 'fm-demo', content: '副日志正文 SIDE' })
-const sideId = String(side.id || '')
-check('  副日志建好', side.ok === true && !!sideId, JSON.stringify(side).slice(0, 160))
-const raw = callRaw('inject_logs', { ids: [mainId, sideId] })
-const bundle = String((raw.content && raw.content[0] && raw.content[0].text) || '')
-check('★★ inject_logs 把主日志和副日志拼成一份（主在前）',
-  bundle.indexOf('MAIN') >= 0 && bundle.indexOf('SIDE') >= 0
-  && bundle.indexOf('MAIN') < bundle.indexOf('SIDE'),
-  bundle.slice(0, 200))
-check('★★ 副日志被标成“并行日志”而不是续写（否则 agent 会当成同一轮的回头路）',
-  /并行日志/.test(bundle), bundle.slice(0, 260))
-check('  主日志不带那个标记（只有第二条起才有）',
-  bundle.indexOf('并行日志') > bundle.indexOf('MAIN'))
-const miss = callRaw('inject_logs', { ids: ['log_nope_x'] })
-check('  一条都不存在时明确报错（不许回空串假装成功）', miss.isError === true)
-
-// ── 关联任务必须全带（2026-11-08 暮雨第 1 条）─────────────────────────
-// 原话：“已经超过二十次发现复制出去的日志单最多只带一条关联任务，AI 会不会看不见其他任务？”
-// 真因：injectLog 写的是 entry.taskId，它只是 taskIds[0] 的兼容别名。
-{
-  const lk1 = call('create_task', { title: '关联甲卡', project: 'fm-demo', status: '待办' })
-  const lk2 = call('create_task', { title: '关联乙卡', project: 'fm-demo', status: '进行中' })
-  const lgMulti = call('create_log', {
-    userAsked: true,
-    title: '挂三张卡的日志', project: 'fm-demo', content: 'MULTI',
-    taskIds: [lk1.id, lk2.id, 'task-nope-9999'],
-  })
-  check('  前置：多关联日志建好了', lgMulti.ok === true && !!lgMulti.id, JSON.stringify(lgMulti).slice(0, 160))
-  const r2 = callRaw('inject_logs', { ids: [lgMulti.id] })
-  const b2 = String((r2.content && r2.content[0] && r2.content[0].text) || '')
-  check('★★★ 一条日志挂 3 张卡 → 开工单三张全带（此前只有第一张）',
-    [String(lk1.id), String(lk2.id), 'task-nope-9999'].every((x) => b2.indexOf(x) >= 0),
-    b2.slice(b2.indexOf('### 关联任务'), b2.indexOf('### 关联任务') + 320))
-  const lkSeg = b2.slice(b2.indexOf('### 关联任务'))
-  // DRIVER 是模板字符串：这里写 \\n 会被展开成真换行、把字符串字面量截断 —— 用 charCode 拼
-  const NL = String.fromCharCode(10)
-  const lkA = lkSeg.split(NL).find((l) => l.indexOf('关联甲卡') >= 0) || ''
-  const lkB = lkSeg.split(NL).find((l) => l.indexOf('关联乙卡') >= 0) || ''
-  check('★★ 标题与状态一起给（agent 不用再为每张卡 get_task 一轮）',
-    lkA.indexOf('待办') >= 0 && lkB.indexOf('进行中') >= 0,
-    JSON.stringify({ lkA, lkB }).slice(0, 260))
-  check('★ 条数与"共 N 张"对得上（不许嘴上说全带、实际少给）',
-    /共 3 张/.test(b2), b2.slice(b2.indexOf('### 关联任务'), b2.indexOf('### 关联任务') + 60))
-  check('★ 找不到的关联 ID 照实写出来（不静默咽掉）',
-    b2.indexOf('找不到对应的卡') >= 0, b2.slice(b2.indexOf('### 关联任务'), b2.indexOf('### 关联任务') + 320))
-}
-
-// ── 状态流转（2026-11-01 暮雨：收口进任务“待验收”，日志只记过程）──────────
-// complete / archive / reopen 是用户签字；request_close / cancel_close 这套“日志收口”已取消，
-// AI 干完只能 move_status 把任务移到“待验收”。
-const arc = call('set_log_status', { id: mainId, action: 'archive' })
-check('★★ set_log_status archive 被拒（归档是用户签字，agent 不能代按）',
-  arc.ok === false && /只能由用户/.test(String(arc.error || '')), JSON.stringify(arc).slice(0, 200))
-const cmp = call('set_log_status', { id: mainId, action: 'complete' })
-check('★★ set_log_status complete 被拒（日志不是签字对象）',
-  cmp.ok === false && /只能由用户/.test(String(cmp.error || '')), JSON.stringify(cmp).slice(0, 200))
-const reo = call('set_log_status', { id: mainId, action: 'reopen' })
-check('★ set_log_status reopen 也被拒（退回同样是生命周期签字）',
-  reo.ok === false && /只能由用户/.test(String(reo.error || '')), JSON.stringify(reo).slice(0, 200))
-const run0 = call('set_log_status', { id: mainId, action: 'running' })
-check('  前置：先标“进行中”（日志唯一允许的写动作之一）',
-  run0.ok === true && /进行中/.test(String(run0.status || '')), JSON.stringify(run0).slice(0, 160))
-const req = call('set_log_status', { id: mainId, action: 'request_close' })
-check('★★ request_close 被拒，并明确指向 move_status → 待验收（日志不再有“等你确认”）',
-  req.ok === false && /待验收/.test(String(req.error || '')) && /move_status/.test(String(req.error || '')),
-  JSON.stringify(req).slice(0, 240))
-const cancel = call('set_log_status', { id: mainId, action: 'cancel_close' })
-check('★ cancel_close 同样被拒（没有收口标记，就没有“撤回”这回事）',
-  cancel.ok === false, JSON.stringify(cancel).slice(0, 200))
-const reqMeta = call('get_log', { id: mainId })
-check('★★ get_log 不再回 agentDone（界面不会再有“⏳ 等你确认”）',
-  !('agentDone' in reqMeta), JSON.stringify({ agentDone: reqMeta.agentDone, status: reqMeta.status }))
-const idle0 = call('set_log_status', { id: mainId, action: 'idle' })
-check('  撤掉“进行中”→ 回到没派出去', idle0.ok === true && /待处理/.test(String(idle0.status || '')), JSON.stringify(idle0).slice(0, 160))
-const run = call('set_log_status', { id: mainId, action: 'running' })
-check('  running 仍然允许（标“进行中”不是签字）', run.ok === true && /进行中/.test(String(run.status || '')), JSON.stringify(run).slice(0, 160))
-const bad = call('set_log_status', { id: mainId, action: 'nope' })
-check('  非法 action 明确报错（不静默什么都不做）', bad.__raw !== undefined || bad.ok === false)
-
-// ── 界面“⧉ 开工单”与 MCP 共用同一段拼接（2026-10-29 第 6 条）────────────
-// 两处各拼一次是最容易分叉的地方（界面改了文案、MCP 没跟上），所以这里直接钉：
-// services/logs.injectLogs 是唯一实现，MCP 的 inject_logs 只是它的出口。
-{
-  const logsSvc = require(D + '/dist/main/services/logs.js')
-  const r = logsSvc.injectLogs([mainId, 'log_nope_y', sideId])
-  check('★★ services/logs.injectLogs 是唯一拼接实现（found/missing 都如实回）',
-    r && r.found.length === 2 && r.missing.length === 1 && r.found[0] === mainId,
-    JSON.stringify({ found: r && r.found, missing: r && r.missing }))
-  check('★ 缺的那条在文本里点出来（不许静默少一段）', /未找到/ .test(String(r && r.text)) && String(r.text).indexOf('log_nope_y') >= 0,
-    String(r && r.text).slice(-80))
-}
-// ── 源码守卫 ────────────────────────────────────────────────────────
-const src = fs.readFileSync(D + '/src/main/mcp/tools.ts', 'utf-8')
-check('源码守卫：写口走 services/logs（不新开第二套写路径）',
-  // 窗口从 200 放宽到 1800：2026-11-08 在 case 开头加了 userAsked 硬拦（约 1.1k 字符），
-  // 判据本身没变 —— 仍然是“create_log 的分支里必须落到 logs.createLog(”。
-  /case 'create_log'[\\s\\S]{0,1800}?logs\\.createLog\\(/.test(src))
-check('源码守卫：MCP inject_logs 走 services（不在 tools 里另拼一份）', (() => {
-  const i = src.indexOf("case 'inject_logs'")
-  return i >= 0 && src.slice(i, i + 400).indexOf('logs.injectLogs(') >= 0
-})(), 'not found')
-check('源码守卫：get_log 的附件不再只回相对路径（必须调 resolveAttachment）',
-  /case 'get_log'[\\s\\S]{0,900}?resolveAttachment\\(/.test(src))
-check('★★ 源码守卫：MCP 不再调用 requestLogClose / cancelLogClose（日志收口已删）',
-  !/requestLogClose|cancelLogClose/.test(src))
-check('★ 源码守卫：set_log_status 的拒绝消息把 agent 引到 move_status + 待验收',
-  /move_status/.test(src) && /待验收/.test(src))
 
 console.log(JSON.stringify(out))
 `
@@ -251,7 +174,7 @@ const check = (name, cond, detail) => {
 }
 
 if (r.status !== 0) {
-  check('MCP 日志写口驱动能跑通', false, `exit=${r.status} ${String(r.stderr || '').slice(0, 1200)}`)
+  check('MCP 日志只读契约驱动能跑通', false, `exit=${r.status} ${String(r.stderr || '').slice(0, 1200)}`)
 } else {
   let res
   try { res = JSON.parse(String(r.stdout || '').trim().split('\n').pop()) } catch (e) { res = null }

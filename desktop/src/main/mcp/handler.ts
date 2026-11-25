@@ -49,7 +49,20 @@ export function handleMCPRequest(req: MCPRequest, ctx?: ToolCallContext): MCPRes
             `方寸（fangcun）任务看板。${modeLine}`
             + '写数据走 create_task / update_task / move_status（受「MCP 写入」档位约束：只读 / 读写 / 读写+破坏性，默认读写）；'
             + '读用 list_tasks，搜索用 search_tasks，当前态用 app_mode 查。任务卡落 task-data/*.md；'
-            + '读侧计量落 mcp-usage.jsonl，写侧留痕落 .mcp-writes.jsonl。',
+            + '读侧计量落 mcp-usage.jsonl，写侧留痕落 .mcp-writes.jsonl。'
+            // ── 2026-11-24（暮雨：“该写任务的不写，跑去写日志污染我。方寸应该自己教会 AI 怎么用”）──
+            // 这段以前只在技能卡里（要 agent 主动加载才看得到），而**直接调 MCP 的 agent 只会读到
+            // 这一句 instructions** —— 于是它按通用直觉去写执行日志，而不是写任务卡。
+            // 现在把最要紧的三条放在握手处：门就在这儿，规矩就写在这儿。
+            + '\n\n【方寸的写法：写任务卡，不写日志】'
+            + '① **执行日志对 agent 只读**（2026-11-19 起 create_log / update_log 等写口已全部移除）：'
+            + '那是用户自己记上下文的私人笔记本，不是 agent 汇报工作的地方。调用会失败，别试。'
+            + '② **干完活要写的是任务卡**：update_task 改正文（做了什么 / 判据 / 没做到的）+ move_status 到「待验收」。'
+            + '完成 / 驳回是用户的签字，会被硬拒 —— 不要试图替用户验收。'
+            + '③ **日志里读到「下一步」发现是真欠账** → 落成卡（create_task，正文引用那条日志 id），'
+            + '再在日志该条末尾写一行 `处置：@<序号> 已转卡 <卡id>`。这样它才不会被丢。'
+            + '别把成果写进日志，也别只写「已做」两个字就完 —— 判定标准是"有没有一张卡带着它"。'
+            + '技能卡 `fangcun-bridge` 里有完整的用法与全部工具；写数据前先把它加载上。',
         },
       }
     }
