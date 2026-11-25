@@ -41,12 +41,20 @@ import * as logs from './logs'
 // 技能副本漂移（与设置页同一个函数 `checkSkillsStatus`，不另写一套 md5 比对）
 import * as skillInstaller from './skillInstaller'
 import { detectAgentTargets } from './agents'
+// 记忆待审批（2026-11-25）：通知必须由**主进程**发，不能再靠渲染层 10s 轮询 ——
+// 窗口缩到托盘/后台时 Chromium 会把定时器节流到分钟级，用户看到的就是"很久才弹"。
+import * as memoryService from './memory'
+import { getPref } from './prefs'
 
 let timer: NodeJS.Timeout | null = null
+/** 记忆待审批专用快轮询（2026-11-25）。不复用 60s 主扫描：用户等的是"一分钟内"以内。 */
+let memoryTimer: NodeJS.Timeout | null = null
 let running = false
 let lastScanAt: string | null = null
 /** 测试注入：跳过系统通知 */
 let suppressOsNotify = false
+/** 当前那条记忆待审批的系统通知句柄 —— 批准完要能主动关掉，不能只靠用户点掉 */
+let memoryOsNotification: OsNotification | null = null
 
 /** 解析 due/deadline：兼容 MM-DD / YYYY-MM-DD / ISO；无效返回 null */
 export function parseDueValue(v: unknown): Date | null {
@@ -136,18 +144,90 @@ function projectOfTask(t: any): string {
  *
  * 去重 key = 最新那条待审批文件的路径：同一批不重复弹；新的一条来了才再通知。
  * 点通知 → `notify:focus` type=memory-pending，渲染层切到记忆页并筛「待审批」。
+ *
+ * 2026-11-25 修「滞后 + 要手动点掉」：
+ *  ① 通知改由主进程 5s 快轮询（`startScanner` 里的 memoryTimer），不再依赖渲染层 10s 轮询 ——
+ *     窗口缩到托盘后 Chromium 会把渲染层定时器节流，用户看到的就是"很久才弹"；
+ *  ② 批准完 pending 归零时**自动消解**通知中心那条，并 `close()` 掉系统通知，不用手动点。
  */
 export function notifyMemoryPending(count: number, latestClaim: string, latestFile: string): boolean {
-  if (!Number.isFinite(Number(count)) || Number(count) <= 0) return false
-  return push({
+  if (!memoryNotifyEnabled()) {
+    // 用户把「待审批提醒」关了：已有通知也不该继续挂着
+    resolveMemoryPendingNotifications()
+    return false
+  }
+  if (!Number.isFinite(Number(count)) || Number(count) <= 0) {
+    resolveMemoryPendingNotifications()
+    return false
+  }
+  const created = push({
     type: 'memory-pending',
     level: 'warning',
     title: `有 ${Number(count)} 条记忆待审批`,
     body: latestClaim ? `最新：${latestClaim}` : '打开记忆页处理',
     sourceId: 'memory',
     key: String(latestFile || `count-${Number(count)}`),
-    osNotify: true,
+    // OS 气泡自己管：`push` 里的 osNotify 拿不到句柄，就没法在批准后主动关掉
+    osNotify: false,
   })
+  if (created) {
+    showMemoryOsNotification(
+      `方寸 · 有 ${Number(count)} 条记忆待审批`,
+      latestClaim ? `最新：${latestClaim}` : '打开记忆页处理',
+    )
+  }
+  return created
+}
+
+/** 设置页「待审批提醒」开关；读不到 prefs（纯 Node 测试/无 electron）时按开处理 */
+function memoryNotifyEnabled(): boolean {
+  try { return getPref('memoryNotify') !== false } catch { return true }
+}
+
+/** 弹记忆待审批的系统通知，并留句柄；旧的一条先关掉（同一时间只留一条） */
+function showMemoryOsNotification(title: string, body: string): void {
+  closeMemoryOsNotification()
+  if (suppressOsNotify || windowFocused()) return
+  try {
+    if (!OsNotification.isSupported()) return
+    const n = new OsNotification({ title, body })
+    n.on('click', () => focusSource('memory-pending', 'memory'))
+    n.show()
+    memoryOsNotification = n
+  } catch { /* 通知失败不影响主流程 */ }
+}
+
+function closeMemoryOsNotification(): void {
+  try { memoryOsNotification?.close() } catch { /* 已经关掉/平台不支持 */ }
+  memoryOsNotification = null
+}
+
+/** 消解记忆待审批通知：通知中心删条目 + 关系统气泡（用户不用手动点） */
+export function resolveMemoryPendingNotifications(): number {
+  closeMemoryOsNotification()
+  try { return notifications.resolveNotifications('memory-pending') } catch { return 0 }
+}
+
+/**
+ * 按**当前真实 pending 数**同步通知：有 → 推（同 key 幂等）；没有/关提醒 → 消解。
+ * 主进程 5s 快轮询、MCP 写入后、界面审批后都走这一个入口，避免三处各算一套。
+ */
+export function syncMemoryPendingNotifications(): { created: boolean; resolved: number; count: number } {
+  let ov: any = null
+  try {
+    ov = memoryService.memoryOverview()
+  } catch (e: any) {
+    // 读不到记忆库 ≠ 没有待审批：不推也不消解，留待下一拍（不制造假通知）
+    appLog.warn('notifier', '记忆待审批扫描失败：' + (e?.message || e))
+    return { created: false, resolved: 0, count: 0 }
+  }
+  const count = Number(ov?.pending) || 0
+  if (count <= 0 || !memoryNotifyEnabled()) {
+    return { created: false, resolved: resolveMemoryPendingNotifications(), count }
+  }
+  const latest = ov?.pendingLatest || null
+  const created = notifyMemoryPending(count, latest?.claim || '', latest?.file || '')
+  return { created, resolved: 0, count }
 }
 
 export function notifyUpdateReady(version: string): boolean {
@@ -377,6 +457,15 @@ export function scanOnce(now = new Date()): { scanned: boolean; newNotifications
     if (n.type === 'questionnaire-pending' && !pendingDecks.has(n.sourceId ?? '')) {
       resolved += notifications.resolveNotifications('questionnaire-pending', n.sourceId)
     }
+  }
+
+  // ── 7b. 记忆待审批（2026-11-25）────────────────────────────────────
+  // 口径：**有就提醒，批完就消解**。主进程 5s 快轮询也走同一函数（见 startScanner）；
+  // 这里兜底，保证即使快轮询没起来（测试/老进程），60s 主扫描也能把僵尸通知清掉。
+  {
+    const m = syncMemoryPendingNotifications()
+    if (m.created) created++
+    resolved += m.resolved
   }
 
   // ── 8–13. 计划草案 · 结构地图 · 日志保留期 · 反问 · 已批准未落卡 · 技能漂移（实现见文件末尾）──
@@ -645,26 +734,37 @@ export function resolveBackupFailure(): void {
 }
 
 export function startScanner(intervalMs = 60000): void {
-  if (timer) return
-  timer = setInterval(() => {
-    if (running) return
-    running = true
-    try {
-      scanOnce()
-    } catch (e) {
-      // P0-4（2026-10-01）：这里原本是 `catch {}` **静默吞异常** —— “扫描器停摆”和
-      // “扫不到事件”在界面上长得一模一样，用户只能得出通知中心是坏的。落应用日志后
-      // 照常继续（单次失败不致命），配合面板页脚的“上次扫描”相对时间即可判断是否停摆。
-      appLog.error('notifier', '单次扫描失败（下次到点照常重试）', e)
-    }
-    running = false
-  }, intervalMs)
-  if (typeof timer.unref === 'function') timer.unref()
-  // 启动后 5s 做首次扫描
-  const first = setTimeout(() => {
-    try { scanOnce() } catch (e) { appLog.error('notifier', '启动后首次扫描失败', e) }
-  }, 5000)
-  if (typeof first.unref === 'function') first.unref()
+  if (!timer) {
+    timer = setInterval(() => {
+      if (running) return
+      running = true
+      try {
+        scanOnce()
+      } catch (e) {
+        // P0-4（2026-10-01）：这里原本是 `catch {}` **静默吞异常** —— “扫描器停摆”和
+        // “扫不到事件”在界面上长得一模一样，用户只能得出通知中心是坏的。落应用日志后
+        // 照常继续（单次失败不致命），配合面板页脚的“上次扫描”相对时间即可判断是否停摆。
+        appLog.error('notifier', '单次扫描失败（下次到点照常重试）', e)
+      }
+      running = false
+    }, intervalMs)
+    if (typeof timer.unref === 'function') timer.unref()
+    // 启动后 5s 做首次扫描
+    const first = setTimeout(() => {
+      try { scanOnce() } catch (e) { appLog.error('notifier', '启动后首次扫描失败', e) }
+    }, 5000)
+    if (typeof first.unref === 'function') first.unref()
+  }
+  // 记忆待审批快轮询（2026-11-25）：5s 一拍，只读 memoryOverview，专门治"批次通知要等一分钟"。
+  // 与主扫描分开：主扫描要跑任务/日志/问卷十几项，不能为了记忆把整轮提到 5s。
+  if (!memoryTimer) {
+    memoryTimer = setInterval(() => {
+      try { syncMemoryPendingNotifications() } catch (e: any) {
+        appLog.warn('notifier', '记忆待审批轮询失败：' + (e?.message || e))
+      }
+    }, 5000)
+    if (typeof memoryTimer.unref === 'function') memoryTimer.unref()
+  }
 }
 
 export function stopScanner(): void {
@@ -672,6 +772,11 @@ export function stopScanner(): void {
     clearInterval(timer)
     timer = null
   }
+  if (memoryTimer) {
+    clearInterval(memoryTimer)
+    memoryTimer = null
+  }
+  closeMemoryOsNotification()
 }
 
 export function getScannerStatus(): { running: boolean; lastScanAt: string | null } {

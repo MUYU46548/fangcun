@@ -196,11 +196,22 @@ export function registerIpcHandlers(): void {
   })
   guardedHandle('memorySetStatus', (_event, file: string, status: string, reason?: string) => {
     const r = memoryService.setMemoryStatus(file, status, reason || '')
-    if (r.ok) { try { memoryService.rebuildIndex() } catch { /* 同上 */ } }
+    if (r.ok) {
+      try { memoryService.rebuildIndex() } catch { /* 同上 */ }
+      // 2026-11-25：批准/驳回后立刻同步通知 —— pending 归零就自动消解，不用用户手动点掉
+      try { notifierService.syncMemoryPendingNotifications() } catch { /* 通知失败不影响审批 */ }
+    }
     return r
   })
   // 导入 / 一键整理（2026-11-20 问卷 M5 A + M1 B）：两条都只落「待审批」
-  guardedHandle('memoryImport', (_event, input: any) => memoryService.importMemories(input || {}))
+  guardedHandle('memoryImport', (_event, input: any) => {
+    const r = memoryService.importMemories(input || {})
+    // 导入产生待审批 → 主进程立即提醒（5s 快轮询只是兜底）
+    if (r && r.imported > 0) {
+      try { notifierService.syncMemoryPendingNotifications() } catch { /* 同上 */ }
+    }
+    return r
+  })
   guardedHandle('memoryOrganize', (_event, input: any) => memoryService.organizeMemories(input || {}))
 
   // 2026-11-20：记忆批量归类/改字段（只动 frontmatter 分类，不碰正文/状态）。
@@ -218,14 +229,12 @@ export function registerIpcHandlers(): void {
     return r
   })
 
-  // 有新记忆待审批 → 通知中心 + 系统通知（渲染层轮询到 pending 增加时调）。
-  // 主进程自己算 count/latest，不信渲染层传的数字。
+  // 有新记忆待审批 → 通知中心 + 系统通知。
+  // 2026-11-25：改成**主进程 5s 快轮询**（notifier.startScanner）为主，这条 IPC 只作渲染层
+  // 主动兜底；批准后由 memorySetStatus 立即消解，不再等下一次轮询、也不用手动点掉。
   guardedHandle('memoryNotifyPending', () => {
-    const ov = memoryService.memoryOverview()
-    if (!ov.pending) return { ok: true, created: false, count: 0 }
-    const latest = ov.pendingLatest || null
-    const created = notifierService.notifyMemoryPending(ov.pending, latest?.claim || '', latest?.file || '')
-    return { ok: true, created, count: ov.pending, latest }
+    const r = notifierService.syncMemoryPendingNotifications()
+    return { ok: true, created: r.created, resolved: r.resolved, count: r.count }
   })
 
   guardedHandle('getTask', (_event, id: string) => {

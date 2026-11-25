@@ -78,6 +78,44 @@ function main() {
   // 这段只为验记忆通知；清干净，后面的计数断言仍按空库起算
   notif.clearAll()
 
+  // 2026-11-25：主进程同步 + 批准后自动消解（治「滞后 + 要手动点掉」）
+  const memory = require(path.join(DIST, 'services', 'memory.js'))
+  const prefs = require(path.join(DIST, 'services', 'prefs.js'))
+  const mk1 = memory.createMemory({
+    type: '教训', claim: 'e2e 通知：审批后应自动消解', evidence: 'e2e-notifications 夹具', source: 'test',
+  }, { pending: true })
+  check('记忆夹具：待审批条目写入成功', mk1.ok === true, JSON.stringify(mk1))
+  const ms1 = notifier.syncMemoryPendingNotifications()
+  const memPendingRows = () => notif.listNotifications().filter((n) => n.type === 'memory-pending')
+  check('★★ 主进程同步：待审批 1 条 → 通知中心出现 memory-pending',
+    ms1.count === 1 && ms1.created === true && memPendingRows().length === 1,
+    JSON.stringify({ ms1, rows: memPendingRows().length }))
+  const approve1 = memory.setMemoryStatus(mk1.file, '有效', 'e2e 批准')
+  check('记忆夹具：批准成功', approve1.ok === true, JSON.stringify(approve1))
+  const ms2 = notifier.syncMemoryPendingNotifications()
+  check('★★ 批准后自动消解（不用手动点掉）',
+    ms2.count === 0 && ms2.resolved >= 1 && memPendingRows().length === 0,
+    JSON.stringify({ ms2, rows: memPendingRows().length }))
+
+  // 关掉「待审批提醒」：已有通知自动消解，新待审批也不再推
+  const mk2 = memory.createMemory({
+    type: '教训', claim: 'e2e 通知：关提醒后不该再推', evidence: 'e2e-notifications 夹具 2', source: 'test',
+  }, { pending: true })
+  check('记忆夹具 2：待审批写入成功', mk2.ok === true, JSON.stringify(mk2))
+  prefs.setPref('memoryNotify', false)
+  const ms3 = notifier.syncMemoryPendingNotifications()
+  check('★ 关提醒 → 不创建通知，且已有通知被清掉',
+    ms3.created === false && memPendingRows().length === 0,
+    JSON.stringify({ ms3, rows: memPendingRows().length }))
+  prefs.setPref('memoryNotify', true)
+  const ms4 = notifier.syncMemoryPendingNotifications()
+  check('★ 重新打开提醒 → 下拍恢复通知', ms4.created === true && ms4.count === 1,
+    JSON.stringify(ms4))
+  // 清场：批准 + 清通知，后面的断言按空库起算
+  memory.setMemoryStatus(mk2.file, '有效', 'e2e 清场')
+  notifier.syncMemoryPendingNotifications()
+  notif.clearAll()
+
   // ══ A. 存储层 ════════════════════════════════════════════════════════
 
   // A1. 幂等推送
