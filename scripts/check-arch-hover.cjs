@@ -23,7 +23,7 @@ const cp = spawn(CHROME, [
   '--user-data-dir=' + path.join(tmp, 'prof'),
   '--window-size=1440,1200',
   'about:blank',
-]);
+], { windowsHide: true });
 
 function getJSON(url) {
   return new Promise((res, rej) => {

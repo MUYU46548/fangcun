@@ -23,7 +23,7 @@ const cp = spawn(CHROME, [
   '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
   '--remote-debugging-port=' + PORT, '--user-data-dir=' + path.join(tmp, 'p'),
   '--window-size=1440,1500', 'about:blank',
-]);
+], { windowsHide: true });
 
 const getJSON = u => new Promise((res, rej) =>
   http.get(u, r => { let b = ''; r.on('data', d => b += d); r.on('end', () => { try { res(JSON.parse(b)); } catch (e) { rej(e); } }); }).on('error', rej));

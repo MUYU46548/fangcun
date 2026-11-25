@@ -144,7 +144,7 @@ function viaCdp(browser, url, env, budgetMs = cdpBudget()) {
     //   常驻模式下它会页面钉在虚拟时间轴上，断言里的 sleep/waitFor 永远跑不完 →
     //   表现为“CDP 兜底超时”。2026-10-10 实测：加了必超时，去掉后一次就过。
     'about:blank',
-  ], { stdio: 'ignore', env })
+  ], { stdio: 'ignore', env, windowsHide: true })
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
   const base = 'http://127.0.0.1:' + port
@@ -1283,7 +1283,7 @@ function main() {
         '--force-device-scale-factor=' + (process.env.FC_SHOT_SCALE || '1'),
         '--virtual-time-budget=' + (vtBudget || 20000), '--screenshot=' + png,
         'file:///' + harnessPath.replace(/\\/g, '/'),
-      ], { stdio: ['ignore', 'pipe', 'pipe'], env })
+      ], { stdio: ['ignore', 'pipe', 'pipe'], env, windowsHide: true })
       c.on('close', () => {
         rmProfile(shotProf)
         const okk = fs.existsSync(png) && fs.statSync(png).size > 5000
@@ -1343,7 +1343,7 @@ function main() {
     'file:///' + harnessPath.replace(/\\/g, '/'),
   ]
 
-  const child = spawn(browser, args, { stdio: ['ignore', 'pipe', 'pipe'], env })
+  const child = spawn(browser, args, { stdio: ['ignore', 'pipe', 'pipe'], env, windowsHide: true })
   let out = ''
   let err = ''
   child.stdout.on('data', (d) => { out += d.toString() })

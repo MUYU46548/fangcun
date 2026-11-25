@@ -47,6 +47,9 @@ const child = spawn(ELECTRON, args, {
   cwd: DESKTOP,
   stdio: ['ignore', 'pipe', 'pipe'],
   env,
+  // 2026-11-25：必须 windowsHide —— 否则无控制台的父进程下会闪一个黑窗（暮雨实测 12:30 那次）。
+  // 对 GUI 程序它只抑制控制台分配，不影响 Electron 自己的窗口（本测试要的是**窗口里**的点击）。
+  windowsHide: true,
 })
 
 let out = ''

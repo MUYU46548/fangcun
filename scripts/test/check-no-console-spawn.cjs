@@ -59,7 +59,7 @@ function walk(dir, out = []) {
   for (const e of ents) {
     const p = path.join(dir, e.name)
     if (e.isDirectory()) walk(p, out)
-    else if (e.name.endsWith('.ts') || e.name.endsWith('.js')) out.push(p)
+    else if (/\.(ts|js|cjs|mjs)$/.test(e.name)) out.push(p)
   }
   return out
 }
@@ -73,10 +73,13 @@ function walk(dir, out = []) {
  * 用保守规则：只剥**整行**以 // 开头的、以及 /* ... *\/ 块。行尾注释保留（宁可多留，不漏）。
  */
 function stripComments(src) {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, '')
+  // ⚠ 必须**保留行数**：原来用 .filter() 把注释行删掉，于是报出来的行号是"剥注释后"的，
+  //   指不到真实位置 —— 守卫报了等于没报（2026-11-25 自查发现）。
+  //   现在注释行替换成空行、块注释替换成等量换行，行号与原文一一对应。
+  const noBlock = String(src).replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\r\n]/g, ''))
+  return noBlock
     .split(/\r?\n/)
-    .filter((l) => !/^\s*\/\//.test(l))
+    .map((l) => (/^\s*\/\//.test(l) ? '' : l))
     .join('\n')
 }
 
@@ -162,9 +165,44 @@ if (Object.keys(ALLOW_VISIBLE).length) console.log('')
   }
 }
 
+// ── ④ 我自己的测试脚本也不许闪窗（2026-11-25 暮雨：「黑窗口在 12:30 左右闪现」）──
+//
+// 那次 12:30 我在跑 `e2e-renderer-web` —— 它起**无头 Chromium**的三处 spawn 都没写
+// `windowsHide`（同一个文件里第 124 行那个辅助函数写了，浏览器本体三处漏了）。
+// 无头浏览器**照样要分配控制台**，于是父进程没有控制台时就闪一个黑窗。
+//
+// 教训：守卫原来只扫 `desktop/src/main` 和插件 —— **把自己干活的那半边漏了**。
+// 这里只钉"长命的浏览器/Electron 子进程"这一类（短命的 git/python 调用留待需要时再收）。
+{
+  const scriptsDir = path.join(REPO, 'scripts')
+  const files = walk(scriptsDir).filter((f) => f !== __filename)
+  check('★ 扫得到 scripts/ 源码', files.length > 0, files.length + ' 个文件')
+
+  const bad = []
+  let seen = 0
+  for (const f of files) {
+    const lines = stripComments(fs.readFileSync(f, 'utf-8')).split(/\r?\n/)
+    for (let i = 0; i < lines.length; i++) {
+      // 只认「起浏览器 / 起 Electron」这类长命 GUI 子进程
+      if (!/(?:^|[^.\w])spawn\s*\(\s*(?:CHROME|CHROME_BIN|browser|BROWSER|electronBin|ELECTRON)\b/.test(lines[i])) continue
+      seen++
+      const window = lines.slice(i, i + 22).join('\n')
+      const explicit = /windowsHide\s*:\s*true/.test(window)
+      const allowKey = path.relative(REPO, f).replace(/\\/g, '/')
+      if (!explicit && !ALLOW_VISIBLE[allowKey]) {
+        bad.push(allowKey + ':' + (i + 1) + '  起浏览器/Electron 没写 windowsHide:true')
+      }
+    }
+  }
+  check('★ 扫到了起浏览器/Electron 的地方（0 处 = 扫描器坏了）', seen > 0, 'sites=' + seen)
+  check('★★★ 起浏览器/Electron 一律 windowsHide:true（不然无控制台父进程下会闪黑窗）',
+    bad.length === 0, bad.join(' | '))
+}
+
 // ── ③ 源码守卫：不许用 MainWindowHandle 判控制台窗口 ────────────────────
 {
   const files = walk(MAIN_DIR).concat(walk(path.join(REPO, 'scripts')))
+    .filter((f) => f !== __filename)   // 本文件自己就写着 MainWindowHandle 这个词，别自伤
   const bad = []
   for (const f of files) {
     if (!f.endsWith('.cjs') && !f.endsWith('.js') && !f.endsWith('.ps1')) continue

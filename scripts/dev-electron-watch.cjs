@@ -102,7 +102,9 @@ function startChild() {
     // require('electron') 拿到的是可执行文件路径字符串，报错面目全非。
     delete env.ELECTRON_RUN_AS_NODE
     const electronBin = require(path.join(DESKTOP, 'node_modules', 'electron'))
-    child = spawn(electronBin, ['.', ...EXTRA_ARGS], { cwd: DESKTOP, stdio: 'inherit', env })
+    // 2026-11-25：windowsHide —— 否则在无控制台的父进程下会闪一个黑窗（暮雨实测）。
+    // 对 GUI 程序它只抑制控制台分配，不影响 Electron 自己的窗口与 stdio:'inherit' 的日志。
+    child = spawn(electronBin, ['.', ...EXTRA_ARGS], { cwd: DESKTOP, stdio: 'inherit', env, windowsHide: true })
   }
   child.on('exit', (code, signal) => {
     if (restarting) return

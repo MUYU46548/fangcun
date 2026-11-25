@@ -315,7 +315,9 @@ const args = ['--no-sandbox', '--disable-gpu', MAIN, '--hidden']
 const env = { ...process.env, FC_E2E_RENDERER: '1', FC_E2E_ONLY: 'dispatch', FC_E2E_COST_CONFIRM: '1', ELECTRON_DISABLE_SECURITY_WARNINGS: '1' }
 delete env.ELECTRON_RUN_AS_NODE
 
-const child = spawn(ELECTRON, args, { cwd: DESKTOP, stdio: ['ignore', 'pipe', 'pipe'], env })
+// 2026-11-25：windowsHide —— 无控制台的父进程下会闪一个黑窗（暮雨实测）。
+// 对 GUI 程序它只抑制控制台分配，不影响 Electron 自己的窗口。
+const child = spawn(ELECTRON, args, { cwd: DESKTOP, stdio: ['ignore', 'pipe', 'pipe'], env, windowsHide: true })
 let out = ''
 child.stdout.on('data', (d) => { out += d.toString(); process.stdout.write(d) })
 child.stderr.on('data', (d) => {

@@ -208,7 +208,9 @@ const patchedPath = path.join(tmp, 'audit.html');
 fs.writeFileSync(patchedPath, patched, 'utf8');
 
 args[args.length - 1] = 'file:///' + patchedPath.replace(/\\/g, '/');
-const cp = spawn(CHROME, args);
+// 2026-11-25：必须 windowsHide —— 无头 Chromium 照样要分配控制台，
+// 在无控制台的父进程下（例如 agent 跑测试）就会闪一个黑窗。暮雨实测过。
+const cp = spawn(CHROME, args, { windowsHide: true });
 let buf = '';
 cp.stdout.on('data', d => buf += d.toString());
 cp.stderr.on('data', () => {});
