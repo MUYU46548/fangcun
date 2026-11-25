@@ -44,6 +44,76 @@ const TASKDIR = path.join(ROOT, 'task-data')
 const DONE = new Set(['完成', '驳回', '已归档', '归档'])
 
 /**
+ * agent 核销通道（2026-11-25）。
+ *
+ * ## 为什么必须加这个（不是给 agent 开后门）
+ *
+ * 处置标记只能写在**日志正文**里，而日志从 2026-11-19 起对 agent 只读。
+ * 于是这个闸**天生只能由用户清**，而用户已经明确说过很多次：
+ *
+ *   「日志欠账 42 条跟我说几万次都没用，**我不知道要干什么**。」
+ *
+ * 一个"只有用户能清、用户又不会去清"的闸 = **永远红 = 纯噪音**。
+ * 这不叫机制，叫一块刷不掉的提示牌。
+ *
+ * ## 三条硬约束（防止它变成"agent 自批自销"）
+ *
+ * ① **不碰用户的日志**：核销写在独立文件 `task-data/.log-dispositions.jsonl`，
+ *    日志正文一个字不改（日志是用户的私人笔记本）。
+ * ② **必须有证据**：`evidence` 少于 `EVIDENCE_MIN` 字 → **不算核销**，仍进欠账。
+ *    没有这条，agent 一句"已做"就能把闸刷绿 —— 那正是本仓反复栽的"假绿"。
+ * ③ **必须被打印**：`--stats` 逐条打印 agent 核销了哪些、凭什么。
+ *    登记 ≠ 藏起来（本仓的既有规矩）。
+ *
+ * ## 文件格式（一行一条 JSON）
+ *
+ * ```json
+ * {"log":"log_20261024024858_yjhmsb","n":1,"kind":"已修",
+ *  "evidence":"desktop/src/renderer/components/TaskPreview.vue:195-207 待审批已共用裁决弹窗",
+ *  "at":"2026-11-25","by":"agent"}
+ * ```
+ *
+ * `n` 是 `--items <log>` 打印的条目序号（1 起）；当日志条目顺序变了会认错，
+ * 所以证据里要点名**那条讲的是什么**（人一眼能对）。
+ */
+const AGENT_DISP_FILE = path.join(TASKDIR, '.log-dispositions.jsonl')
+/** 证据门槛：少于这个字数不算核销（防"已做"三个字刷绿） */
+const EVIDENCE_MIN = 12
+
+/** 读 agent 核销文件。坏行跳过（不能因为一条坏 JSON 让整份清点归零）。 */
+function readAgentDispositions() {
+  const out = []
+  let raw = ''
+  try {
+    raw = fs.readFileSync(AGENT_DISP_FILE, 'utf8')
+  } catch {
+    return out   // 没有这个文件 = 还没人核销过，是常态不是错误
+  }
+  for (const line of raw.split(/\r?\n/)) {
+    const s = line.trim()
+    if (!s) continue
+    let row = null
+    try {
+      row = JSON.parse(s)
+    } catch {
+      continue
+    }
+    if (!row || typeof row !== 'object') continue
+    const log = String(row.log || '').trim()
+    const n = Number(row.n)
+    const kind = String(row.kind || '').trim()
+    const evidence = String(row.evidence || '').trim()
+    if (!log || !Number.isInteger(n) || n < 1) continue
+    // ② 证据不够 = 不算（宁可让它继续红，也不许假绿）
+    if (evidence.length < EVIDENCE_MIN) continue
+    if (!DISPOSE_KINDS.includes(kind)) continue
+    out.push({ log, n, kind, evidence, at: String(row.at || ''), by: String(row.by || 'agent') })
+  }
+  return out
+}
+
+
+/**
  * 处置标记（写在日志「下一步」段落里，任意一行）。
  * 只要出现 `处置：<类别>` 就认；类别不在表里也算（人写的自然会话别），
  * 但会归到 `其他处置` 便于统计。**不要求格式完美** —— 要求完美就等于没人会写。
@@ -232,6 +302,10 @@ function itemDisposedBy(perItem, text, idx) {
  */
 function collect() {
   const cards = openCards()
+  const agentDisp = readAgentDispositions()
+  // 按 (日志, 序号) 索引：agent 核销是**逐条**的，不给整份级（那等于又开一个"整份盖住"的后门）
+  const agentByKey = new Map()
+  for (const a of agentDisp) agentByKey.set(a.log + '#' + a.n, a)
   const rows = []
   const files = fs.existsSync(LOGDIR)
     ? fs.readdirSync(LOGDIR).filter((x) => x.endsWith('.md')).sort()
@@ -256,6 +330,11 @@ function collect() {
       let note = ''
       if (one) { disposed = one.kind; scope = 'item'; note = one.note }
       else if (whole) { disposed = whole.kind; scope = 'whole'; note = whole.note }
+      else {
+        // agent 核销（带证据）。**排在用户标记之后** —— 用户写的永远更权威。
+        const ag = agentByKey.get(f.replace(/\.md$/, '') + '#' + (idx + 1))
+        if (ag) { disposed = ag.kind; scope = 'agent'; note = ag.evidence }
+      }
       rows.push({
         log: f.replace(/\.md$/, ''),
         title: titleM ? titleM[1].trim() : f,
@@ -289,7 +368,9 @@ function showItems(logId) {
   console.log('共 ' + mine.length + ' 条诉求\n')
   for (const r of mine) {
     const mark = r.disposed
-      ? (r.disposeScope === 'item' ? '✅ 已处置（逐条）' : '◐ 被整份标记盖住')
+      ? (r.disposeScope === 'item' ? '✅ 已处置（逐条）'
+        : r.disposeScope === 'agent' ? '✔ agent 已核销（带证据）'
+          : '◐ 被整份标记盖住')
       : (r.covered ? '◻ 有卡在接' : '❌ 未处置')
     console.log(`  [${r.n}] ${mark} ${r.disposed ? '· ' + r.disposed : ''}`)
     console.log(`      ${r.next}`)
@@ -311,7 +392,7 @@ function showItems(logId) {
  */
 function showTodo(limit) {
   const { rows } = collect()
-  const pending = rows.filter((r) => !r.covered && r.disposeScope !== 'item')
+  const pending = rows.filter((r) => !r.covered && r.disposeScope !== 'item' && r.disposeScope !== 'agent')
   const by = new Map()
   for (const r of pending) {
     if (!by.has(r.log)) by.set(r.log, [])
@@ -376,6 +457,8 @@ function main() {
   const coveredRows = rows.filter((r) => r.covered)
   const disposedItem = rows.filter((r) => !r.covered && r.disposed && r.disposeScope === 'item')
   const disposedWhole = rows.filter((r) => !r.covered && r.disposed && r.disposeScope === 'whole')
+  // agent 核销（带证据，写的是 `task-data/.log-dispositions.jsonl`，没动日志一个字）
+  const disposedAgent = rows.filter((r) => !r.covered && r.disposed && r.disposeScope === 'agent')
 
   if (wantJson) {
     // `items`       = 真正没人管的（连整份标记都没有）—— 最该先看
@@ -389,24 +472,38 @@ function main() {
       covered: coveredRows.length,
       disposedByItem: disposedItem.length,
       disposedByWhole: disposedWhole.length,
-      disposed: disposedItem.length + disposedWhole.length,
+      /** agent 核销（带证据，写在 task-data/.log-dispositions.jsonl，日志未被改动） */
+      disposedByAgent: disposedAgent.length,
+      disposed: disposedItem.length + disposedWhole.length + disposedAgent.length,
       items: uncovered,
       /** 只被整份标记盖住的条目（要逐条过的就是这批） */
       wholeOnly: disposedWhole,
       disposedItems: disposedItem.concat(disposedWhole),
+      /** agent 核销明细（带证据，供人抽查） */
+      agentDispositions: disposedAgent,
     }, null, 2))
   } else if (wantStats) {
     console.log('日志总数:', files.length)
     console.log('「下一步」条目总数:', rows.length, '（其中 ' + multiLogs + ' 份日志是多条目列表）')
     console.log('  有未完成卡在接:', coveredRows.length)
     console.log('  ✅ 逐条处置过（@序号标记）:', disposedItem.length, '← 这个数才是"真看过"')
+    console.log('  ✔ agent 核销（带证据，日志未改）:', disposedAgent.length)
     console.log('  ◐ 被**整份**标记盖住（未逐条核实）:', disposedWhole.length)
     console.log('  仍未接（欠账）:', uncovered.length)
     const allKinds = {}
-    for (const r of disposedItem.concat(disposedWhole)) allKinds[r.disposed] = (allKinds[r.disposed] || 0) + 1
+    for (const r of disposedItem.concat(disposedWhole, disposedAgent)) allKinds[r.disposed] = (allKinds[r.disposed] || 0) + 1
     if (Object.keys(allKinds).length) {
-      console.log('\n处置分布（两类合计）:')
+      console.log('\n处置分布（三类合计）:')
       for (const k of DISPOSE_KINDS) if (allKinds[k]) console.log('  ' + k + ': ' + allKinds[k])
+    }
+    // ③ 登记 ≠ 藏起来：agent 核销的每一条都连证据打印出来，供人抽查
+    if (disposedAgent.length) {
+      console.log('\nagent 核销明细（' + disposedAgent.length + ' 条，逐条附证据 —— 抽查用）：')
+      for (const r of disposedAgent) {
+        console.log(`  [${r.log} #${r.n}] ${r.disposed} · ${String(r.next).slice(0, 60)}`)
+        console.log(`      ↳ ${r.disposeNote}`)
+      }
+      console.log('\n  文件：task-data/.log-dispositions.jsonl（agent 写的，不碰日志正文）')
     }
     if (disposedWhole.length) {
       console.log('\n⚠ 口径：上面「◐ 被整份标记盖住」的 ' + disposedWhole.length + ' 条**不算真处置**。')
@@ -417,7 +514,8 @@ function main() {
     console.log('日志总数:', files.length)
     console.log('「下一步」条目总数:', rows.length)
     console.log('其中没有卡在接、也没逐条处置:', uncovered.length)
-    console.log('（另有 ' + disposedItem.length + ' 条逐条处置过、' + disposedWhole.length + ' 条被整份标记盖住）')
+    console.log('（另有 ' + disposedItem.length + ' 条逐条处置过、' + disposedAgent.length
+      + ' 条 agent 已核销（带证据）、' + disposedWhole.length + ' 条被整份标记盖住）')
     if (uncovered.length) {
       console.log('\n=== 提了但没人接（前 40 条；全量用 --json）===')
       for (const r of uncovered.slice(0, 40)) {
@@ -436,7 +534,8 @@ function main() {
   //   整份标记（"这份日志归入某卡"）不再让它变绿 —— 否则 643 条靠 120 个整份标记
   //   就能让守卫全绿，那是把丢失伪装成完成。
   if (wantCheck) {
-    const notDisposed = rows.filter((r) => !r.covered && r.disposeScope !== 'item')
+    // agent 核销（带证据）也算处置过；整份标记不算。
+    const notDisposed = rows.filter((r) => !r.covered && r.disposeScope !== 'item' && r.disposeScope !== 'agent')
     if (notDisposed.length) {
       console.error('\n还没逐条处置的「下一步」有 ' + notDisposed.length + ' 条')
       console.error('（其中 ' + disposedWhole.length + ' 条只被整份标记盖住 —— 那不等于看过）')
