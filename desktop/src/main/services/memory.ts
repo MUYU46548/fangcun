@@ -980,7 +980,7 @@ export function memoryOverview() {
     effective: rows.filter((r) => r.status === '有效').length,
     pending: rows.filter((r) => r.status === '待审批').length,
     revoked: rows.filter((r) => r.status === '已撤销').length,
-    claims: rows.filter((r) => r.format === 2).length,
+    claims: rows.filter((r) => !r.legacy).length,
     legacy: rows.filter((r) => r.legacy).length,
     evidence: countEvidence(),
     pinned: rows.filter((r) => r.pinned && r.status === '有效').length,
@@ -1052,7 +1052,7 @@ export function memoryCheck(): {
     issues,
     counts: {
       total: rows.length,
-      claims: rows.filter((r) => r.format === 2).length,
+      claims: rows.filter((r) => !r.legacy).length,
       legacy: rows.filter((r) => r.legacy).length,
       evidence: countEvidence(),
       pinned: rows.filter((r) => r.pinned && r.status === '有效').length,
