@@ -93,3 +93,19 @@ export function activeScopes(list: Array<unknown>): MemoryScope[] {
   }
   return out
 }
+
+/**
+ * 检索过滤：带一组活跃作用域时，只留 world + 精确命中的条目。
+ * **空活跃集 = 不过滤**（不是"只留 world"）—— 没有上下文时退化为全库检索，
+ * 这跟"用户没给过滤条件"的直觉一致；返回副本，不原地改调用方数组。
+ */
+export function filterByScopes<T extends { scopeV3?: string }>(
+  entries: readonly T[],
+  active: readonly MemoryScope[],
+): T[] {
+  if (!active.length) return entries.slice()
+  return entries.filter((e) => {
+    const s = parseScope(e.scopeV3 || 'world') || { kind: 'world' as const, value: '' }
+    return scopeMatches(s, active)
+  })
+}

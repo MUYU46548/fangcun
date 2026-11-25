@@ -29,6 +29,7 @@ import {
   MEMORY_BUDGETS, RankableMemory, rankMemories, renderCore, findDuplicate, similarity,
   clamp, numOr, confidenceOf, importanceOf, weightOf,
 } from '../../shared/memoryRank'
+import { activeScopes, filterByScopes, formatScope, scopeOfEntry } from '../../shared/memoryV3'
 
 /** 记忆根目录（数据根下的 `memory/`，与 task-data/ 平级但**永不混用**） */
 export function memoryDir(): string {
@@ -129,6 +130,8 @@ export interface MemoryEntry extends RankableMemory {
   tags: string[]
   /** 2 = v2；1 = legacy */
   format: number
+  /** v3 作用域（world / topic:x / file:y / session:z）；v2 缺字段 = world */
+  scopeV3: string
   legacy: boolean
   score?: number
   relevance?: number
@@ -358,6 +361,7 @@ export function scanEntries(): MemoryEntry[] {
       code: String(fm['编号'] || ''),
       tags: Array.isArray(fm['tags']) ? fm['tags'].map((x: any) => String(x)) : [],
       format,
+      scopeV3: formatScope(scopeOfEntry(fm)),
       legacy,
     }
     rows.push(hit)
@@ -373,7 +377,7 @@ function blankEntry(file: string, claim: string): MemoryEntry {
     time: '', status: '', impact: '', file, source: '', evidence: '',
     evidencePath: '', evidenceAnchor: '', review: '', confidence: 0.7, importance: 3,
     halfLife: 365, pinned: false, weight: 1, supersedes: '', supersededBy: '',
-    code: '', tags: [], format: 1, legacy: true,
+    code: '', tags: [], format: 1, scopeV3: 'world', legacy: true,
   }
 }
 
@@ -431,6 +435,8 @@ export interface MemoryQuery {
   scope?: string
   project?: string
   q?: string
+  /** v3 活跃作用域（world / topic:x / file:y / session:z）；空 = 不过滤 */
+  scopes?: string[]
   /** 直接按状态筛（优先于下面两个 include 开关）：有效 / 待审批 / 已撤销 */
   status?: string
   /** true = 只要没有项目归属的（通用 / 全局） */
@@ -457,7 +463,7 @@ export function searchMemory(q: MemoryQuery = {}): {
   legacy: number
 } {
   const all = scanEntries()
-  const hit = all.filter((r) => {
+  let hit = all.filter((r) => {
     // 2026-11-20：显式 status 优先 —— 否则「看已撤销」会被 includeRevoked=false 先筛掉
     if (q.status) {
       if (r.status !== q.status) return false
@@ -471,6 +477,10 @@ export function searchMemory(q: MemoryQuery = {}): {
     if (q.global === true && String(r.project || '').trim()) return false
     return true
   })
+  // v3 作用域过滤（2026-11-25）：给了活跃作用域才过滤；world 恒中，其余精确。
+  // 空数组 = 不过滤（不是"只留 world"）—— 没有上下文时退化为全库检索。
+  const active = activeScopes(q.scopes || [])
+  if (active.length) hit = filterByScopes(hit, active)
   // 使用强度（2026-11-24）：规划 §4.3 的 usage 因子一直空跑 —— 因为 hits30d 从来没人填。
   // 现在从 memory/usage.jsonl 读近 30 天召回次数；读不到就是空 Map（不假装 0 次）。
   let hits: Map<string, number> = new Map()

@@ -70,6 +70,18 @@ check('★★ world 恒匹配', V3.scopeMatches({ kind: 'world', value: '' }, []
 check('★★ 同作用域才匹配', V3.scopeMatches({ kind: 'topic', value: 'a' }, [{ kind: 'topic', value: 'a' }]))
 check('★★ 不同作用域不匹配（不串味）', !V3.scopeMatches({ kind: 'topic', value: 'a' }, [{ kind: 'topic', value: 'b' }]))
 check('★ activeScopes 过滤 world/非法', V3.activeScopes(['world', 'topic:a', 'nope', '']).length === 1)
+const scopeEntries = [
+  { id: 'a', scopeV3: 'world' },
+  { id: 'b', scopeV3: 'topic:fangcun-base' },
+  { id: 'c', scopeV3: 'file:E:/CODE/x.ts' },
+]
+check('★ 空活跃集 = 不过滤（不是只留 world）', V3.filterByScopes(scopeEntries, []).length === 3)
+check('★★ world 恒中 + 同作用域命中',
+  V3.filterByScopes(scopeEntries, V3.activeScopes(['topic:fangcun-base'])).map((e) => e.id).join(',') === 'a,b')
+check('★★ 不同作用域不出现（不串味）',
+  V3.filterByScopes(scopeEntries, V3.activeScopes(['file:E:/CODE/y.ts'])).every((e) => e.id !== 'c'))
+check('★ 返回副本，不原地改调用方数组',
+  (() => { const src = [...scopeEntries]; return V3.filterByScopes(src, []) !== src })())
 
 // ── ② 编辑防呆 ────────────────────────────────────────────────────
 console.log('\n-- ② 编辑防呆 --')

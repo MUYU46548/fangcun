@@ -493,6 +493,12 @@ export const MCP_TOOLS: MCPTool[] = [
         q: { type: 'string', description: 'Full-text keyword; ranked over claim / tags / evidence, and the id (e.g. D5)' },
         type: { type: 'string', description: `One of: ${MEMORY_TYPES.join(' / ')}` },
         scope: { type: 'string', description: '适用范围, e.g. 跨项目' },
+        scopes: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'v3 active scopes: world / topic:x / file:y / session:z. world always matches; '
+            + 'the rest must match exactly. Omit = no scope filtering.',
+        },
         project: { type: 'string', description: 'Project id, e.g. dsh-fangcun' },
         includeRevoked: { type: 'boolean', description: 'Include 已撤销 entries (default false)' },
         includePending: { type: 'boolean', description: 'Include 待审批 agent proposals (default false)' },
@@ -1801,6 +1807,7 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
         q: String(args.q || '').trim() || undefined,
         type: String(args.type || '').trim() || undefined,
         scope: String(args.scope || '').trim() || undefined,
+        scopes: Array.isArray(args.scopes) ? args.scopes.map((x: any) => String(x)) : undefined,
         project: String(args.project || '').trim() || undefined,
         includeRevoked: args.includeRevoked === true,
         includePending: args.includePending === true,
@@ -1858,7 +1865,7 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
           status: x.status, impact: x.impact, claim: x.claim, title: x.claim, summary: x.claim,
           confidence: x.confidence, importance: x.importance, score: x.score,
           evidencePath: x.evidencePath, legacy: x.legacy,
-          file: x.file, tags: x.tags,
+          file: x.file, tags: x.tags, scopeV3: x.scopeV3,
         })),
         next: '要原文/证据用 memory_read({file})；长证据带 anchor（如 D5）只取那一节。检索只给 claim，不塞正文。'
           + (ledgers ? ' 台账命中项用 srcPath 直接读源文件（那是一份指针，不是副本）。' : ''),
