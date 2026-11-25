@@ -40,6 +40,38 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def _console_safe(text):
+    """把控制台打不出的字符降级，别让"闸报了欠账"变成"闸自己崩了"。
+
+    2026-11-25 实测：Windows 默认控制台是 GBK（cp936），而本脚本结尾要打印
+    `✗ 有欠账：` / `✓ 没有欠账`，正文里还有 `⚠`。这三个字符 GBK 编不了 →
+    `UnicodeEncodeError: 'gbk' codec can't encode character '\\u2717'` →
+    **脚本在"该说结论"的那一行崩掉**，退出码虽然还是 1，但用户看到的是
+    traceback 而不是"还欠 42 条"。一个没人看得懂的闸等于没有闸。
+
+    只降级**打不出的那几个符号**，其余（包括中文）原样保留；
+    输出被重定向到文件/管道时编码是 utf-8，什么都不会变。
+    """
+    enc = getattr(sys.stdout, 'encoding', None) or 'utf-8'
+    try:
+        text.encode(enc)
+        return text
+    except (UnicodeEncodeError, LookupError):
+        pass
+    # 只换这三个会犯事的符号，别把整份报告 ASCII 化
+    for ch, fallback in (('\u2717', 'x'), ('\u2713', 'v'), ('\u26a0', '!')):
+        try:
+            ch.encode(enc)
+        except (UnicodeEncodeError, LookupError):
+            text = text.replace(ch, fallback)
+    return text
+
+
+def say(text=''):
+    """打印一行，经 `_console_safe` 降级。结论行一律走这里。"""
+    print(_console_safe(text))
+
+
 def run(cmd):
     """跑子命令拿输出与退出码（不看码等于没跑）。"""
     try:
@@ -119,7 +151,9 @@ def main():
     }
 
     if as_json:
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        # ⚠ 机器读的分支也一样会崩：`ensure_ascii=False` 时中文要按控制台编码写出去，
+        # 而 GBK 控制台下同样可能 Unsupported。走 say() 降级，别让 --json 变成 traceback。
+        say(json.dumps(result, ensure_ascii=False, indent=2))
         return 1 if problems else 0
 
     if check_only:
@@ -142,9 +176,9 @@ def main():
         print(f'  条目总数      {total_items}')
         print(f'  逐条处置过    {disposed if disposed is not None else "?"}（{pct:.0f}%）')
         print(f'  仍未接        {undisposed if undisposed is not None else "?"}')
-    print('\n' + ('✗ 有欠账：' if problems else '✓ 没有欠账'))
+    say('\n' + ('✗ 有欠账：' if problems else '✓ 没有欠账'))
     for p in problems:
-        print('  · ' + p)
+        say('  · ' + p)
     if problems:
         print('\n下一步：')
         print('  node scripts/audit-log-nextsteps.cjs --todo 10   # 看还欠哪些')

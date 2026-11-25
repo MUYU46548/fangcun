@@ -61,7 +61,12 @@ if total_items == 0: problems.append('NEXTSTEPS 条目总数为 0：库里明明
 if inv.get('合计', 0) == 0: problems.append('INVENTORY 合计为 0：158 张未完成卡不可能是 0，读坏了')
 print('\n'.join(problems))
 '''
-p = subprocess.run([sys.executable, '-c', stub], capture_output=True, text=True, timeout=60)
+# stub 子进程显式对齐编码，别让反例自身的环境决定死活。
+# 2026-11-25 实测：不写 encoding 时，子进程按 PYTHONIOENCODING/控制台编码写中文，
+# 父进程按默认编码猜着读 → UnicodeDecodeError，反例 ② 直接假红（连 pristine 版本也红）。
+p = subprocess.run([sys.executable, '-c', stub], capture_output=True, text=True,
+                   encoding='utf-8', errors='replace', timeout=60,
+                   env=dict(os.environ, PYTHONIOENCODING='utf-8'))
 all_out = (p.stdout or '') + (p.stderr or '')
 case('② 「全读成 0」被点名为读坏了',
      '读坏了' in all_out and '合计为 0' in all_out, all_out[:120])
