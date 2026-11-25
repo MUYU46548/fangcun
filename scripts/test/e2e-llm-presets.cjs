@@ -40,8 +40,8 @@ check('planDraft 不再 import chatWithFallback / getConfig',
   !/chatWithFallback|from '\.\/config'|getConfig/.test(planDraft))
 check('DSH 派单入口仍在（App.vue）',
   /dispatchToDsh|dispatchMessageDsh/.test(app))
-check('免责声明已抬到 v1.6（BYOK 退场版）',
-  /DISCLAIMER_VERSION = '1\.6'/.test(read('desktop/src/renderer/disclaimer.ts')))
+check('免责声明已抬到 v1.7（任务成果与模型强度条款）',
+  /DISCLAIMER_VERSION = '1\.7'/.test(read('desktop/src/renderer/disclaimer.ts')))
 
 console.log('')
 console.log(`RESULT ${pass} / ${fail}`)

@@ -104,6 +104,15 @@ onMounted(() => { void loadDispatchPrefs() })
       默认<b>关闭</b>：没打开之前，「发送给 DSH / 让 DSH 做规划 / 日志发送」全部置灰，
       插件也会拒收任何派单文件（手写、别的 agent 写、旧残留重建，一样开不出会话）。
     </div>
+    <div class="hint">
+      这一页只管<b>开不开 / 冷却 / 日上限 / 并发</b>，<b>不管权限</b>。
+      派单会话的操作权限（只读 / 工作区内修改 / 完全权限）由 DSH 决定：
+      <b>DSH 设置 → 通用 → 权限默认档</b>。默认可能是「完全权限」，第一次派单前先去 DSH 确认。
+    </div>
+    <div class="hint">
+      出厂值是<b>保守</b>的（1 个在途 / 日 3 单 / 30 秒冷却）；长程任务按需调高即可。
+      方寸<b>不会</b>自动超时、也<b>不会</b>自动杀派单会话 —— 要停请手动停，别让长任务被掐断。
+    </div>
     <label class="chk" title="打开后才会写派单文件；关闭状态下连签名派单也不会被消费">
       <input type="checkbox" v-model="dispatchDraft.enabled" />
       启用 DSH 派单（默认关闭）

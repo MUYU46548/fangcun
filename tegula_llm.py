@@ -30,8 +30,8 @@ from typing import Any, Generator, Optional
 # 与桌面端同一个数据根、同一份 config/license_ack.json；版本/正文指纹是
 # desktop/src/shared/license.ts 的镜像（desktop/test/license-gate.cjs 会比对）。
 # 未确认 = 不调用任何模型；测试旁路 FANGCUN_LICENSE_ACK=1（生产路径不设）。
-LICENSE_VERSION = "1.5"
-LICENSE_CONTENT_SHA = "093a06f44a6c"
+LICENSE_VERSION = "1.7"
+LICENSE_CONTENT_SHA = "f1cf57013cdf"
 ENV_BYPASS = "FANGCUN_LICENSE_ACK"
 
 
