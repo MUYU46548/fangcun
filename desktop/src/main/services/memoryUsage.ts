@@ -105,13 +105,19 @@ function trimIfHuge(p: string): void {
   }
 }
 
+/** 只有这三类算「召回」。core 是每轮**推送**，把它算进来会把钉住条目刷成常数（2026-11-25 · P16.1）。 */
+const RECALL_TOOLS = new Set(['search', 'read', 'briefing'])
+
 /**
  * 读回计量：近 N 天每条记忆被召回的次数。
  *
  * 「没记录」与「记了 0 次」必须分开 —— 文件不存在时返回 `started: false`，
  * 调用方据此说"计量还没开始"，而不是"N 条从没被用过"（本仓的四态混淆，栽过四次）。
+ *
+ * `recallOnly`：只算 search/read/briefing 的命中（core 注入是推送，不是召回）。
+ * 日志里仍保留 core 行（用户 2026-11-25 D3=B：core 也记），但排序不能拿它当强度。
  */
-export function readMemoryUsage(days = 30, now = Date.now()): {
+export function readMemoryUsage(days = 30, now = Date.now(), opts: { recallOnly?: boolean } = {}): {
   started: boolean
   events: number
   counts: Map<string, number>
@@ -138,6 +144,7 @@ export function readMemoryUsage(days = 30, now = Date.now()): {
     } catch {
       continue // 坏行跳过，不影响其余（坏行数量由 memory-audit 报）
     }
+    if (opts.recallOnly && !RECALL_TOOLS.has(String(ev.tool || ''))) continue
     const at = String(ev.at || '')
     const ms = Date.parse(at)
     if (!Number.isFinite(ms) || ms < cut) continue
@@ -145,7 +152,10 @@ export function readMemoryUsage(days = 30, now = Date.now()): {
     const ids: string[] = Array.isArray(ev.ids) ? ev.ids.map(String) : []
     for (const id of ids) {
       out.counts.set(id, (out.counts.get(id) || 0) + 1)
-      if (at) out.lastAt.set(id, at)
+      // lastAt 取**最大的时刻**，不是"最后一行"：日志通常追加有序，但手改/时钟跳变会把它打乱，
+      // 取最后一行会把"上次召回"算旧（R2=A 的锚点就歪了）。
+      const prev = out.lastAt.get(id)
+      if (at && (!prev || Date.parse(at) > Date.parse(prev))) out.lastAt.set(id, at)
     }
   }
   return out
@@ -159,7 +169,8 @@ export function readMemoryUsage(days = 30, now = Date.now()): {
  */
 export function hitsMap(days = 30): Map<string, number> {
   try {
-    return readMemoryUsage(days).counts
+    // 排序只认「召回」，不认 core 推送（2026-11-25 · P16.1：否则钉住 11 条永远最高分）
+    return readMemoryUsage(days, Date.now(), { recallOnly: true }).counts
   } catch {
     return new Map()
   }

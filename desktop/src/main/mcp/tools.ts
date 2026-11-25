@@ -21,7 +21,7 @@ import { checkIntake } from '../services/intake'
 import { archForProject } from '../services/projectArch'
 // 记忆层（2026-11-17）：暮雨「方寸要管记忆，当 DSH 的记忆层」。
 // 读口直接读源文件；写口只写 memory/，**永远不碰 task-data/**（塞进去会被 parseTask 当任务卡扫）。
-import { searchMemory, readMemory, memoryOverview, memoryBriefing, memoryCore, createMemory, MEMORY_TYPES, MEMORY_CORE_BUDGET, coreBudget, searchLedgers } from '../services/memory'
+import { searchMemory, readMemory, memoryOverview, memoryBriefing, memoryCore, createMemory, organizeMemories, MEMORY_TYPES, MEMORY_CORE_BUDGET, coreBudget, searchLedgers } from '../services/memory'
 import { getPref } from '../services/prefs'
 import { generatePlanDraft } from '../llm/planDraft'
 import { buildPlanDraftInputFromDisk, buildPlanDraftInputFromDiskWithRepo } from '../llm/planDraftInput'
@@ -597,6 +597,21 @@ export const MCP_TOOLS: MCPTool[] = [
         },
       },
       required: ['project'],
+    },
+  },
+  {
+    name: 'memory_organize',
+    description: 'READ-ONLY. Build the 方寸 memory 「整理包」: recent execution logs + finished/rejected cards as '
+      + 'candidate sources, plus the hard rules for turning them into memories. It does NOT call a model and writes '
+      + 'NOTHING — you read the package, then call memory_write per candidate (always 待审批). Use at the end of a '
+      + 'piece of work, or when the user asks to 整理记忆: write at most 8 candidates, skip anything without a '
+      + '[source] id, and never duplicate a memory that fangcun_memory_search already returns.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project id, e.g. fangcun-base (omit for all projects)' },
+        limit: { type: 'integer', description: 'Max candidate sources (default 24, max 24)' },
+      },
     },
   },
   {
@@ -1996,6 +2011,30 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
             ? `其中 ${overdue.length} 条已过复核周期（>180 天）：${overdue.map((x) => x.id + ' @ ' + x.review).join('、')}`
               + ' —— 请向用户确认它还成立吗，不要当成现行规矩直接用。'
             : '要原文/证据用 memory_read({file})；简报只给 claim，不塞正文。'),
+      }, null, 2) }] }
+    }
+
+    case 'memory_organize': {
+      const off = memoryOff()
+      if (off) return off
+      const r = organizeMemories({
+        project: String(args.project || '').trim(),
+        limit: Number(args.limit) || 24,
+      })
+      if (!r.ok) {
+        return { content: [{ type: 'text', text: JSON.stringify({
+          ok: false,
+          error: r.error || '没有可整理的来源',
+          hint: '最近没有执行日志或已完成任务可整理 —— 这跟「记忆是空的」不是一回事。',
+        }, null, 2) }], isError: true }
+      }
+      return { content: [{ type: 'text', text: JSON.stringify({
+        ok: true,
+        mode: r.mode,
+        count: r.count,
+        // 包本身已经是给模型读的 Markdown：原样给，不摘要（摘要会丢来源与原文）
+        prompt: r.prompt,
+        sources: r.sources.map((s) => ({ id: s.id, project: s.project, title: s.title })),
       }, null, 2) }] }
     }
 

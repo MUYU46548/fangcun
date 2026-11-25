@@ -894,7 +894,13 @@ export function readMemory(file: string, maxChars: number = MEMORY_BUDGETS.read,
   }
   try {
     const raw = fs.readFileSync(real, 'utf-8')
-    const { body } = parseFrontmatter(raw)
+    const { fm, body } = parseFrontmatter(raw)
+    // 记一次「召回」（2026-11-25 · P16.1）：read 也是召回。
+    // core 注入仍写日志（D3=B），但不进 hitsMap —— 排序只认 search/read/briefing。
+    try {
+      const memId = String((fm as any).id || '').trim()
+      if (memId) recordMemoryUsage('read', [memId], '')
+    } catch { /* 静默：计量失败不许挡住读 */ }
     const claim = oneLine(section(body, '记忆') || titleAndSummary(body).title)
     const evidence = lastSection(body, '证据')
     let text = raw
