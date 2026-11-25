@@ -7301,6 +7301,25 @@
       sectTitles().length === 1 && sectTitles()[0].indexOf('备份与恢复') >= 0, JSON.stringify(sectTitles()))
     check('★ 当前分类写进真身 prefs（fc_settings_tab=backup）—— 下次打开还停在这页',
       window.__fcTest.prefs().fc_settings_tab === 'backup', JSON.stringify(window.__fcTest.prefs().fc_settings_tab))
+    // ★★ 2026-11-25（卡 task-20261015-034 · 问卷《方寸-首战前置-旧账五道》L1 的验收线）
+    //   暮雨选了「我自己的爱用 git，一键无脑备份…可追溯可回滚」，那条的验收线写的是：
+    //   「选定后必须**写进产线**：谁是主通道、出故障时先恢复哪条；未选中的不删，但要标'备用/未启用'」。
+    //   此前界面上只有四条**并列**的通道说明，没有一句说"主通道是哪个、先恢复哪条" ——
+    //   等于把"选哪个"又推回给用户，而"选过了"这件事只在问卷里。
+    {
+      const guide = ($('.bk-guide') || {}).textContent || ''
+      // ⚠ 2026-11-25：这条的第一版**是假绿** —— 正则写成 `/主通道是\s*Git|主通道.*Git/`，
+      //   后半个分支会从「主通道」一路吃到文末任意一处「Git」（教程第 4 条本来就有「Git 通道」），
+      //   于是把主语改成「主通道未定」照样 PASS。反例自证当场抓出。
+      //   现在只认**紧挨着的那句**：主通道 (是|=) Git。
+      check('★★ 备份教程里写明「主通道是 Git」（选型不能只留在问卷里）',
+        /主通道\s*(是|=|为)\s*Git/.test(guide), guide.replace(/\s+/g, ' ').slice(0, 120))
+      check('★★ 写明出故障时的恢复顺序（① Git → ② 备份历史 → ③ 云端/restic）',
+        /恢复顺序/.test(guide) && /Git/.test(guide) && /备份历史/.test(guide),
+        guide.replace(/\s+/g, ' ').slice(0, 160))
+      check('★★ 未选中的通道标明是「备用」（不是删掉，也不是并列）',
+        /备用/.test(guide), guide.replace(/\s+/g, ' ').slice(0, 160))
+    }
 
     check('能切到“项目”', clickNav('项目'))
     await sleep(250)
