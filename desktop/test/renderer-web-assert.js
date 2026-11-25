@@ -2607,6 +2607,32 @@
           'placeholders=' + $$('#policy-modal input, #policy-modal textarea')
             .map((t) => (t.placeholder || '').slice(0, 12)).join('|'))
 
+        // ── 2026-11-25：项目事实必须有**能写的入口** ──────────────────────
+        //   暮雨：「方针里根本没有可以粘贴的地方，没有项目事实这一段。**这本身又是一个缺陷**。」
+        //   这一节早就在被消费（read_policy / _build_prompt 随任务书读它），界面却没有写口 ——
+        //   人只能去改磁盘上的 .md。所以钉两条：① 弹窗里真有这一段；② 保存时真的把它发出去。
+        //   ⚠ 只钉"有个框"是不够的：字段没接上保存链路时，框还在、内容却不落盘 —— 那正是原缺陷。
+        check('★★ 方针弹窗里有「项目事实」这一段（此前只能去改磁盘上的 .md）',
+          ($('#policy-modal') || {}).textContent
+            ? ($('#policy-modal').textContent.indexOf('项目事实') >= 0)
+            : false,
+          (($('#policy-modal') || {}).textContent || '').slice(0, 80))
+        {
+          const factBox = $$('#policy-modal textarea')
+            .find((el) => /工程层面的硬事实/.test(el.closest('label') ? el.closest('label').textContent : '')
+              || /主进程所有 IPC/.test(el.placeholder || ''))
+          check('★★ 项目事实有独立的输入框（不是塞在别的框里）', !!factBox,
+            'textareas=' + $$('#policy-modal textarea').length)
+          // ⚠ 这里**只填值、不点保存** —— 保存由下面那段统一点一次（它原本就在验 coreVerdict）。
+          //   第一版我在这里自己点了一次，结果把下面那条"coreVerdict 字段仍在"带红了：
+          //   两次保存 + 取 .pop() 会读到后面那次。**一个动作只点一次**。
+          if (factBox) {
+            factBox.value = '断言用事实：这一行必须被发出去'
+            factBox.dispatchEvent(new Event('input', { bubbles: true }))
+            factBox.dispatchEvent(new Event('change', { bubbles: true }))
+          }
+        }
+
       // ── 使命草稿（2026-11-14 · 长 Loop P1-2）─────────────────────────────
       // 14 个项目里 7 个使命是空的，但其中 5 个的 README 里已经写清了 ——
       // 病根是"方寸从没去读项目现实"。
@@ -2635,6 +2661,13 @@
         check('★★ 保存时 coreVerdict **字段仍在**（拆界面 ≠ 抹掉已写的判词）',
           sent && args[0] && 'coreVerdict' in args[0],
           JSON.stringify(args[0] && { has: 'coreVerdict' in args[0], v: String(args[0].coreVerdict || '').slice(0, 30) }))
+        // ★★★ 2026-11-25：项目事实必须**真的发出去**（复用上面这一次保存，不另点）。
+        //   只钉"弹窗里有个框"是不够的 —— 字段没接上保存链路时，框还在、内容却不落盘，
+        //   那正是用户报的原缺陷（"没有可以粘贴的地方"）。所以钉的是**载荷**。
+        check('★★★ 保存时真的把「项目事实」发出去（接在保存链路上，不是只有个框）',
+          sent && args[0] && typeof args[0].projectFacts === 'string'
+            && String(args[0].projectFacts).indexOf('断言用事实') >= 0,
+          JSON.stringify(args[0] && { projectFacts: String(args[0].projectFacts || '').slice(0, 40) }))
         await waitFor(() => !$('#policy-modal'), 2000, '弹窗关闭')
       }
     }

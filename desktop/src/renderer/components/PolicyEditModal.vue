@@ -47,6 +47,16 @@
       <Button variant="ghost" size="tool" type="button" @click="ctl.stampStructureMap()" title="把“最后核实”那行改成今天 —— 你刚确认过内容仍然成立">✓ 标记今天已核实</Button>
       <span class="pf-map-tip">改动只写方针卡；派活时它会随任务书下发（不内联全文，只指路）</span>
     </div>
+    <!-- 2026-11-25 暮雨：「方针里根本没有可以粘贴的地方，**没有项目事实这一段**。这本身又是一个缺陷。」
+         这一节**早就在被消费**（read_policy / _build_prompt 随任务书读它），
+         但界面从来没有写口 —— 人只能去改磁盘上的 .md。有消费、无入口，就是这个样子。 -->
+    <label>
+      项目事实（机器/工程层面的硬事实，一行一条）
+      <span class="pf-label-hint">写进去会随任务书下发给 agent；空着就不写这一节（不留空标题，那会让人以为"填了但没保存"）</span>
+    </label>
+    <textarea v-model="ctl.policyEdit_.projectFacts"
+      placeholder="例：主进程所有 IPC 都经 guarded-ipc.ts 写进日志（写日志不会抛错）&#10;例：工具函数一律放进 desktop/src/shared/，不要写在界面组件里">
+    </textarea>
     <div class="acts">
       <Button variant="ghost" size="tool" @click="ctl.closePolicyEditor()">取消</Button>
       <button class="pri" @click="ctl.savePolicyEdit">保存方针卡</button>

@@ -97,6 +97,42 @@ function main() {
         && (a3.match(/^##\s*结构地图\s*$/gm) || []).length === 1
     })())
 
+    // ── A4d（2026-11-25）：项目事实从"只被 preserveSections 兜着"提成**正式字段** ──
+    //   暮雨：「方针里根本没有可以粘贴的地方，没有项目事实这一段。这本身又是一个缺陷。」
+    //   这一节**早就在被消费**（read_policy / _build_prompt 随任务书读它），但没有写口。
+    //   四种状态各钉一条 —— 少一条就会出现"清不掉"或"静默清空"。
+    //   ⚠ 用**独立项目**，不碰上面 A5/A6 那条 pid 的使命（第一版就是这么把 A6 带红的）。
+    {
+      const fp = 'facts-proj'
+      const fdir = path.join(TEST_ROOT, 'policies')
+      fs.writeFileSync(path.join(fdir, fp + '.md'), [
+        `# 项目方针：${fp}`, '', `## 使命`, `事实项目`, '',
+        `## 项目事实`, '- 事实A', '- 事实B', '',
+        `## 现场手写`, '这段应当被原样保留', '',
+      ].join('\n'), 'utf-8')
+      const read = () => fs.readFileSync(path.join(fdir, fp + '.md'), 'utf-8')
+
+      check('A4d-1 getPolicy 读得到「项目事实」（不是只有 preserveSections 知道它）',
+        /事实A/.test(String((pol.getPolicy(fp) || {}).projectFacts || '')),
+        JSON.stringify((pol.getPolicy(fp) || {}).projectFacts))
+
+      pol.savePolicy({ projectId: fp, mission: 'x', goal: '', scenario: '', boundary: '', projectFacts: '- 事实C：新的' })
+      check('A4d-2 传 projectFacts → 写进去并覆盖旧的',
+        read().includes('事实C') && !read().includes('事实A'), read().slice(0, 200))
+      check('A4d-3 「## 项目事实」恰好一节（不许重复追加）',
+        (read().match(/^##\s*项目事实\s*$/gm) || []).length === 1,
+        String((read().match(/^##\s*项目事实\s*$/gm) || []).length))
+
+      pol.savePolicy({ projectId: fp, mission: 'y', goal: '', scenario: '', boundary: '' })
+      check('A4d-4 不传 projectFacts → 沿用文件里已有的（老调用方不许清空它）', read().includes('事实C'))
+
+      pol.savePolicy({ projectId: fp, mission: 'z', goal: '', scenario: '', boundary: '', projectFacts: '' })
+      check('A4d-5 传空字符串 → 整节不写（不留空标题）', !/^##\s*项目事实\s*$/m.test(read()), read().slice(0, 200))
+      check('A4d-6 清空后未知节（现场手写）仍在（没顺手吃掉别人）', read().includes('## 现场手写'))
+      check('A4d-7 清空后 getPolicy 给空串而不是 undefined',
+        (pol.getPolicy(fp) || {}).projectFacts === '', JSON.stringify((pol.getPolicy(fp) || {}).projectFacts))
+    }
+
     // A5（029 改）：全新骨架**必须带**“结构地图”节标题 —— 缺口可见（与章程缺口同一机制）；
     //   同时“项目事实”仍不得凭空冒出（它只走保留，不靠生成）。
     pol.savePolicy({ projectId: 'fresh-proj', mission: 'm', goal: 'g', scenario: 's', boundary: 'b', updatedAt: '' })
@@ -209,8 +245,18 @@ finally:
   const pySrc = fs.readFileSync(path.join(REPO, 'tegula/core.py'), 'utf-8')
   const tsSrc = fs.readFileSync(path.join(REPO, 'desktop/src/main/services/policies.ts'), 'utf-8')
   check('C1 Python 侧读“项目事实”', pySrc.includes('section("项目事实")') || pySrc.includes("section('项目事实')"))
-  check('C2 TS 侧保留列表不含“项目事实”（它走保留而非重建）',
-    tsSrc.includes("known.includes(h.name)") && !tsSrc.includes("'项目事实'"))
+  // ⚠ 2026-11-25 **改判**（原来这条写的是"TS 侧保留列表**不含**项目事实 —— 它走保留而非重建"）：
+  //   那个设计让「项目事实」**有消费、无入口** —— read_policy / _build_prompt 会读它随任务书下发，
+  //   而界面从来没有写口，人只能去改磁盘上的 .md。暮雨原话：
+  //   「方针里根本没有可以粘贴的地方，没有项目事实这一段。**这本身又是一个缺陷**。」
+  //   所以现在它和结构地图 / 核心判词一样是**正式字段**：进 known 列表、显式写、界面能改。
+  //   ⚠ 但"未知节不许被吃掉"这条**没有放宽**（见 C3 与 A4/A4d-6）。
+  check('C2 TS 侧把「项目事实」提成正式字段（进 known + 读 + 显式写）',
+    tsSrc.includes("'项目事实'")
+    && /section\('项目事实'\)/.test(tsSrc)
+    && /## 项目事实/.test(tsSrc))
+  check('C2b 未知节仍然走通用保留（不是白名单）',
+    tsSrc.includes('known.includes(h.name)') && tsSrc.includes('preserveSections'))
   check('C3 TS 侧结构地图同样受保护（通用保留，非白名单）', tsSrc.includes('preserveSections'))
   // C4/C5（029）：结构地图两侧都认得 + 骨架必须带节标题（缺口可见）
   check('C4 TS 侧会读“结构地图”节（section(\'结构地图\')）', /section\('结构地图'\)/.test(tsSrc))

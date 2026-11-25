@@ -5160,17 +5160,19 @@ async function fillMissingCharters() {
 
 async function openPolicyEdit(projectId: string) {
   const proj = projects.value.find(p => p.id === projectId)
-  let mission = '', goal = '', scenario = '', boundary = '', structureMap = '', coreVerdict = ''
+  let mission = '', goal = '', scenario = '', boundary = '', structureMap = '', coreVerdict = '', projectFacts = ''
   try {
     const r = await window.tegula.policyGet(projectId)
     // 029：结构地图一并读进来 —— 此前只读四字段，界面上**根本看不到**结构地图（用户“找不到在哪里”）
     // 2026-11-12：核心判词同理 —— 不读进来，弹窗每次打开都是空框，
     //   人以为自己没写过（或者以为写了没保存）。读不全就是静默丢。
-    if (r.ok && r.policy) ({ mission, goal, scenario, boundary, structureMap, coreVerdict } = r.policy)
+    // 2026-11-25：项目事实同理（用户：「没有项目事实这一段，这本身又是一个缺陷」）。
+    if (r.ok && r.policy) ({ mission, goal, scenario, boundary, structureMap, coreVerdict, projectFacts } = r.policy)
   } catch { /* 未立则空表单 */ }
   policyEdit_.value = {
     id: projectId, name: proj?.name || projectId, mission, goal, scenario, boundary,
     structureMap: structureMap || '',
+    projectFacts: projectFacts || '',
     // 骨架提示不算判词：判定收在 shared/coreVerdict#isUnjudged（此前这里自己写了一正则，
     // 与 planDraftInput.ts 那份重复）
     coreVerdict: isUnjudged(coreVerdict) ? '' : (coreVerdict || ''),
@@ -5221,6 +5223,9 @@ async function savePolicyEdit() {
       projectId: e.id, mission: e.mission, goal: e.goal, scenario: e.scenario,
       boundary: e.boundary, structureMap: e.structureMap,
       coreVerdict: String(e.coreVerdict ?? ''),
+      // 2026-11-25：项目事实必须一起发。传 '' = 人把这一节清空了（主进程会整节不写），
+      //   传 undefined = 沿用旧值 —— 所以这里**永远传字符串**，否则"清空"这个动作做不到。
+      projectFacts: String(e.projectFacts ?? ''),
     })
     if (r.ok) {
       showToast('方针卡已保存', 'success')

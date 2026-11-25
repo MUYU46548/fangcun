@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Fangcun Desktop — 方针区（项目方针卡）
  *
  * 每个活跃项目一张方针卡：使命 / 当前目标 / 应用场景 / 方针边界。
@@ -20,6 +20,21 @@ export interface Policy {
    *  读取时一定给字符串；**写入时可选** —— 老调用方（如一键补骨架）不传这个字段，
    *  那时 savePolicy 会沿用文件里已有的内容，而不是当成清空。 */
   structureMap?: string
+  /**
+   * 「项目事实」节正文（2026-11-25 · 暮雨：「**方针里根本没有可以粘贴的地方，没有项目事实这一段。
+   * 这本身又是一个缺陷**」）。
+   *
+   * 这一节**早就在被消费**：`read_policy(core.py)` 与 `_build_prompt` 会读它随任务书下发
+   * （见下面 `preserveSections` 的 2026-09-25 注释），但**界面从来没有给它写口** ——
+   * 只有 `preserveSections` 兜着不让它被覆盖，人想改只能去动磁盘上的 .md。
+   *
+   * 有消费、无入口 = 用户看着产品说"这句它明明在用，我却改不了"。
+   * 所以按 029 给结构地图做过的同一套，把它提成正式字段：读得到、看得见、改得了。
+   *
+   * 与 `coreVerdict` 同一套 undefined / '' 纪律：
+   *   `undefined` = 沿用文件里已有的（老调用方）；`''` = 人显式清空 → 这一节不写。
+   */
+  projectFacts?: string
   /**
    * 核心判词（2026-11-12 暮雨：某个已上线项目那两间房纯属垃圾，
    * 「连整个游戏的玩法本身可能都有问题，撑不起那么大的内容量」）。
@@ -96,6 +111,9 @@ export function getPolicy(projectId: string): Policy | null {
       boundary: section('方针边界'),
       structureMap: section('结构地图'),
       coreVerdict: section('核心判词'),
+      // 2026-11-25：项目事实也要读出来 —— 不读，弹窗每次打开都是空框，
+      //   人会以为自己没写过（或者以为写了没保存）。读不全就是静默丢（与 029 / 核心判词同一条纪律）。
+      projectFacts: section('项目事实'),
       updatedAt: grab('更新') || '',
     }
   } catch {
@@ -113,7 +131,7 @@ function preserveSections(projectId: string, nextFour: string[]): string {
   if (!fs.existsSync(p)) return ''
   try {
     const raw = fs.readFileSync(p, 'utf-8')
-    const known = ['使命', '当前目标', '应用场景', '方针边界', '结构地图', '核心判词']
+    const known = ['使命', '当前目标', '应用场景', '方针边界', '结构地图', '核心判词', '项目事实']
     const kept: string[] = []
     const re = /^## (.+?)\s*$/gm
     let m: RegExpExecArray | null
@@ -142,6 +160,16 @@ export function savePolicy(p: Policy): { ok: boolean; path: string } {
   const existingMap = (getPolicy(p.projectId)?.structureMap || '').trim()
   const passedMap = (p.structureMap === undefined || p.structureMap === null) ? '' : String(p.structureMap).trim()
   const mapBody = passedMap || existingMap || SKELETON_STRUCTURE_MAP_BODY
+  // 2026-11-25：项目事实（这一节被 read_policy / _build_prompt 消费，但此前**没有写口**）。
+  //   三态，与核心判词同一套纪律，但**没有骨架**（空就是没有事实，不该塞占位文字）：
+  //     undefined = 老调用方没传 → 沿用文件里已有的；
+  //     ''        = 人显式清空   → 这一节整节不写（不留空标题，那会让人以为"有但没填"）；
+  //     非空       = 原样写入。
+  const existingFacts = (getPolicy(p.projectId)?.projectFacts || '').trim()
+  const factsBody = (p.projectFacts === undefined || p.projectFacts === null)
+    ? existingFacts
+    : String(p.projectFacts).trim()
+  const factsSection = factsBody ? ['## 项目事实', factsBody, ``] : []
   const tail = preserved.trim()
   const content = [
     `# 项目方针：${p.projectId}`,
@@ -179,6 +207,7 @@ export function savePolicy(p: Policy): { ok: boolean; path: string } {
       return passed || coreVerdictSkeleton()
     })(),
     ``,
+    ...factsSection,
     tail,
     ``,
   ].join('\n')
