@@ -20,18 +20,17 @@ import { collectWasteLedger } from '../usage/ledger'
 import { deriveWasteInsight, type WasteInsight, type WasteLedger } from '../../shared/waste'
 import { evaluateStageGate } from '../../shared/stageGate'
 import { repoOfProject } from '../services/tripBoard'
+import { projectIdOfPlanFile as plansProjectIdOfPlanFile } from '../data/plans'
 
 /**
  * `plans/<项目id>.md` → 项目 id。
  *
- * 为什么按文件名反查而不是把项目 id 读进 `PlanDoc`：计划卡是**用户手写的 Markdown**，
- * 里面本来就没有"我是哪个项目"这个字段；而文件名是 `plans:get` / `stage_plan_*` /
- * MCP 全都依赖的既有约定（`listPlanFiles` 也是按 `.md` 文件名列）。
- * 在数据层加一个字段是结构改动，这里只需要一个纯函数。
+ * 2026-11-25 **改判**：原来这里自己 split 一遍，理由是"在数据层加字段是结构改动"。
+ * 但作战计划页要"按项目筛选"时，手里只有文件名 —— 于是又得在这里之外再写一遍同样的 split。
+ * 同一口径三处实现，正是本仓反复治的病，所以改成**复用 `data/plans.ts` 的那一份**
+ * （`PlanDoc.project` 现在由它填）。
  */
-function projectIdOfPlanFile(file: string): string {
-  return String(file || '').replace(/\\/g, '/').split('/').pop()!.replace(/\.md$/i, '')
-}
+const projectIdOfPlanFile = (file: string): string => plansProjectIdOfPlanFile(file)
 
 export type StageConclusion = '通过' | '未过' | '未开工'
 

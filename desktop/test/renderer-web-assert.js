@@ -3415,6 +3415,16 @@
           after.length === 1 && /第二个项目/.test(after[0]), 'after=' + after.join(' | '))
         check('   反例自证：筛之前确实两张都在（所以“只剩一张”是筛出来的，不是本来就没有）',
           after.length < 2)
+        // 2026-11-25：**记住选择**（暮雨问卷 `方寸-p0-1-规划与决策-三处岔口` 选 A 的验收线：
+        //   "筛完没把选择写进 prefs（重开就丢）= 违约"）。原来 `projFilter` 是 `ref('')`，
+        //   每次进门都回到全部 —— 筛了等于白筛。
+        check('★★ 选完的项目写进 UI 偏好（重开还记得，不用每次再筛一遍）',
+          (() => {
+            try {
+              return JSON.parse(String(localStorage.getItem('fc_plan_project') || 'null')) === '第二个项目'
+            } catch { return false }
+          })(),
+          'pref=' + String(localStorage.getItem('fc_plan_project')))
         const allChip = chipOf('全部')
         if (allChip) { allChip.click(); await sleep(300) }
         check('★ 点“全部”回到两张（筛选是可逆的，不是单程）',

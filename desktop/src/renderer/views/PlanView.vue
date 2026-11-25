@@ -369,11 +369,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import Button from '../components/ui/Button.vue'
 import { useWasteLedger } from '../composables/useWasteLedger'
 import { linesToList, listToLines, missingOf, normalizeCopyRows, parseCopyTable, tableToText } from '../../shared/draftEdit'
 import { explainCriteria, foldPlan } from '../../shared/criteriaExplain'
+import { readUiPref, saveUiPref } from '../prefs'
 import { formatEvidence, planSummary } from '../../shared/evidenceText'
 import { toPlain } from '../../shared/plain'
 
@@ -433,15 +434,34 @@ function projectOf(doc: Doc): string {
  *     而"项目是天然的隔离单元"（他原话）—— 阶段卡尤其如此，不同项目的 P0 压根不该并排看。
  * 默认仍是"全部"：加筛选不改默认视图，这是老规矩（旧视图永远是默认）。
  */
-const projFilter = ref('')
+/**
+ * 筛选的**选择要记住**（2026-11-25 补 · 暮雨在问卷 `方寸-p0-1-规划与决策-三处岔口` 选 A：
+ * 「顶部下拉，记住上次选择」，验收线写明"筛完没把选择写进 prefs（重开就丢）= 违约"）。
+ *
+ * ⚠ 这里仍是**顶部一排 chip** 而不是 `<select>`：筛选 11-05 就做出来了（上面那段注释），
+ *   把能用的东西改成一个下拉纯属折腾。用户选 A 的要害是"顶部 + 记住选择"，
+ *   而"记住"原来确实没有 —— `ref('')` 每次进门都回到全部。
+ */
+const PLAN_PROJECT_KEY = 'fc_plan_project'
+const projFilter = ref<string>(readUiPref<string>(PLAN_PROJECT_KEY, ''))
+watch(projFilter, (v) => saveUiPref(PLAN_PROJECT_KEY, v))
+
 const planProjects = computed(() => {
   const s = new Set<string>()
   for (const d of docs.value) { const p = projectOf(d); if (p) s.add(p) }
   return [...s]
 })
-const visibleDocs = computed(() =>
-  projFilter.value ? docs.value.filter((d) => projectOf(d) === projFilter.value) : docs.value)
-
+/**
+ * ⚠ 记住的选择**不能把人筛进死胡同**：
+ * 上次选的项目后来没计划卡了（改名 / 删卡），chip 不再渲染，
+ * 而 `projFilter` 还留着那个值 → 整页空白且**没有按钮可点回"全部"**。
+ * 所以"这个项目不在当前清单里"一律当"全部"处理。
+ */
+const visibleDocs = computed(() => {
+  const p = projFilter.value
+  if (!p || !planProjects.value.includes(p)) return docs.value
+  return docs.value.filter((d) => projectOf(d) === p)
+})
 /**
  * 已完成阶段默认折叠（2026-11-08 暮雨第 8 条）。
  *

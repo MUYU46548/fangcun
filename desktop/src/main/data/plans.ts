@@ -52,11 +52,26 @@ export interface PlanStage {
 
 export interface PlanDoc {
   file: string
+  /**
+   * 计划属于哪个项目 = **文件名去 `.md`**（2026-11-25 补）。
+   *
+   * 这个约定本来就在用了（`selfCheck.ts` 的 `projectIdOfPlanFile`、`stage_plan_*`、MCP 读口
+   * 全都靠文件名），但**从来没暴露到 doc 上** —— 于是作战计划页想"按项目筛选"时，
+   * 界面手里只有一个文件名，只能自己再切一次字符串（第二份实现，正是本仓一直治的病）。
+   *
+   * 暮雨原话（`log_20261103050445_24h3se`）：「项目是天然的隔离单元，是否支持按项目筛选？」
+   */
+  project: string
   title: string
   stages: PlanStage[]
   /** 修订记录原文行 */
   revision: string[]
   raw: string
+}
+
+/** 计划文件名 → 项目 id（唯一一份实现；别再在别处 split 一遍） */
+export function projectIdOfPlanFile(file: string): string {
+  return String(file || '').replace(/\\/g, '/').split('/').pop()!.replace(/\.md$/i, '')
 }
 
 const STAGE_HEAD = /^###\s+(P\d+)\s*[·・:：]?\s*(.*)$/
@@ -194,7 +209,7 @@ function readPlanFromRaw(p: string, name: string): PlanDoc | null {
       if (/^-\s+/.test(t.trim())) revision.push(t.trim())
     }
   }
-  return { file: name, title, stages, revision, raw }
+  return { file: name, project: projectIdOfPlanFile(name), title, stages, revision, raw }
 }
 
 export type PlanAction = 'pass' | 'reject' | 'amend'
