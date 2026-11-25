@@ -2917,6 +2917,95 @@ async function main() {  console.log('== 渲染层真实点击 e2e ==')
       !!expandBtn && (blocksNow >= 3),
       JSON.stringify({ expanded, stageOpened, blocksNow }))
     await shot('04-作战计划-已完成折叠')
+
+    // ⑤（2026-11-25 · 卡 `p0-1 收口 · 规划与决策` 判据 ③）：**真点击**验「推进这一格」与「打回」
+    //
+    // 卡里原话：「`stageGate` 有数据层没界面 —— **这个说法今天被推翻了**……界面入口是有的，
+    //   真正缺的是**没有任何一次真点击验过它**（`e2e-plan-tab.cjs` 跑的是渲染层假 preload）。
+    //   所以这条要改成「真机点一次推进/打回」的验收项。」
+    //
+    // ⚠ 先点「⚙ 跑判据」再点推进：`PlanView.advance()` 在没跑过判据时会 `confirm(...)`，
+    //   而真 Electron 里 confirm 是**模态框**，会把自动化整条卡死（不是断言失败，是跑不动）。
+    //   这也是产品本来的用法顺序，正好一起验了。
+    {
+      const nAdvBefore = await js(`window.__fcTest.calls().filter(c => c.name === 'plansAdvance').length`)
+      const nVerBefore = await js(`window.__fcTest.calls().filter(c => c.name === 'plansVerdict').length`)
+
+      // ① 跑判据（不写盘）→ ② 推进
+      const ranChecks = await js(`(() => {
+        const b = document.querySelector('.plan-run-checks')
+        if (!b || b.disabled) return false
+        b.click(); return true
+      })()`)
+      await sleep(900)
+      const clicksChecks = await js(`window.__fcTest.calls().filter(c => c.name === 'plansChecks').length`)
+
+      const advTarget = await js(`(() => {
+        const b = document.querySelector('.plan-run-advance')
+        if (!b || b.disabled) return ''
+        const st = b.closest('.plan-stage')
+        const key = st ? (st.getAttribute('data-stage') || '') : ''
+        b.click()
+        return key
+      })()`)
+      await sleep(1200)
+      const advCall = await js(`(() => {
+        const c = window.__fcTest.calls().filter(x => x.name === 'plansAdvance').slice(-1)[0]
+        return c ? c.args[0] : null
+      })()`)
+      const advUi = await js(`(() => {
+        // 只认推进这一格的**回执**：页面消息条（.plan-msg）与结果块（.plan-run / .plan-run-advanced）。
+        // ⚠ 别把 .plan-verdict 算进来 —— 那是"通过 · 日期"，与这次推进无关（第一版选错了，假绿反着来）。
+        const m = document.querySelector('.plan-msg, .plan-run, .plan-run-advanced')
+        return m ? (m.textContent || '').trim().slice(0, 80) : ''
+      })()`)
+      const [advFile, advStage] = String(advTarget || '').split('::')
+      check('★★★ 真点击「▶ 推进这一格」→ 真的走到 plansAdvance（不是只改了本地状态）',
+        !!advTarget && !!advCall
+          && String(advCall.file || '') === advFile
+          && String(advCall.stageId || '') === advStage,
+        JSON.stringify({ ranChecks, clicksChecks, advTarget, advCall }))
+      check('★★★ 推进后界面说得出结果（写进"完成" / 被闸门打回，二选一，不许什么都不说）',
+        /已写成|判据没过|没推进|自检/.test(String(advUi || '')),
+        JSON.stringify({ advUi, nAdvBefore }))
+
+      // ③ 打回：点「↩ 打回」→ 弹文本框 → 必须写理由才能提交
+      const rejectOpened = await js(`(() => {
+        const st = [...document.querySelectorAll('.plan-stage')].find(x => {
+          const b = x.querySelector('.plan-act-reject')
+          return b && !b.disabled
+        })
+        if (!st) return false
+        st.querySelector('.plan-act-reject').click()
+        return true
+      })()`)
+      await sleep(500)
+      const typed = await js(`(() => {
+        const ta = document.querySelector('.plan-text .plan-ta')
+        if (!ta) return ''
+        ta.value = 'E2E 打回理由：判据不成立，请补充实际值'
+        ta.dispatchEvent(new Event('input', { bubbles: true }))
+        ta.dispatchEvent(new Event('change', { bubbles: true }))
+        return ta.value
+      })()`)
+      await sleep(300)
+      const submitted = await js(`(() => {
+        const b = document.querySelector('.plan-text-acts .pri')
+        if (!b || b.disabled) return false
+        b.click(); return true
+      })()`)
+      await sleep(1000)
+      const verCall = await js(`(() => {
+        const c = window.__fcTest.calls().filter(x => x.name === 'plansVerdict').slice(-1)[0]
+        return c ? c.args[0] : null
+      })()`)
+      check('★★★ 真点击「↩ 打回」→ 写理由 → 真的走到 plansVerdict(action=reject) 且理由被带出去',
+        rejectOpened && !!typed && submitted && !!verCall
+          && String(verCall.action || '') === 'reject'
+          && String(verCall.text || '').indexOf('E2E 打回理由') >= 0,
+        JSON.stringify({ rejectOpened, submitted, verCall, nVerBefore }))
+      await shot('04b-作战计划-推进与打回')
+    }
     // ⚠ 摆法是持久化偏好：不切回项目墙，后面「项目卡片 / 12 页签遮罩」那批断言
     //    会跑在作战计划页上，凭空红一片（2026-11-08 实测：连红 4 条）
     await js(`(() => {
