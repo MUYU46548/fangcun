@@ -376,6 +376,23 @@ export function buildContextPack(projectId: string, opts: { maxTasks?: number; m
   }
   out.push('')
 
+  // ── ⑤b 被驳回、还没人处理的卡（AI 自己捡；人永远不看返工台）──────────
+  // 2026-11-26 用户：「人不用看返工台，永远不用」「AI 直接读驳回的卡开工（还要有限）」。
+  // 以前驳回卡只进「体检」面板给用户看 —— 用户不做，等于丢失。
+  const rejected = tasks.filter((t: any) => String(t?.fm?.status || '') === '驳回')
+  if (rejected.length) {
+    out.push(`## 5b. 被驳回的卡（${rejected.length} 张 · AI 自己捡，人永远不看返工台）`)
+    out.push('每轮最多处理 **2 张**：能重做的用 `fangcun_write` move 回「进行中」并直接开工；')
+    out.push('判定方向已错（驳回理由里写「没必要做 / 方向错 / 大后期」）→ move 到「已取消」，并在卡正文补一句处置理由。不要等用户。')
+    for (const t of rejected.slice(0, 3)) {
+      const fm: any = t?.fm || {}
+      const why = String(fm.reject_reason || fm['驳回理由'] || '未写理由')
+      const at = String(fm.reject_at || fm['驳回时间'] || '').slice(0, 10)
+      out.push(`- **${clipAtPunct(String(fm.title || t.id), 46)}**（${at || '时间不详'} 驳回：${clipAtPunct(why, 90)}）`)
+    }
+    out.push('')
+  }
+
   // ── ⑥ 最近执行日志 ────────────────────────────────────────────
   const maxLogs = opts.maxLogs ?? 3
   let recent: any[] = []
