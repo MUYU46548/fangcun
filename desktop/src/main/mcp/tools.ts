@@ -166,7 +166,9 @@ export const MCP_TOOLS: MCPTool[] = [
   {
     name: 'create_task',
     description: 'Create a new task. 干完活要写的是任务卡 —— 不是执行日志（日志对 agent 只读，2026-11-19 起写口已移除）。'
-      + '日志「下一步」里的真欠账也用它落成卡，再在日志该条末尾标 `处置：@序号 已转卡 <卡id>`。',
+      + '日志「下一步」里的真欠账也用它落成卡，再在日志该条末尾标 `处置：@序号 已转卡 <卡id>`。'
+      + '定向规划的产物用 `type: plan-memo` + tags ["规划","定向","规划备忘"] + status 待审批：'
+      + '它会进「作战计划 → 规划备忘」，不进任务列表，也不是任务。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -177,6 +179,7 @@ export const MCP_TOOLS: MCPTool[] = [
         tags: { type: 'array', items: { type: 'string' }, description: 'Tags' },
         body: { type: 'string', description: 'Task body/content' },
         clarify: { type: 'string', description: '澄清问卷卷名：声明了就必须答完并批准，卡才能进「待办」（2026-11-09 硬锁）' },
+        type: { type: 'string', description: '卡类型。定向规划的产物用 `plan-memo`：它不是任务，会进「作战计划 → 规划备忘」，不进任务列表。' },
       },
       required: ['title'],
     },
@@ -227,6 +230,8 @@ export const MCP_TOOLS: MCPTool[] = [
       // 本工具**保留可用**（暮雨：「所有功能都要」），但**不再是规划的正路**。
       + '\n\n⚠ 2026-11-17 起：这不是规划的正路。正路 = 写一份 `kind=plan` 的派单交给 DSH 里的 agent'
       + '（方寸：dispatchToDsh(project, "plan")）；规划在那边做，方寸只负责打包项目现实 + 事后机检 + 记账。'
+      + '**2026-11-26 用户拍板：全项目规划要逐格 `stage_plan_propose`，不要先攒整份草案再用本工具** ——'
+      + '一次想清一格就落一格，整份草案最容易"最后丢一大块"。本工具保留给已有完整草案的旧流程。'
       + '本工具保留可用，但那套「宪法页 + 七道并列否决」正在重做，对新项目大概率会被「必须先有已批准问卷」直接拒。',
     inputSchema: {
       type: 'object',
@@ -639,7 +644,9 @@ export const MCP_TOOLS: MCPTool[] = [
       + 'the user freezes it with one click in 作战计划 (通过/冻结), so you cannot self-approve. '
       + 'ALL THREE blocks are mandatory (技术方案 / 照抄点 / 判据) — a card missing one can never be frozen. '
       + 'Every 判据 line MUST start with cmd: / str: / num: / file:, otherwise the gate treats it as unknown forever. '
-      + 'Refuses to overwrite an existing stage id.',
+      + 'Refuses to overwrite an existing stage id. '
+      + '**逐格提成是正路（2026-11-26 用户拍板）**：每想清一个阶段就立刻提一格，不要先攒整份草案再 plan_submit。 '
+      + '必须先有已批准的澄清卷；没有就先 qn_list 查、再 qn_propose 出卷并停手，不许用任务卡替代。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1127,6 +1134,7 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
           tags: args.tags,
           body: args.body,
           clarify: args.clarify,
+          type: args.type,
         })
         return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id: task.id }) }] }
       } catch (e: any) {
@@ -1202,7 +1210,9 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
       if (!gate.ok) {
         return { content: [{ type: 'text', text: JSON.stringify({
           ok: false, error: gate.error, gate,
-          hint: '先出卷 → 等用户答完并批准 → 再带 deck 提交草案。没问过就出计划 = 把猜测当结论。',
+          hint: '先出卷 → 等用户答完并批准 → 再带 deck 提交草案。没问过就出计划 = 把猜测当结论。'
+            + ' 2026-11-26 起全项目规划的正路是**逐格 stage_plan_propose**；没有已批准的卷就先 qn_list / qn_propose，'
+            + '出完卷停手等用户答，不要用任务卡替代、不要伪造阶段。',
           // 2026-11-17：被这道闸拦下的人/agent 十有八九不是"忘了出卷"，
           // 而是"这个项目根本没有卷"。把那时的正路直接给他，别让他去建一份只为过关的卷。
           maybeNoDeck: '若这个项目本来就没有（也不该有）澄清问卷 —— 那说明该走**派单**那条路：',
@@ -2120,7 +2130,9 @@ function handleToolCallInner(name: string, args: any): MCPToolResult | Promise<M
         return { content: [{ type: 'text', text: JSON.stringify({
           ok: false, error: r.error,
           hint: '没有写盘。按 error 补齐后重试；三块（技术方案 / 照抄点 / 判据）缺一块都写不进去。'
-            + ' 另：2026-11-09 起必须带 deck（澄清问卷，已答完并批准），没有 = 硬锁不写。',
+            + ' 另：2026-11-09 起必须带 deck（澄清问卷，已答完并批准），没有 = 硬锁不写。'
+            + ' 没有已批准的卷时**先出卷**：qn_list 查这个项目 → qn_propose 出 ≤6 题 → 立刻停手等用户答完批准；'
+            + ' 不要落任务卡替代、不要伪造阶段。有卷之后**逐格提成**，别攒整份草案。',
         }, null, 2) }], isError: true }
       }
       return { content: [{ type: 'text', text: JSON.stringify({

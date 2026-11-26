@@ -380,13 +380,11 @@
                       :disabled="!ctl.dispatchEnabled || ctl.dispatchCoolLeft(ctl.pvCurrent) > 0 || ctl.dispatchSendingNow(ctl.pvCurrent)"
                       :title="ctl.dispatchEnabled ? '把这份上下文包发送给 DSH：DSH 里会新开一个会话，会用你配置的模型，可能产生真实费用' : ctl.dispatchDisabledHint()">{{ ctl.dispatchButtonText(ctl.pvCurrent, '发送给 DSH') }}</Button>
               <!-- 做规划（2026-11-17 · 暮雨定案：「以后可以直接在 DSH 里派活做规划」）。
-                   与上一个按钮**同一根管子**，只是派单用途不同（kind=plan）：
-                   work 让 agent 动手，plan 让 agent 先产出「带机检判据」的计划。
-                   为什么分成两个按钮而不是一个下拉：这是两件不同的事，
-                   塞进下拉等于把"我要干什么"藏起来 —— 而这个按钮的意义就是一眼看懂。 -->
-              <Button class="oact" variant="ghost" size="tool" data-cost @click.stop="ctl.dispatchToDsh(ctl.pvCurrent, 'plan')"
+                   2026-11-26：改成先开弹窗选「定向 / 全项目」——定向落「规划备忘」，
+                   全项目没澄清卷时先出卷、有卷则逐格提成阶段卡。不再一点就发全量。 -->
+              <Button class="oact" variant="ghost" size="tool" data-cost @click.stop="ctl.openPlanDialog(ctl.pvCurrent)"
                       :disabled="!ctl.dispatchEnabled || ctl.dispatchCoolLeft(ctl.pvCurrent) > 0 || ctl.dispatchSendingNow(ctl.pvCurrent)"
-                      :title="ctl.dispatchEnabled ? '让 DSH 里的 agent 给这个项目做规划：它直接读仓库，产出 2–5 个阶段、每条带可机检的判据；会开 DSH 会话，可能产生真实费用' : ctl.dispatchDisabledHint()">{{ ctl.dispatchButtonText(ctl.pvCurrent, '让 DSH 做规划') }}</Button>
+                      :title="ctl.dispatchEnabled ? '让 DSH 里的 agent 给这个项目做规划：先选定向（只规划一块，产物落「规划备忘」）或全项目（没澄清卷会先出卷；有卷逐格提成阶段卡）；会开 DSH 会话，可能产生真实费用' : ctl.dispatchDisabledHint()">{{ ctl.dispatchButtonText(ctl.pvCurrent, '让 DSH 做规划…') }}</Button>
               <!-- 不做“打开工作目录”——主进程没有"打开任意路径"的通道，也刻意不暴露。
                    能做的只是把路径复制走，那就只给这个，不摆一个点了没反应的按钮。 -->
               <Button v-if="ctl.pvCurrent.repo" class="oact" variant="ghost" size="tool"
@@ -432,7 +430,7 @@
            旧三摆法一个字没动，“在途一屏”是新增的第 4 项。 -->
       <TripBoardView v-else-if="ctl.pvView === 'trip'" :ctl="ctl.tripBoardCtl" />
       <!-- 2026-10-31（0.6.0 P1）：第 8 种摆法 —— 作战计划裁决。 -->
-      <PlanView v-else-if="ctl.pvView === 'plan'" />
+      <PlanView v-else-if="ctl.pvView === 'plan'" @open-task="ctl.openTaskById" />
       <!-- ══ ⑨ 层厚度（2026-11-16 · 骨架继承试点第一批）══════════════════════
            暮雨：「横比表和单项目报告都要，因为用户根本没空去数目录半小时」。
            回答两句话：① 十几个项目横向比，谁在写业务、谁在堆测试、谁在堆素材；

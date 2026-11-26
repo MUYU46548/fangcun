@@ -765,6 +765,13 @@
          决策点选定即留痕（选项+时间落任务文件）；再点其他选项=改选，留痕覆盖（decidedAt 刷新）。 -->
     <PlansModal v-if="plansModal" :ctl="plansCtl" />
 
+    <!-- 规划派单（2026-11-26）：把「让 DSH 做规划」从"点一下直接发全项目"改成
+         先选定向 / 全项目、写清范围。弹窗本身就是花钱确认，不再叠 CostConfirmModal。 -->
+    <PlanDispatchDialog v-if="planDlg" :project="planDlg.project" :project-name="planDlg.name"
+      :deck-state="planDlgDeckState" :approved-decks="planDlgDecks"
+      :sending="!!dispatchSending[planDlg.project]" :blocked-reason="planDlgBlocked"
+      @close="closePlanDialog" @send="sendPlanDispatch" />
+
     <AppEditModal v-if="editApp_" :ctl="appEditCtl" />
 
     <!-- 免责与知情声明（2026-10-16 暮雨第 1 条）。
@@ -916,6 +923,7 @@ import AiDocModal from './components/AiDocModal.vue'
 import CostConfirmModal from './components/CostConfirmModal.vue'
 import QuestionnaireModal from './components/QuestionnaireModal.vue'
 import PlansModal from './components/PlansModal.vue'
+import PlanDispatchDialog from './components/PlanDispatchDialog.vue'
 import AppEditModal from './components/AppEditModal.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import type { ArchGraph } from '../shared/archGraph'
@@ -952,6 +960,7 @@ import { taskPick } from '../shared/taskPick'
 import { syncCapsuleText, syncDoneText, syncPhaseLabel, isSyncPhase } from '../shared/syncPhase'
 import { buildDispatchResult, arsenalStatus } from '../shared/arsenal'
 import { clarifyOf } from '../shared/clarify'
+import { buildPlanTaskBook, type PlanMode } from '../shared/planDispatch'
 // 分层架构图纯函数（2026-10-13 方案 A）：值来自任务 frontmatter 的 `架构`（JSON 字符串）。
 // 与 blockers/boardCards 同款 —— 算法在 shared/，组件只接线。
 import { buildLayerDiagram } from '../shared/layerDiagram'
@@ -4534,36 +4543,44 @@ function armDispatchCooldown(pid: string, ms: number): void {
  * 2026-11-20 加冷却：冷却内直接 return，**连 IPC 都不发**；主进程也有一道同样的闸
  * （渲染层状态丢了 —— 热重载、重开窗口 —— 时以它为准）。
  */
-async function dispatchToDsh(p: any, kind: 'work' | 'plan' = 'work'): Promise<void> {
-  if (!p?.id) return
+async function dispatchToDsh(
+  p: any,
+  kind: 'work' | 'plan' = 'work',
+  /** 带任务书的派单（2026-11-20 D-150）；空串 = 老行为（只发上下文包） */
+  message = '',
+  /** `confirmed` = 调用方已经是一个确认界面（规划弹窗），不再叠 costAsk */
+  opts?: { confirmed?: boolean },
+): Promise<boolean> {
+  if (!p?.id) return false
   const pid = String(p.id)
   const tegula = (window as any).tegula
   // 老版本（没这个通道）要说清楚，不许静默失败
   if (typeof tegula?.dispatchDsh !== 'function') {
     showToast('这个版本还没有「发送给 DSH」通道 —— 请更新方寸后再试', 'error')
-    return
+    return false
   }
   // ⓪ 总闸（2026-11-21）：默认关。没打开之前**连花钱确认都不弹** ——
   //    弹了再拒，用户会以为是故障；这里必须说清是"还没启用"。
   if (!dispatchEnabled.value) {
     showToast(dispatchDisabledHint(), 'error')
     void refreshDispatchGate()
-    return
+    return false
   }
   // ① 冷却 / 在途：都是"别再发第二单"，说法分开（一个是等，一个是刚发出去还没回）
   const left = dispatchCoolLeft(p)
   if (left > 0) {
     showToast(`「${p.name || pid}」还在冷却：${left} 秒后才能再派 —— 防连点开一堆会话`, 'error')
-    return
+    return false
   }
   if (dispatchSending[pid]) {
     showToast('上一单还在发送，别连点 —— 一次只开一个会话', 'error')
-    return
+    return false
   }
   dispatchSending[pid] = true
   try {
     // 花钱动作确认（2026-11-20）：首次/每次可关。默认开，勾"不再提示"或设置里关。
-    const go = await costAsk({
+    // 2026-11-26：规划弹窗自己就是确认界面（带模式/范围/费用说明），不再叠第二个弹窗。
+    const go = opts?.confirmed ? true : await costAsk({
       title: kind === 'plan' ? `让 DSH 做规划：${p.name || pid}` : `发送给 DSH：${p.name || pid}`,
       detail: kind === 'plan'
         ? '这会写一份规划派单，并在 DSH 里开一个新会话；DSH 会用你配置的模型读仓库、出计划，可能产生真实费用。'
@@ -4576,32 +4593,35 @@ async function dispatchToDsh(p: any, kind: 'work' | 'plan' = 'work'): Promise<vo
           + '发送前请先在 DSH「设置 → 通用 → 权限默认档」确认是「工作区内修改」还是「完全权限」。',
       confirmText: kind === 'plan' ? '继续（会开 DSH 规划会话）' : '继续（会开 DSH 会话）',
     })
-    if (!go) return
-    const r: any = await tegula.dispatchDsh(pid, kind)
+    if (!go) return false
+    // 2026-11-26：带任务书的派单走同一条通道（prefix 在签名范围内，模式 marker 也在里面）。
+    const r: any = message.trim() && typeof tegula.dispatchMessageDsh === 'function'
+      ? await tegula.dispatchMessageDsh(pid, kind, message)
+      : await tegula.dispatchDsh(pid, kind)
     if (!r || r.ok === false) {
       // 主进程的冷却闸（渲染层状态与它不一致时以它为准，并据此起倒计时）
       if (r && r.cooling && Number(r.leftMs) > 0) {
         armDispatchCooldown(pid, Number(r.leftMs))
         showToast(`还在冷却：${Math.ceil(Number(r.leftMs) / 1000)} 秒后才能再派 —— 防连点开一堆会话`, 'error')
-        return
+        return false
       }
       // 总闸被关 / 日上限 / 在途满：都带原因码，别只说"发送失败"
       if (r && r.disabled) {
         await refreshDispatchGate()
         showToast(String(r.error || dispatchDisabledHint()), 'error')
-        return
+        return false
       }
       if (r && r.reason === 'daily-cap') {
         await refreshDispatchGate()
         showToast(String(r.error || `今天已派出 ${r.today}/${r.dailyCap} 单`), 'error')
-        return
+        return false
       }
       if (r && r.reason === 'concurrency') {
         showToast(String(r.error || '在途派单会话已满'), 'error')
-        return
+        return false
       }
       showToast(`发送失败：${(r && r.error) || '未知原因'}`, 'error')
-      return
+      return false
     }
     const what = kind === 'plan' ? '规划任务' : '上下文包'
     // 倒计时长度以主进程为准（见函数头注释）；0 = 不冷却，别说"0 秒内不会重发"
@@ -4627,12 +4647,90 @@ async function dispatchToDsh(p: any, kind: 'work' | 'plan' = 'work'): Promise<vo
     if (Array.isArray(r.missing) && r.missing.length) {
       showToast(`这包缺：${r.missing.join('、')} —— agent 会以为这项目没这些规矩`, 'error')
     }
+    return true
   } catch (e: any) {
     showToast('发送异常：' + (e?.message || e), 'error')
+    return false
   } finally {
     dispatchSending[pid] = false
   }
 }
+
+// ── 规划派单弹窗（2026-11-26）────────────────────────────────────────────
+// 用户 2026-11-26 对设计卡三问的答复，直接决定了三件事：
+//   ① 定向规划要有「规划备忘」这个家（不是任务卡）；
+//   ② 全项目规划没已批准澄清卷时**先出卷**（不是落任务卡等补卷）；
+//   ③ 全项目规划的阶段**一开始就逐格提成**（不是先攒整份草案）。
+// 这些规则写进任务书（shared/planDispatch），由 DSH 里的 agent 执行。
+const planDlg = ref<{ project: string; name: string } | null>(null)
+const planDlgDecks = ref<string[]>([])
+const planDlgDeckState = ref<'loading' | 'ready'>('ready')
+
+function openPlanDialog(p: any): void {
+  if (!p?.id) return
+  // 总闸 / 冷却 / 在途先在场外说清（不要等弹窗填完才发现发不出去）
+  if (!dispatchEnabled.value) {
+    showToast(dispatchDisabledHint(), 'error')
+    void refreshDispatchGate()
+    return
+  }
+  const left = dispatchCoolLeft(p)
+  if (left > 0) {
+    showToast(`「${p.name || p.id}」还在冷却：${left} 秒后才能再派`, 'error')
+    return
+  }
+  planDlg.value = { project: String(p.id), name: String(p.name || p.id) }
+  planDlgDecks.value = []
+  planDlgDeckState.value = 'loading'
+  void loadPlanDialogDecks(String(p.id))
+}
+
+function closePlanDialog(): void {
+  planDlg.value = null
+  planDlgDecks.value = []
+  planDlgDeckState.value = 'ready'
+}
+
+/** 只查「这个项目、已批准、未作废、未被取代」的卷 —— 与 qnGate 的口径一致 */
+async function loadPlanDialogDecks(pid: string): Promise<void> {
+  try {
+    const r: any = await (window as any).tegula.questionnaireList()
+    const rows: any[] = Array.isArray(r?.decks) ? r.decks : []
+    planDlgDecks.value = rows
+      .filter((d) => String(d?.project || '') === pid && d?.approved && !d?.voided && !d?.replacedBy)
+      .map((d) => String(d?.deck || ''))
+      .filter(Boolean)
+  } catch {
+    planDlgDecks.value = []
+  } finally {
+    planDlgDeckState.value = 'ready'
+  }
+}
+
+/** 弹窗里的发送：任务书生成失败（引导词不合法等）当场说，不静默发一份坏派单 */
+async function sendPlanDispatch(payload: { mode: PlanMode; focus: string }): Promise<void> {
+  const d = planDlg.value
+  if (!d) return
+  let taskBook = ''
+  try {
+    taskBook = buildPlanTaskBook({ project: d.project, projectName: d.name, mode: payload.mode, focus: payload.focus })
+  } catch (e: any) {
+    showToast('没生成任务书：' + (e?.message || e), 'error')
+    return
+  }
+  const ok = await dispatchToDsh({ id: d.project, name: d.name }, 'plan', taskBook, { confirmed: true })
+  if (ok) closePlanDialog()
+}
+
+/** 弹窗打开后闸门可能变（冷却计时 / 总闸被关）—— 发送按钮的禁用理由要跟着走 */
+const planDlgBlocked = computed(() => {
+  if (!dispatchEnabled.value) return dispatchDisabledHint()
+  const d = planDlg.value
+  if (!d) return ''
+  if (dispatchSending[d.project]) return '上一单还在发送，别连点 —— 一次只开一个会话'
+  const left = dispatchCoolLeft({ id: d.project })
+  return left > 0 ? `还在冷却：${left} 秒后才能再派` : ''
+})
 
 /**
  * 日志页「发送给 DSH」（2026-11-21 暮雨：「后续在日志里加个按钮我顺手测就行」）。
@@ -8295,6 +8393,9 @@ const projectsCtl = reactive({
   draftMissionNow,
   saveNoteEdit, cancelNoteEdit, openNoteEdit, toggleDoc, loadTripBoard, openProjectLogs,
   openAiDoc, openPlans, copyContextPack, dispatchToDsh,
+  // 规划派单弹窗（2026-11-26）：定向 / 全项目二选一，不再一点就发全项目
+  openPlanDialog,
+  openTaskById,
   // 派单按钮冷却（2026-11-20）：模板只读这三样，不自己算时间
   dispatchButtonText, dispatchCoolLeft, dispatchSendingNow,
   // 派单总闸（2026-11-21）：默认关 → 按钮置灰并写明原因

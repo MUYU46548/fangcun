@@ -344,7 +344,7 @@
                     : editing.kind === 'void'
                       ? '作废这一项：当时答得对、现在不作数了。必须写原因（三个月后只有这句话能解释）'
                       : '选项都不对？补一句（会原样落进 decision-log）' }}</div>
-                  <textarea v-model="editText" rows="2" @input="onEditInput"></textarea>
+                  <textarea :value="editText" rows="2" @input="onEditInput"></textarea>
                   <div class="qe-row">
                     <Button variant="ghost" size="tool" @click="cancelEdit">取消</Button>
                     <button class="pri" @click="commitEdit">确定</button>
@@ -409,7 +409,7 @@
                   : editing.kind === 'void'
                     ? '作废这一项：当时答得对、现在不作数了。必须写原因（三个月后只有这句话能解释）'
                     : '选项都不对？补一句（会原样落进 decision-log）' }}</div>
-                <textarea v-model="editText" rows="3" @input="onEditInput"></textarea>
+                <textarea :value="editText" rows="3" @input="onEditInput"></textarea>
                 <div class="qe-row">
                   <Button variant="ghost" size="tool" @click="cancelEdit">取消</Button>
                   <button class="pri" @click="commitEdit">确定</button>
@@ -764,6 +764,16 @@ const summary = ref(false)
 const editing = ref<null | { id: string; kind: 'askback' | 'amend' }>(null)
 const editText = ref('')
 /**
+ * 正在编辑的**原文**（非响应式）。
+ *
+ * 2026-11-26：暮雨两次报「方寸填问卷打字很卡，原因不明」。
+ * 原来 textarea 用 `v-model="editText"` —— 每敲一个字都改一次 ref，
+ * 于是**整个 1500 行弹窗**（题号导航 + 当前题 + 各种 computed）每字重渲染一次。
+ * 现在输入先落到这个普通变量（不触发渲染），只做防抖落盘；
+ * `editText` 只在打开编辑框时用来给 textarea 初值。
+ */
+let editDraftText = ''
+/**
  * 输入保护（2026-11-10 用户报障）：
  * 「顺便问卷功能没做输入保护，刚才我打的字全没了」—— 她说得对。
  * 此前 `editText` 只活在内存里，**只有点「确定」才写进 answers**；
@@ -777,14 +787,19 @@ let editTimer: ReturnType<typeof setTimeout> | null = null
 function flushEditDraft(): void {
   const e = editing.value
   if (!e) return
-  const v = editText.value
+  const v = editDraftText
   if (v.trim()) answers.value[e.id] = { kind: e.kind as any, text: v }
   else if (answers.value[e.id] && answers.value[e.id].kind === e.kind) delete answers.value[e.id]
   void save()
 }
 
-/** 输入防抖落盘（350ms）—— 打字不丢，也不至于每个字符一次 IPC */
-function onEditInput(): void {
+/**
+ * 输入防抖落盘（350ms）—— 打字不丢，也不至于每个字符一次 IPC。
+ * ⚠ 只把原文写进**普通变量**：不碰 ref，输入过程中不触发整页重渲染。
+ */
+function onEditInput(ev: Event): void {
+  const el = ev.target as HTMLTextAreaElement | null
+  editDraftText = el ? el.value : ''
   if (editTimer) clearTimeout(editTimer)
   editTimer = setTimeout(() => { editTimer = null; flushEditDraft() }, 350)
 }
@@ -799,6 +814,7 @@ function cancelEdit(): void {
   }
   editBefore.value = null
   editing.value = null
+  editDraftText = ''
   void save()
 }
 const lookOpen = ref<Record<string, boolean>>({})
@@ -1043,13 +1059,14 @@ function startEdit(id: string, kind: 'askback' | 'amend'): void {
   const cur = answers.value[id]
   // 打开就把上次写的内容接上 —— 否则“关掉再开”等于逼人重打一遍
   editText.value = cur && cur.kind === kind ? String(cur.text || '') : ''
+  editDraftText = editText.value
   editBefore.value = cur ? { ...cur } : null
 }
 function commitEdit(): void {
   const e = editing.value
   if (!e) return
   if (editTimer) { clearTimeout(editTimer); editTimer = null }
-  const v = editText.value.trim()
+  const v = editDraftText.trim()
   if (e.kind === 'askback' && !v) { answers.value[e.id] = { kind: 'reject' }; editing.value = null; editBefore.value = null; void save(); return }
   // 作废必须写原因：三个月后唯一能救命的线索就是这句（与后端同一条判据，不靠后端兜）
   if (e.kind === 'void' && !v) { toast('作废要写原因 —— 为什么它不作数了'); return }
@@ -1057,6 +1074,7 @@ function commitEdit(): void {
   answers.value[e.id] = { kind: e.kind, text: v }
   editing.value = null
   editBefore.value = null
+  editDraftText = ''
   void save()
 }
 function goto(id: string): void {
@@ -1065,6 +1083,7 @@ function goto(id: string): void {
   view.value = 'one'
   editing.value = null
   editBefore.value = null
+  editDraftText = ''
 }
 function prev(): void {
   const qs = deck.value?.parsed.questions || []
@@ -1212,6 +1231,7 @@ function startVoid(id: string): void {
   editing.value = { id, kind: 'void' as any }
   // 作废原因也是长文本 —— 同样要接上上次写的、同样要防抖落盘
   editText.value = cur && cur.kind === 'void' ? String(cur.text || '') : ''
+  editDraftText = editText.value
   editBefore.value = cur ? { ...cur } : null
 }
 

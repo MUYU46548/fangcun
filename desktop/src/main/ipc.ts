@@ -22,6 +22,7 @@ import { registerLlmIpcHandlers } from './llm-ipc'
 import { registerLicenseIpcHandlers } from './license-ipc'
 // 使命草稿（2026-11-14 · 长 Loop P1-2）：从项目 README 抽一句话当建议，人点头才写
 import { draftMissionFromReadme } from '../shared/missionDraft'
+import { isPlanMemo } from '../shared/planMemo'
 import { registerDecisionIpcHandlers } from './decision-ipc'
 import { registerQuestionnaireIpcHandlers } from './questionnaire-ipc'
 import { runBackup } from './backup'
@@ -162,7 +163,10 @@ export function registerIpcHandlers(): void {
   }
 
   guardedHandle('loadTasks', (_event, view = 'active') => {
-    return data.loadTasks(view).map(flattenTask)
+    // 2026-11-26：规划备忘不是任务 —— 它只出现在「作战计划 → 规划备忘」，
+    // 默认不进任务列表 / 看板 / 项目统计。数据仍在 task-data/（不新开存储），
+    // MCP 侧照样能按 id 读；这里只做**界面展示层**的分家。
+    return data.loadTasks(view).filter((t) => !isPlanMemo(t)).map(flattenTask)
   })
 
   // 解析失败的任务文件：以前是静默跳过（任务"人间蒸发"），现在交给界面显性提示

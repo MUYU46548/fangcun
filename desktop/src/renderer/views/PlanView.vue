@@ -144,6 +144,38 @@
       </div>
     </div>
 
+    <!-- 规划备忘（2026-11-26 · 用户拍板"定向规划需要规划备忘，任务卡承载不了"）：
+         定向规划的产物不是阶段卡（硬塞会逼出假照抄点/判据），也不该沉在 310 张任务卡里。
+         数据仍是 task-data/ 下的任务卡（不新开存储），但用 type=plan-memo / 标签「规划备忘」认出来，
+         任务列表默认过滤；这里单独成段，阅读状态走 plan_memo_status（不借任务状态）。 -->
+    <div v-if="memos.length" class="plan-memos" data-plan-memos>
+      <div class="plan-pending-head">
+        <b>{{ memos.length }} 条规划备忘</b>
+        <span class="plan-pending-hint">定向规划的产物，不是任务；任务列表默认不显示它们</span>
+        <span v-if="memoPending" class="pd-ok">{{ memoPending }} 条待读</span>
+        <Button variant="ghost" size="sm" @click="memosOpen = !memosOpen">{{ memosOpen ? '收起' : '展开' }}</Button>
+      </div>
+      <template v-if="memosOpen">
+        <div v-for="m in memos" :key="'pm-' + m.id" class="pm-row" :data-plan-memo="m.id">
+          <span class="pm-status" :class="'pms-' + memoStatusKey(m.memoStatus)">{{ m.memoStatus }}</span>
+          <span class="pm-title">{{ m.title }}</span>
+          <span class="pm-meta">{{ m.mode || '规划' }} · {{ m.project || '未归属' }} · {{ memoDay(m.updated || m.created) }}</span>
+          <Button variant="ghost" size="tool" @click="toggleMemo(m.id)">{{ memoOpen[m.id] ? '收起正文' : '看正文' }}</Button>
+          <Button v-if="m.memoStatus !== '已采纳'" variant="ghost" size="tool" :disabled="memoBusy"
+            @click="setMemoStatus(m.id, '已采纳')">采纳</Button>
+          <Button v-if="m.memoStatus !== '已过期'" variant="ghost" size="tool" :disabled="memoBusy"
+            @click="setMemoStatus(m.id, '已过期')">过期</Button>
+          <Button v-if="m.memoStatus !== '待读'" variant="ghost" size="tool" :disabled="memoBusy"
+            @click="setMemoStatus(m.id, '待读')">标回待读</Button>
+          <Button variant="ghost" size="tool" @click="emit('open-task', m.id)">打开卡</Button>
+        </div>
+        <div v-for="m in memos" v-show="memoOpen[m.id]" :key="'pmb-' + m.id" class="pm-body" :data-plan-memo-body="m.id">
+          <div v-if="m.focus" class="pm-focus">焦点：{{ m.focus }}</div>
+          <div class="pm-text">{{ m.body || '（正文为空）' }}</div>
+        </div>
+      </template>
+    </div>
+
     <!-- 待裁决清单（2026-11-02）—— 此前“待裁决”只藏在每张卡的状态胶囊里，
          而日志页的每日推进面只认“已冻结”，于是 7 张等裁决的卡在界面上等于不存在
          （暮雨原话：“待裁决的东西在哪里？没看见”）。这里给一个显式出口：
@@ -385,6 +417,8 @@ interface Stage {
 }
 interface Doc { file: string; title: string; stages: Stage[] }
 
+const emit = defineEmits<{ (e: 'open-task', id: string): void }>()
+
 const docs = ref<Doc[]>([])
 const loading = ref(false)
 const busy = ref(false)
@@ -581,6 +615,65 @@ const wasteBrief = computed<string[]>(() => {
   const cells = wasteLedger.value?.cells || []
   return cells.map((c: any) => `${String(c.label).replace(/（[^）]*天）$/, '')} ${c.value}`)
 })
+
+// ── 规划备忘（2026-11-26）────────────────────────────────────────────────
+// 只读列表 + 改阅读状态；**不碰任务状态**（意思是这些不是任务）。
+interface MemoRow {
+  id: string; title: string; project: string; taskStatus: string
+  memoStatus: '待读' | '已采纳' | '已过期'; mode: string; focus: string
+  created: string; updated: string; body: string
+}
+const memos = ref<MemoRow[]>([])
+const memosOpen = ref(false)
+const memoOpen = ref<Record<string, boolean>>({})
+const memoBusy = ref(false)
+const memoPending = computed(() => memos.value.filter((m) => m.memoStatus === '待读').length)
+
+function memoStatusKey(s: string): string {
+  if (s === '已采纳') return 'ok'
+  if (s === '已过期') return 'old'
+  return 'new'
+}
+/** 日期按**本地时区**印；认不出就写"时间不详"，不造 1970 年 */
+function memoDay(v: string): string {
+  const t = Date.parse(String(v || ''))
+  if (!Number.isFinite(t)) return '时间不详'
+  const d = new Date(t)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+function toggleMemo(id: string): void {
+  memoOpen.value = { ...memoOpen.value, [id]: !memoOpen.value[id] }
+}
+async function loadMemos(): Promise<void> {
+  try {
+    const r: any = await (window as any).tegula.plansMemos()
+    memos.value = Array.isArray(r?.memos) ? r.memos : []
+    // 有待读的就默认展开 —— 这个段存在的理由就是"别让它沉下去"
+    if (memoPending.value > 0) memosOpen.value = true
+  } catch {
+    memos.value = []
+  }
+}
+async function setMemoStatus(id: string, status: '待读' | '已采纳' | '已过期'): Promise<void> {
+  if (memoBusy.value) return
+  memoBusy.value = true
+  try {
+    const r: any = await (window as any).tegula.plansMemoStatus({ id, status })
+    if (r?.ok) {
+      msg.value = `规划备忘已标为「${status}」`
+      msgType.value = 'ok'
+      await loadMemos()
+    } else {
+      msg.value = '没改成：' + (r?.error || '未知原因')
+      msgType.value = 'bad'
+    }
+  } catch (e: any) {
+    msg.value = '改备忘状态失败：' + (e?.message || e)
+    msgType.value = 'bad'
+  } finally {
+    memoBusy.value = false
+  }
+}
 
 // ── 规划草案入口（2026-11-11）────────────────────────────────────────────
 // 只读草案 + 一键提成。提成必须带澄清卷（D-060 硬锁），所以先给一个「已批准的卷」下拉。
@@ -1062,5 +1155,5 @@ function submitText(): void {
   if (doc && s) void verdict(doc, s, t.action, text.value.trim())
 }
 
-onMounted(() => { void load(); void loadWasteLedger(); void loadDrafts() })
+onMounted(() => { void load(); void loadWasteLedger(); void loadDrafts(); void loadMemos() })
 </script>

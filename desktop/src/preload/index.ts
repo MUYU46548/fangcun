@@ -164,6 +164,10 @@ contextBridge.exposeInMainWorld('tegula', {
     draft: string; stageId: string; deck: string
     patch?: { approach?: string[]; copyRows?: string[][]; criteria?: string[] }
   }) => ipcRenderer.invoke('plans:proposeFromDraft', input),
+  // 规划备忘（2026-11-26）：定向规划的产物。只读列表 + 改阅读状态（不动任务状态）。
+  plansMemos: () => ipcRenderer.invoke('plans:memos'),
+  plansMemoStatus: (input: { id: string; status: '待读' | '已采纳' | '已过期' }) =>
+    ipcRenderer.invoke('plans:memoStatus', input),
   // 投入产出账（0.6.0 P5）：只读
   wasteGet: (opts?: { days?: number; repo?: string }) => ipcRenderer.invoke('waste:get', opts),
   // 计划与实际的对照镜（卡 20261027-004）：只读，返回两段原文

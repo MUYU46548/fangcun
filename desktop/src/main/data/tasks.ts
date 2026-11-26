@@ -256,6 +256,11 @@ export interface NewTaskFields {
    * 问卷落卡（`deckToCards`）走的就是正文那条路，不能因为调用方没带参数就绕开闸。
    */
   clarify?: string
+  /**
+   * 卡的类型（2026-11-26 · 规划备忘）：`plan-memo` 表示"这不是任务，是定向规划的备忘"。
+   * 不传 = 普通任务（旧卡零影响）。界面任务列表会按 `shared/planMemo` 的口径过滤掉它。
+   */
+  type?: string
 }
 
 /**
@@ -326,6 +331,9 @@ export function createTask(fields: NewTaskFields): Task {
     deadline: fields.deadline || undefined,
   }
   if (clarify) (fm as any).clarify = clarify
+  // 2026-11-26：`type` 只写显式给了的值（不给默认值 —— 默认值会让存量卡都多一行）
+  const type = String(fields.type || '').trim()
+  if (type) (fm as any).type = type
   // 进队列闸：新建即「待办」的卡，同样要在落盘前过（否则“新建”就是绕过闸的后门）
   if (status === '待办') assertQueueGate(fm, String(fields.body || ''))
 

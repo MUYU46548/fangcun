@@ -10735,12 +10735,12 @@
       }
       {
         window.__fcTest.reset()
-        const orgBtn = $$('.memory-view button').find((b) => (b.textContent || '').trim() === '一键整理')
-        check('★ 记忆页有「一键整理」入口', !!orgBtn)
+        const orgBtn = $$('.memory-view button').find((b) => (b.textContent || '').trim() === '生成整理包')
+        check('★ 记忆页有「生成整理包」入口', !!orgBtn)
         if (orgBtn) {
           orgBtn.click()
           await sleep(250)
-          check('★★ 点「一键整理」先出确认条（不会直接花模型钱）', !!$('.memory-view .mem-organize'))
+          check('★★ 点「生成整理包」先出确认条（不会直接花模型钱）', !!$('.memory-view .mem-organize'))
           const go = $$('.memory-view .mem-organize button')
             .find((b) => (b.textContent || '').indexOf('生成整理包') >= 0)
           if (go) go.click()

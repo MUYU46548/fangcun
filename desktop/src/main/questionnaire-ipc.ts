@@ -74,9 +74,27 @@ export function registerQuestionnaireIpcHandlers(): void {
    */
   function refreshDeckNotice(deck: string, always = false): void {
     try {
-      const d = listDecks().decks.find((x) => x.deck === deck)
-      if (!d) return
-      if (always || Number(d.answered || 0) >= Number(d.total || 0)) notifier.scanOnce()
+      // 2026-11-26：这里原来调 `listDecks()` —— 那是**全库**扫描（每卷解析 + 每张卡引用计数 +
+      // 题库统计）。而它挂在 `saveAnswers` 上，输入框每停 350ms 就存一次草稿 →
+      // 等于用户每打几个字，主进程就把所有问卷和 300 多张卡重读一遍。
+      // 暮雨两次报「方寸填问卷打字很卡」；这是最像的原因。
+      // 现在只读**这一卷**（getDeck），且只在"答完"时才触发通知收敛。
+      const g = getDeck(deck)
+      if (!g.ok || !g.parsed) return
+      const total = (g.parsed.questions || []).length
+      if (!total) return
+      const answers = g.answers || {}
+      let answered = 0
+      for (const q of g.parsed.questions) {
+        const a = answers[String(q.id || '')]
+        if (!a) continue
+        if (a.kind === 'amend' || a.kind === 'askback') {
+          if (String(a.text || '').trim()) answered++
+        } else {
+          answered++
+        }
+      }
+      if (always || answered >= total) notifier.scanOnce()
     } catch { /* 通知收敛失败不该让答卷/批准失败 */ }
   }
 

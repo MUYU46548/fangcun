@@ -2360,6 +2360,24 @@ button.lpill:hover { border-color: var(--accent-soft); background: var(--tint-2)
 .plan-proj-chip:hover { border-color: var(--accent); }
 .plan-proj-chip.on { border-color: var(--accent); color: var(--accent); background: var(--tint); font-weight: 600; }
 .plan-proj-chip .plan-proj-n { font-size: 10.5px; color: var(--muted); font-weight: 400; }
+/* 规划备忘（2026-11-26）：定向规划的产物 —— 不是任务、不建阶段卡，但必须有家。
+   列表只占一行；正文要点开才看（长文进去等于又造一坨）。 */
+.plan-memos { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 10px 14px; margin-bottom: 14px; box-shadow: var(--shadow-card); }
+.pm-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-top: 1px dashed var(--border); }
+.pm-row:first-of-type { border-top: 0; }
+.pm-status { flex: none; font-size: 10.5px; padding: 1px 7px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--tint); color: var(--muted); }
+.pm-status.pms-new { color: var(--warning); border-color: #f0e0c8; background: #fdf6ec; }
+.pm-status.pms-ok { color: var(--success); }
+.pm-status.pms-old { color: var(--muted); opacity: .8; }
+.pm-title { flex: 1 1 260px; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.pm-meta { flex: none; font-size: 10.5px; color: var(--muted); }
+.pm-body { margin: 4px 0 8px; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--tint-2); }
+.pm-focus { font-size: 11.5px; color: var(--accent); font-weight: 600; margin-bottom: 4px; }
+.pm-text { font-size: 11.5px; color: var(--ink); line-height: 1.75; white-space: pre-wrap;
+  max-height: 320px; overflow: auto; }
 .plan-code { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; background: var(--tint-3); padding: 1px 5px; border-radius: 4px; }
 /* 投入产出账（0.6.0 P5）：三格各自带“它证明不了什么”；取不到就整格不渲染 */
 .waste-block { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
