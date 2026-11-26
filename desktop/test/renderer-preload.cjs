@@ -545,6 +545,30 @@ const PLAN_DOCS = [{
   ],
 }]
 
+const PLAN_MEMOS = [{
+  id: 'memo-orient-1',
+  title: '[规划·定向] 方寸 · 只规划记忆系统 · 2026-11-26',
+  project: 'fangcun-base',
+  taskStatus: '待审批',
+  memoStatus: '待读',
+  mode: '定向',
+  focus: '只规划记忆系统',
+  created: '2026-11-26T01:00:00.000Z',
+  updated: '2026-11-26T01:00:00.000Z',
+  body: '## 现状\n- 检索质量还要再看\n\n## 推荐\n先补合并与审批体验。',
+}, {
+  id: 'memo-orient-2',
+  title: '[规划·定向] 方寸 · 只规划决策系统 · 2026-11-25',
+  project: 'fangcun-base',
+  taskStatus: '待审批',
+  memoStatus: '已采纳',
+  mode: '定向',
+  focus: '只规划决策系统',
+  created: '2026-11-25T01:00:00.000Z',
+  updated: '2026-11-25T01:00:00.000Z',
+  body: '## 推荐\n决策页先补审批入口。',
+}]
+
 contextBridge.exposeInMainWorld('tegula', {
   // ── 启动期必需面 ────────────────────────────────────────────────
   isFirstRun: () => { rec('isFirstRun'); return false },
@@ -745,6 +769,23 @@ contextBridge.exposeInMainWorld('tegula', {
         ? { changed: { approach: names.includes('技术方案'), copyRows: names.includes('照抄点'), criteria: names.includes('判据') }, count: names.length, note: names.join(' / ') }
         : { changed: { approach: false, copyRows: false, criteria: false }, count: 0, note: '' },
     })
+  },
+  // 规划备忘（2026-11-26）：定向规划的产物。夹具两条（一条待读、一条已采纳），
+  // 让界面能真验「读出来 / 看正文 / 采纳真走 plans:memoStatus」。
+  plansMemos: () => {
+    rec('plansMemos')
+    return { ok: true, memos: PLAN_MEMOS.map((m) => ({ ...m })) }
+  },
+  plansMemoStatus: (input) => {
+    cloneGuard('plansMemoStatus', [input])
+    rec('plansMemoStatus', [input])
+    const m = PLAN_MEMOS.find((x) => x.id === (input && input.id))
+    if (!m) return { ok: false, error: '这张卡不存在' }
+    if (!['待读', '已采纳', '已过期'].includes(String(input && input.status))) {
+      return { ok: false, error: '备忘状态只能是：待读 / 已采纳 / 已过期' }
+    }
+    m.memoStatus = String(input.status)
+    return { ok: true, id: m.id, memoStatus: m.memoStatus, taskStatus: m.taskStatus }
   },
   // BYOK 多通道（2026-11-02）：主通道 + 一条备用；upsert / remove 都回"落盘后的真相"
   llmChannelsList: () => {

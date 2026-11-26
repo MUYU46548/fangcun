@@ -151,6 +151,8 @@ export function buildTargetedPlanTaskBook(input: PlanDispatchInput): string {
   if (!f.ok) throw new Error(f.error || '定向引导词不合法')
   if (!f.focus) throw new Error('定向规划必须先写清"只规划哪一块"')
   const focus = f.focus
+  // 标题只放摘要：focus 最长 500 字，整段塞进标题会把卡片列表撑爆
+  const shortFocus = focus.length > 60 ? focus.slice(0, 60) + '…' : focus
   return [
     buildPlanMarker('targeted', focus),
     '',
@@ -173,7 +175,7 @@ export function buildTargetedPlanTaskBook(input: PlanDispatchInput): string {
     '## 落地（只有一张卡）',
     '',
     '用 `fangcun_write create` 落一张「规划备忘」：',
-    '- `title`: `[规划·定向] ' + titleProject + ' · <focus 摘要> · ' + day + '`',
+    '- `title`: `[规划·定向] ' + titleProject + ' · ' + shortFocus + ' · ' + day + '`',
     '- `type`: `plan-memo`',
     '- `status`: `待审批`',
     '- `tags`: `["规划","定向","规划备忘"]`',

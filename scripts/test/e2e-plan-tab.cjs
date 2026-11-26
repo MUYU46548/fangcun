@@ -195,7 +195,7 @@ check('★★ 项目页摆法注册处含 plan', /v-else-if="(?:ctl\.)?pvView ==
 // 只数**项目页**那一组（别的视图也有一组 `{ v: ... }`，全篇数会把 23 当成 8）
 const projBlock = (appVue.split("curView.value === 'projects'")[1] || '').split("return []")[0]
 const optionCount = (projBlock.match(/\{ v: '[a-z]+', label:/g) || []).length
-check('★★ 项目页摆法总数 = 8（P1 判据 file 那条）', optionCount === 8, String(optionCount))
+check('★★ 项目页摆法总数 = 10（P1 判据 file 那条；2026-11-26 已含层厚度/竞品）', optionCount === 10, String(optionCount))
 check('★ 持久化白名单也加了 plan（否则重启静默退回项目墙）', /fc_pv_view === 'plan'/.test(appVue))
 // ⚠ 2026-11-01（P5 DOM 实测抓到的真 bug）：P1 只把 plan 加进了 viewOptions 与持久化读取，
 //   **没加进 PV_VIEWS**（setViewMode 的白名单）—— 点“作战计划”会被 `PV_VIEWS.includes(v)?v:'tiles'`
@@ -209,11 +209,14 @@ check('★ 白名单条数 = 摆法数（两处注册不许漂移）',
 
 const ipc = fs.readFileSync(path.join(REPO, 'desktop', 'src', 'main', 'plan-ipc.ts'), 'utf-8')
 // 2026-11-11：草案入口**明加**了两条（`plans:drafts` 只读 / `plans:proposeFromDraft` 提成），
-// 原来“恒为 2”的断言随之变成误伤。判据改成**正向白名单**：只许这四个名字，多一个就红
+// 原来“恒为 2”的断言随之变成误伤。判据改成**正向白名单**：只许这几个名字，多一个就红
 // （与 e2e-stage-gate 里那条同口径 —— 两处都钉，防一边松了口另一边没跟上）。
-const IPC_ALLOWED = ['plans:get', 'plans:verdict', 'plans:drafts', 'plans:proposeFromDraft']
+const IPC_ALLOWED = ['plans:get', 'plans:verdict', 'plans:drafts', 'plans:proposeFromDraft',
+  // 2026-11-26：定向规划的「规划备忘」—— 只读列表 + 改阅读状态（不借任务状态）。
+  // 明加，不是偷偷开写口：写的是 `plan_memo_status` 一个字段，卡本身仍是 task-data/ 里的任务卡。
+  'plans:memos', 'plans:memoStatus']
 const ipcNames = (ipc.match(/guardedHandle\('([^']+)'/g) || []).map((s) => s.replace(/^guardedHandle\('/, '').replace(/'$/, ''))
-check('★ 计划 IPC 只许这四个名字（草案入口是明加的；再多一个就是“偷偷加口”）',
+check('★ 计划 IPC 只许这六个名字（草案入口 + 规划备忘是明加的；再多一个就是“偷偷加口”）',
   ipcNames.length === IPC_ALLOWED.length && IPC_ALLOWED.every((n) => ipcNames.includes(n)),
   JSON.stringify(ipcNames))
 

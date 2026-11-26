@@ -53,6 +53,17 @@ let templateSites = 0
 const badSites = []
 let sawDefinition = false
 let sawChannelCall = false
+/**
+ * 脚本里除了 `dispatchToDsh` 定义体，**第二条合法入口**（2026-11-26）：
+ * 规划弹窗的「发送规划」按钮 → `emit('send')` → `App#sendPlanDispatch` → `dispatchToDsh`。
+ * 它是用户点击的第二跳，不是"无人点击就派单"；这里不靠注释放行，另加两条接线断言
+ * （弹窗真有 `@click="send"` + `emit('send')`，App 真有 `@send="sendPlanDispatch"`），
+ * 少一条就红 —— 否则这个白名单会把真正的自动派单也洗白。
+ */
+const ALLOW_CALL_FN = new Map([
+  ['sendPlanDispatch', '规划派单弹窗：用户点「发送规划」才走到这里'],
+])
+let allowedCallSites = 0
 
 for (const f of files) {
   const rel = path.relative(ROOT, f).replace(/\\/g, '/')
@@ -73,6 +84,14 @@ for (const f of files) {
   let defStart = -1
   let defEnd = -1
   if (rel.endsWith('/renderer/App.vue')) {
+    // 允许的"第二跳"函数体范围（见 ALLOW_CALL_FN 注释；只为不让它被误判成自动派单）
+    const allowedRanges = []
+    for (const [name, why] of ALLOW_CALL_FN) {
+      const start = script.indexOf(`async function ${name}(`)
+      if (start < 0) continue
+      const tail = script.slice(start).search(/\r?\n\}\r?\n/)
+      allowedRanges.push({ start, end: tail >= 0 ? start + tail + 3 : script.length, name, why })
+    }
     defStart = script.indexOf('async function dispatchToDsh(')
     if (defStart >= 0) {
       // ⚠ 本仓是 CRLF（Windows 工作区）：只找 '\n}\n' 会永远落空，
@@ -94,6 +113,8 @@ for (const f of files) {
       off += line.length + 1
       if (!REF.test(line)) return
       if (lineStart >= defStart && lineStart <= defEnd) return // 定义体内部
+      const allowed = allowedRanges.find((r) => lineStart >= r.start && lineStart <= r.end)
+      if (allowed) { allowedCallSites++; return }
       // setup 暴露（`... dispatchToDsh, ...`）：不是调用，允许
       if (!/dispatchToDsh\s*[.(]/.test(line)) return
       badSites.push(`${rel}:${i + 1} 脚本里出现派单调用（定义/暴露之外）→ 可能无人点击就派单`)
@@ -108,6 +129,15 @@ for (const f of files) {
 check('静态守卫 · 找到了派单函数定义（否则本守卫是空转）', sawDefinition)
 check('静态守卫 · 模板里至少有一处 @click 派单入口（否则守卫是空转）', templateSites >= 1, 'sites=' + templateSites)
 check('静态守卫 · 没有任何"无人点击"的派单调用点', badSites.length === 0, badSites.join(' | '))
+
+// 白名单不是"写个名字就放行"：它必须真被扫到，而且两跳接线都在。
+{
+  const appSrc = fs.readFileSync(path.join(RENDERER, 'App.vue'), 'utf8')
+  const dlgSrc = fs.readFileSync(path.join(RENDERER, 'components', 'PlanDispatchDialog.vue'), 'utf8')
+  check('★ 规划派单的第二跳真的被扫到（白名单不是空登记）', allowedCallSites >= 1, `sites=${allowedCallSites}`)
+  check('★★ 第二跳确实由弹窗按钮触发（弹窗有 @click="send" + emit(send) + App 有 @send）',
+    /@click="send"/.test(dlgSrc) && /emit\('send'/.test(dlgSrc) && /@send="sendPlanDispatch"/.test(appSrc))
+}
 
 const preloadSrc = fs.readFileSync(path.join(DESKTOP, 'test', 'renderer-preload.cjs'), 'utf8')
 check('静态守卫 · 假 preload 记账 dispatchDsh（运行时断言才不是纸面事实）', /rec\('dispatchDsh'/.test(preloadSrc))

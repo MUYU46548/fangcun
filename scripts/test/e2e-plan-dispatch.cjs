@@ -74,7 +74,7 @@ check('定向任务书带 fc-plan 标记，mode=targeted', /<!-- fc-plan v1\n[\s
 check('定向任务书带 focus', /只规划记忆系统：检索质量、合并、审批体验/.test(targeted))
 check('定向产物是规划备忘卡', /规划备忘/.test(targeted) && /plan-memo/.test(targeted))
 check('定向不建阶段卡', /不要建阶段卡/.test(targeted))
-check('定向标题格式含模式前缀与焦点', /\[规划·定向\] 方寸 · <focus 摘要> · 2026-11-26/.test(targeted))
+check('定向标题格式含模式前缀与焦点', /\[规划·定向\] 方寸 · 只规划记忆系统：检索质量、合并、审批体验 · 2026-11-26/.test(targeted))
 check('定向不要求澄清卷（更轻的那条路）', !/先查澄清卷/.test(targeted))
 
 // ── ③ 引导词校验（marker 注入 / 换行 / 超长 / 空）────────────────────────

@@ -130,8 +130,22 @@ console.log('== ① 没写代价的选项（只点名、不删项）==')
   const cnt = (k) => issues.filter((x) => x.kind === k).length
   check('★ 体检：缺代价数与 costGaps 同一口径（不许出现两套计数）',
     cnt('noCost') === gaps.length, JSON.stringify({ deck: cnt('noCost'), gaps: gaps.length }))
-  check('★★ 体检：7 题 > 6 题/批 → 报超量（Typeform 数据：≤6 完成率最高）',
-    cnt('tooMany') === 1, JSON.stringify(issues.filter((x) => x.kind === 'tooMany')))
+  // 2026-11-26 改判：题量建议已**按题型**算（`deckShape`：裁决 8 / 规划每层 12 / 收拾旧账 20），
+  // 不再一刀切 6。这份司天宪法层是规划类 7 题 —— 按新口径**不该报**；
+  // 要验 tooMany 就造一份 13 题的规划卷（每层 12 题上限）。
+  check('★ 体检：规划类 7 题（≤12/层）不误报超量', cnt('tooMany') === 0,
+    JSON.stringify(issues.filter((x) => x.kind === 'tooMany')))
+  const bigPlan = {
+    ...d,
+    questions: Array.from({ length: 13 }, (_, i) => ({
+      ...d.questions[i % d.questions.length],
+      id: 'B' + i,
+      ask: '按上面定过的结论，再定第 ' + (i + 1) + ' 项',
+    })),
+  }
+  check('★★ 体检：规划类 13 题 > 12/层 → 报超量（分层的判据仍然有效）',
+    parser.deckIssues(bigPlan).filter((x) => x.kind === 'tooMany').length === 1,
+    JSON.stringify(parser.deckIssues(bigPlan).filter((x) => x.kind === 'tooMany')))
   check('★★ 反例：样本每题都写了验收线 → noLine 恒 0（不许把有验收线的题误报成缺）',
     cnt('noLine') === 0, JSON.stringify(issues.filter((x) => x.kind === 'noLine')))
   const noLineDeck = parser.parseQuestionnaire(fs.readFileSync(path.join(QDIR, '无验收线.md'), 'utf-8'))

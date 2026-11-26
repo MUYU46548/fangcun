@@ -77,7 +77,8 @@ export function registerPlanIpcHandlers(): void {
   guardedHandle('plans:memos', () => {
     try {
       const rows = loadTasks('all')
-        .filter((t) => isPlanMemo(t))
+        // 归档 = 用户已经处置过（移出活跃区），不在「待读」清单里再翻出来
+        .filter((t) => isPlanMemo(t) && !t.archived)
         .map((t) => {
           const project = (t.fm as any).project
           return {

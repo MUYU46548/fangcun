@@ -57,7 +57,7 @@
 
       <div class="ps-ft">
         <Button variant="ghost" size="tool" @click="emit('close')">取消</Button>
-        <Button variant="primary" size="tool" :disabled="!canSend" @click="send">
+        <Button variant="primary" size="tool" data-cost :disabled="!canSend" @click="send">
           {{ sending ? '发送中…' : '发送规划' }}
         </Button>
       </div>

@@ -3256,6 +3256,49 @@
             && /^P\d+$/.test(String(c.args[0].stageId)) && String(c.args[0].deck).length > 0),
           JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'plansProposeFromDraft').map((c) => c.args)))
       }
+      // ── 规划备忘（2026-11-26）──────────────────────────────────────────
+      // 用户拍板：定向规划需要「规划备忘」，任务卡承载不了。这里验四件：
+      // ① 真有这一段（不是只写了 IPC）；② 待读/已采纳都列出来；
+      // ③ 「看正文」真展开（长文不常驻）；④ 「采纳」真走 plansMemoStatus，且行上状态跟着变。
+      {
+        window.__fcTest.reset()
+        await waitFor(() => $$('.plan-view [data-plan-memos]').length > 0, 4000, 'plan-memos')
+        const memoBox = $('.plan-view [data-plan-memos]')
+        check('★★ 作战计划页有「规划备忘」段（定向规划的产物有家）', !!memoBox,
+          (($('.plan-view') || {}).textContent || '').slice(-160))
+        const rows = $$('.plan-view [data-plan-memo]')
+        check('★ 两条备忘都列出来（待读 + 已采纳，不是只显示待读）', rows.length === 2,
+          rows.map((r) => (r.textContent || '').replace(/\s+/g, ' ').trim()).join(' | ').slice(0, 200))
+        if (rows.length) {
+          const t0 = (rows[0].textContent || '').replace(/\s+/g, ' ')
+          check('★ 行上写明状态 / 模式 / 项目（缺一项就等于没标签）',
+            /待读/.test(t0) && /定向/.test(t0) && /fangcun-base/.test(t0), t0.slice(0, 120))
+          const btn = (row, re) => Array.prototype.slice.call(row.querySelectorAll('button'))
+            .find((b) => re.test((b.textContent || '').trim())) || null
+          const readBtn = btn(rows[0], /看正文/)
+          check('★ 每条备忘有「看正文」入口', !!readBtn)
+          if (readBtn) readBtn.click()
+          await sleep(180)
+          const body = $('.plan-view [data-plan-memo-body="memo-orient-1"]')
+          check('★ 点「看正文」才展开正文（长文不该一直占屏）',
+            !!body && body.style.display !== 'none' && /检索质量/.test(body.textContent || ''),
+            body ? body.style.display + ' / ' + (body.textContent || '').slice(0, 80) : 'no body')
+          const adopt = btn(rows[0], /^(采纳)$/)
+          check('★ 待读的备忘有「采纳」入口（已采纳的那条不该再给）',
+            !!adopt && !btn(rows[1], /^(采纳)$/))
+          if (adopt) adopt.click()
+          check('★★ 点「采纳」真走 plansMemoStatus，带 id + 已采纳',
+            await waitFor(() => window.__fcTest.calls().some((c) => c.name === 'plansMemoStatus'
+              && c.args && c.args[0] && c.args[0].id === 'memo-orient-1' && c.args[0].status === '已采纳'), 4000, 'plansMemoStatus'),
+            JSON.stringify(window.__fcTest.calls().filter((c) => c.name === 'plansMemoStatus').map((c) => c.args)))
+          check('★ 采纳后行上状态真的变成「已采纳」（不是只发 IPC 不改界面）',
+            await waitFor(() => {
+              const r = $$('.plan-view [data-plan-memo="memo-orient-1"]')[0]
+              return !!r && /已采纳/.test(r.textContent || '')
+            }, 4000, '采纳回写'),
+            (($('.plan-view [data-plan-memo="memo-orient-1"]') || {}).textContent || '').slice(0, 120))
+        }
+      }
       const cells = $$('.plan-view .waste-cell')
       check('★★ 每个数字节点同格带“它证明不了什么”',
         cells.length === 3 && cells.every((c) => {
