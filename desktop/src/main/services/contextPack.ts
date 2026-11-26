@@ -382,7 +382,8 @@ export function buildContextPack(projectId: string, opts: { maxTasks?: number; m
   const rejected = tasks.filter((t: any) => String(t?.fm?.status || '') === '驳回')
   if (rejected.length) {
     out.push(`## 5b. 被驳回的卡（${rejected.length} 张 · AI 自己捡，人永远不看返工台）`)
-    out.push('每轮最多处理 **2 张**：能重做的用 `fangcun_write` move 回「进行中」并直接开工；')
+    out.push('**不设数量上限**：全部逐张处置（最老 / 最高优先级先来），不许因为多就只挑几张或跳过。')
+    out.push('能重做的用 `fangcun_write` move 回「进行中」并直接开工；')
     out.push('判定方向已错（驳回理由里写「没必要做 / 方向错 / 大后期」）→ move 到「已取消」，并在卡正文补一句处置理由。不要等用户。')
     for (const t of rejected.slice(0, 3)) {
       const fm: any = t?.fm || {}
