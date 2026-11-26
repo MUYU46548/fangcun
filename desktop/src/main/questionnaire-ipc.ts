@@ -62,6 +62,9 @@ function collectDeckProbes(): DeckProbe[] {
 
 
 export function registerQuestionnaireIpcHandlers(): void {
+  /** 上一次保存时这卷是不是「已答完」—— 只记状态翻转，避免答完之后每改一个字都全量扫通知 */
+  const lastAllAnswered = new Map<string, boolean>()
+
   /**
    * 答完最后一题 / 批准 / 作废后，立刻让通知收敛（2026-11-21 暮雨：
    * “问卷答完了通知里还写着待答，又多点一次”）。
@@ -94,7 +97,12 @@ export function registerQuestionnaireIpcHandlers(): void {
           answered++
         }
       }
-      if (always || answered >= total) notifier.scanOnce()
+      const done = answered >= total
+      const was = lastAllAnswered.get(deck) === true
+      lastAllAnswered.set(deck, done)
+      // 只在「这次刚答完」或调用方显式要求（批准/作废）时扫一次；
+      // 答完之后继续改标点不该每 350ms 全量扫一遍通知。
+      if (always || (done && !was)) notifier.scanOnce()
     } catch { /* 通知收敛失败不该让答卷/批准失败 */ }
   }
 
